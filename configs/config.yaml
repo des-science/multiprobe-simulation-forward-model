@@ -1,0 +1,22 @@
+files:
+
+survey:
+  metacal: 
+    # from Table 2 in https://arxiv.org/pdf/2012.08566.pdf
+    z_bins: [[0.0, 0.358], [0.358, 0.631], [0.631, 0.872], [0.872, 2.0]]
+    z_names: ['desy3metacal1', 'desy3metacal2', 'desy3metacal3', 'desy3metacal4']
+  maglim: 
+    # from Table 2 in https://arxiv.org/pdf/2011.03411.pdf
+    z_bins: [[0.15, 0.35], [0.35, 0.50], [0.50, 0.65], [0.65, 0.80], [0.80, 0.95], [0.95, 1.05]]
+    z_names: ['desy3maglim1', 'desy3maglim2', 'desy3maglim3', 'desy3maglim4', 'desy3maglim5', 'desy3maglim6']
+
+analysis:
+  nside: 512
+  npix: 3145728
+
+model:
+  name: ""
+
+training:
+  batch_size: 8
+  n_epochs: 1
