@@ -7,6 +7,7 @@ import os, h5py
 
 from tqdm import tqdm
 from numba import njit
+from time import time
 
 from msfm.utils.io import read_yaml
 from msfm.utils.maps import make_normallized_maps
@@ -40,26 +41,25 @@ def load_metacal_catalog(metacal_dir):
     # shape (num_galaxies,)
     return metacal_ids, e1, e2, w
 
-
-def make_map(footprint_ids, values):
-    hp_map = np.zeros(n_pix)
-    hp_map[footprint_ids] = values
-
-    return hp_map
-
-
 def make_noise_rotation(metacal_ids, e1, e2, w, N, out_dir):
     """
     Rotate galaxies in place
     """
+    t0 = time()
+
+    n_gal = len(metacal_ids)
+    assert len(metacal_ids) == len(e1) == len(e2) == len(w)
+
     n1_maps = []
     n2_maps = []
     for i in range(N):
         print(f"\nRandom map #{i}")
 
-        phase = np.random.uniform(0.0, 2 * np.pi, size=e1.shape)
-        n1 = e1 * np.cos(phase)
-        n2 = e2 * np.sin(phase)
+        # randomize
+        phase = np.random.uniform(0.0, 2 * np.pi, size=n_gal)
+        e_abs = np.abs(e1 + e2*1j)
+        n1 = np.cos(phase) * e_abs
+        n2 = np.sin(phase) * e_abs
 
         n1_map, n2_map, _, _, _ = make_normallized_maps(metacal_ids, n1, n2, w, n_pix)
 
@@ -69,6 +69,7 @@ def make_noise_rotation(metacal_ids, e1, e2, w, N, out_dir):
     n1_maps = np.array(n1_maps)
     n2_maps = np.array(n2_maps)
 
+    print(f"Creation of {N} maps took {time() - t0:.4}s")
     np.savez(os.path.join(out_dir, "rotate_in_place"), g1=n1_maps, g2=n2_maps)
 
     return n1_maps, n1_maps
@@ -76,6 +77,8 @@ def make_noise_rotation(metacal_ids, e1, e2, w, N, out_dir):
 @njit(parallel=True)
 def make_noise_catalog_sampling(footprint_ids, n_gals_per_id, e1, e2, w, N, out_dir):
     """
+    DEPRECATED
+    
     Sample the ellipticities per pixel from the catalog. This is way too slow to be used.
     """
     n1_maps = np.zeros((N, n_pix))
@@ -102,8 +105,10 @@ def make_noise_empirical_sampling(footprint_ids, n_gals_per_id, e1, e2, w, N, ou
     """
     Sample the ellipticities from the histogram of the catalog. Then, the pixels are populated accordingly.
     """
+    t0 = time()
     total_gals = np.sum(n_gals_per_id)
 
+    # joint samples for e1, e2 and w
     emp_dist = tfp.distributions.Empirical(samples=np.stack([e1, e2, w], axis=1), event_ndims=1)
 
     n1_maps = np.zeros((N, n_pix))
@@ -111,27 +116,27 @@ def make_noise_empirical_sampling(footprint_ids, n_gals_per_id, e1, e2, w, N, ou
     for i in range(N):
         print(f"\nRandom map #{i}")
 
-        # shape (total_gals, 3) for e1, e2 and w
+        # shape (total_gals, 3) 
         samples = emp_dist.sample(sample_shape=total_gals)
         e_samples = samples[:,:2]
-        w_samples = samples[:,2]
+        w_samples = tf.expand_dims(samples[:,2], axis=1)
 
         # apply weights
-        e_samples *= tf.expand_dims(w_samples, axis=1)
+        samples = tf.concat([e_samples*w_samples, w_samples], axis=1)
 
         seg_ids = []
         for id, n_gals in enumerate(n_gals_per_id):
             seg_ids.extend(n_gals*[id])
 
-        e_per_pix = tf.math.segment_sum(e_samples, seg_ids)
-        w_per_pix = tf.math.segment_sum(w_samples, seg_ids)
+        sum_per_pix = tf.math.segment_sum(samples, seg_ids)
 
         # normalize with weights
-        e_per_pix /= tf.expand_dims(w_per_pix, axis=1)
+        e_per_pix = sum_per_pix[:,:2]/tf.expand_dims(sum_per_pix[:,2], axis=1)
 
         n1_maps[i, footprint_ids] = e_per_pix[:,0].numpy()
         n2_maps[i, footprint_ids] = e_per_pix[:,1].numpy()
     
+    print(f"Creation of {N} maps took {time() - t0:.4}s")
     np.savez(os.path.join(out_dir, "sample_empirical_dist"), g1=n1_maps, g2=n2_maps)
 
 
@@ -141,7 +146,7 @@ def make_noise_empirical_sampling(footprint_ids, n_gals_per_id, e1, e2, w, N, ou
 
 if __name__ == "__main__":
     # number of noise realizations
-    N = 10
+    N = 100
 
     # set paths
     metacal_dir = "/Users/arne/data/DESY3/DES_Y3KP_NGSF/"
@@ -153,8 +158,8 @@ if __name__ == "__main__":
     footprint_ids, n_gals_per_id = np.unique(metacal_ids, return_counts=True)
 
     # rotate in place
-    # print("rotating galaxies in place")
-    # n1_maps, n2_maps = make_noise_rotation(metacal_ids, e1, e2, w, N, out_dir)
+    print("rotating galaxies in place")
+    n1_maps, n2_maps = make_noise_rotation(metacal_ids, e1, e2, w, N, out_dir)
 
     # sample from catalog
     # n1_maps, n2_maps = make_noise_catalog_sampling(footprint_ids, n_gals, e1, e2, w, N)
