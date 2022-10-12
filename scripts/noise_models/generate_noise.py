@@ -104,20 +104,33 @@ def make_noise_catalog_sampling(footprint_ids, n_gals_per_id, e1, e2, w, N, out_
 def make_noise_empirical_sampling(footprint_ids, n_gals_per_id, e1, e2, w, N, out_dir):
     """
     Sample the ellipticities from the histogram of the catalog. Then, the pixels are populated accordingly.
+
+    TODO 
+    - Use tf.function decorator like Janis, it speeds up the segment_sum massively
+    - catalog is in doubles, is that necessary?
+    - do all of this in tensorflow instead of numpy?
     """
     t0 = time()
-    total_gals = np.sum(n_gals_per_id)
+    n_map_gals = np.sum(n_gals_per_id)
+    n_cat_gals = e1.shape
+
+    # randomize
+    phase = np.random.uniform(0, 2*np.pi, size=n_cat_gals)
+    e_abs = np.abs(e1 + 1j*e2)
+    e1 = np.cos(phase)*e_abs
+    e2 = np.sin(phase)*e_abs
 
     # joint samples for e1, e2 and w
-    emp_dist = tfp.distributions.Empirical(samples=np.stack([e1, e2, w], axis=1), event_ndims=1)
+    emp_dist = tfp.distributions.Empirical(samples=tf.stack([e1, e2, w], axis=1), event_ndims=1)
 
     n1_maps = np.zeros((N, n_pix))
     n2_maps = np.zeros((N, n_pix))
+    # TODO vectorize
     for i in range(N):
         print(f"\nRandom map #{i}")
 
         # shape (total_gals, 3) 
-        samples = emp_dist.sample(sample_shape=total_gals)
+        samples = emp_dist.sample(sample_shape=n_map_gals)
         e_samples = samples[:,:2]
         w_samples = tf.expand_dims(samples[:,2], axis=1)
 
@@ -158,8 +171,8 @@ if __name__ == "__main__":
     footprint_ids, n_gals_per_id = np.unique(metacal_ids, return_counts=True)
 
     # rotate in place
-    print("rotating galaxies in place")
-    n1_maps, n2_maps = make_noise_rotation(metacal_ids, e1, e2, w, N, out_dir)
+    # print("rotating galaxies in place")
+    # n1_maps, n2_maps = make_noise_rotation(metacal_ids, e1, e2, w, N, out_dir)
 
     # sample from catalog
     # n1_maps, n2_maps = make_noise_catalog_sampling(footprint_ids, n_gals, e1, e2, w, N)
