@@ -1,21 +1,39 @@
+dirs:
+  # absolute path at NERSC
+  CosmoGrid: 
+    root: "/global/cfs/cdirs/des/cosmogrid/DESY3"
+    grid: "/global/cfs/cdirs/des/cosmogrid/DESY3/grid"
+    fiducial: "/global/cfs/cdirs/des/cosmogrid/DESY3/fiducial"
+
 files:
+  # relative to the root of this repository
+  pixels: "data/DESY3_pixels_512.hdf5"
+  grid_perms: "data/CosmoGridV1_perms_list.npy"
+  # absolute path at NERSC
+  meta_info: "data/CosmoGridV1_metainfo.h5"
+  healpy_data: "data/healpy_data"
+
 
 survey:
+  map_types:
+    lensing: ["kg", "ia"]
+    clustering: "dg"
   metacal: 
     # from Table 2 in https://arxiv.org/pdf/2012.08566.pdf
-    z_bins: [[0.0, 0.358], [0.358, 0.631], [0.631, 0.872], [0.872, 2.0]]
-    z_names: ['desy3metacal1', 'desy3metacal2', 'desy3metacal3', 'desy3metacal4']
+    z_lims: [[0.0, 0.358], [0.358, 0.631], [0.631, 0.872], [0.872, 2.0]]
+    z_bins: ['desy3metacal1', 'desy3metacal2', 'desy3metacal3', 'desy3metacal4']
   maglim: 
     # from Table 2 in https://arxiv.org/pdf/2011.03411.pdf
-    z_bins: [[0.15, 0.35], [0.35, 0.50], [0.50, 0.65], [0.65, 0.80], [0.80, 0.95], [0.95, 1.05]]
-    z_names: ['desy3maglim1', 'desy3maglim2', 'desy3maglim3', 'desy3maglim4', 'desy3maglim5', 'desy3maglim6']
+    z_lims: [[0.15, 0.35], [0.35, 0.50], [0.50, 0.65], [0.65, 0.80], [0.80, 0.95], [0.95, 1.05]]
+    z_bins: ['desy3maglim1', 'desy3maglim2', 'desy3maglim3', 'desy3maglim4', 'desy3maglim5', 'desy3maglim6']
 
 analysis:
-  nside: 512
-  npix: 3145728
+  n_side: 512
+  n_pix: 3145728
+  n_patches: 4
 
 model:
-  name: ""
+  name: "GCNN"
 
 training:
   batch_size: 8

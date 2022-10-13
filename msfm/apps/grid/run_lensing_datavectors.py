@@ -13,12 +13,12 @@ into multiple survey footprint cut-outs
 
 import numpy as np
 import healpy as hp
-import os, argparse, warnings, h5py
+import os, argparse, warnings, h5py, time
 
 from numba import njit
 
-from desy3_analysis.utils import logging, io
-from desy3_analysis.utils.filenames import *
+from msfm.utils import logging, input_output
+from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -42,16 +42,26 @@ def setup(args):
         choices=("critical", "error", "warning", "info", "debug"),
         help="logging level",
     )
-    parser.add_argument("--test", action="store_true", help="test mode")
     parser.add_argument(
-        "--grid_dir", type=str, default="/global/cfs/cdirs/des/cosmogrid/DESY3/grid", help="input root dir"
+        "--grid_dir_in",
+        type=str,
+        default="/global/cfs/cdirs/des/cosmogrid/DESY3/grid",
+        help="input root dir of the simulation grid",
+    )
+    parser.add_argument(
+        "--grid_dir_out",
+        type=str,
+        default="/global/cscratch1/sd/athomsen/DESY3/grid",
+        help="output root dir of the simulation grid",
     )
     parser.add_argument(
         "--config",
         type=str,
-        default="/global/homes/a/athomsen/cosmogrid_desy3/configs/config.yaml",
+        default="configs/config.yaml",
         help="configuration yaml file",
     )
+    parser.add_argument("--test", action="store_true", help="test mode")
+    parser.add_argument("--max_sleep", type=int, default=120, help="sleep before copying to avoid clashes")
 
     args, _ = parser.parse_known_args(args)
 
@@ -63,18 +73,26 @@ def setup(args):
 def main(indices, args):
     # setup
     args = setup(args)
-    conf = io.read_yaml(args.config)
+
+    if args.test:
+        args.max_sleep = 0
+        LOGGER.warning("!!! test mode !!!")
+
+    sleep_sec = np.random.uniform(0, args.max_sleep) if args.max_sleep > 0 else 0
+    LOGGER.info(f"Waiting for {sleep_sec:.2f}s to prevent overloading IO")
+    time.sleep(sleep_sec)
+
+    conf = input_output.read_yaml(args.config)
+    LOGGER.info(f"Loaded configuration file")
 
     # constants
-    nside = conf["constants"]["nside"]
-    npix = hp.nside2npix(npix)
+    n_side = conf["analysis"]["n_side"]
+    n_pix = conf["analysis"]["n_pix"]
+    n_patches = conf["analysis"]["n_patches"]
 
-    lmax = 3 * nside - 1
+    lmax = 3 * n_side - 1
     l = hp.Alm.getlm(lmax)[0]
     l[l == 1] = 0
-
-    # TODO add mask
-    patch_pix = None
 
     # from eq. (11) in https://academic.oup.com/mnras/article/505/3/4626/6287258
     kappa2gamma_fac = np.where(
@@ -89,49 +107,106 @@ def main(indices, args):
     )
     l_mask_fac = np.where(np.logical_and(l != 1, l != 0), 1.0, 0.0)
 
+    with h5py.File(conf["files"]["pixels"]) as f:
+        # pixel indices of padded data vector
+        data_vec_pix = f["metacal/map_cut_outs/data_vec_ids"][:]
+        data_vec_len = len(data_vec_pix)
+
+        tomo_patches_pix = []
+        tomo_corresponding_pix = []
+        for z_bin in conf["survey"]["metacal"]["z_bins"]:
+            # shape (4, pix_in_bin)
+            patches_pix = f[f"metacal/map_cut_outs/patches/RING/{z_bin}"][:]
+            # shape (pix_in_bin,)
+            corresponding_pix = f[f"metacal/map_cut_outs/RING_ids_to_data_vec/{z_bin}"][:]
+
+            tomo_patches_pix.append(patches_pix)
+            tomo_corresponding_pix.append(corresponding_pix)
+    LOGGER.info(f"Loaded pixel file")
+
     # grid directories
     grid_perms = np.load(conf["files"]["grid_perms"])
-    grid_dirs = [os.path.join(args.grid_dir, grid_perm) for grid_perm in grid_perms]
-    n_grid = len(grid_dirs)
-    LOGGER.info(f"got grid of size {n_grid} with base path {args.grid_dir}")
+    grid_dirs_in = [os.path.join(args.grid_dir_in, grid_perm) for grid_perm in grid_perms]
+    grid_dirs_out = [os.path.join(args.grid_dir_out, grid_perm) for grid_perm in grid_perms]
+    n_grid = len(grid_dirs_in)
+    LOGGER.info(f"Got grid of size {n_grid} with base path {args.grid_dir_in}")
 
     # index corresponds to simulation permutation on the grid
     for index in indices:
-        grid_dir = grid_dirs[index]
-        LOGGER.info(f"working in {grid_dir}")
+        grid_dir_in = grid_dirs_in[index]
+        grid_dir_out = grid_dirs_out[index]
+        LOGGER.info(f"Index {index} takes input from {grid_dir_in}")
 
-        full_maps_file = get_filename_full_maps(grid_dir)
+        if not os.path.isdir(grid_dir_out):
+            input_output.robust_makedirs(grid_dir_out)
 
-        for map_type in conf["map_types"]["lensing"]:
-            for z_bin in conf["z_bins"]["metacal"]:
+        full_maps_file = get_filename_full_maps(grid_dir_in)
+
+        # output container
+        data_vectors = {}
+        for map_type in conf["survey"]["map_types"]["lensing"]:
+            z_bins = conf["survey"]["metacal"]["z_bins"]
+
+            # TODO more than one map per patch
+            data_vectors[map_type] = np.zeros((n_patches, data_vec_len, len(z_bins)), dtype=np.float32)
+
+            for i_z, z_bin in enumerate(z_bins):
+                # only consider this tomographic bin
+                patches_pix = tomo_patches_pix[i_z]
+                corresponding_pix = tomo_corresponding_pix[i_z]
 
                 map_dir = f"{map_type}/{z_bin}"
                 with h5py.File(full_maps_file, "r") as f:
                     kappa_full = f[map_dir][:]
-                LOGGER.info(f"loaded {map_dir} from {full_maps_file}")
+                LOGGER.info(f"Loaded {map_dir} from {full_maps_file}")
 
                 # kappa -> gamma (full sky)
-                kappa_alm = hp.map2alm(kappa_full, lmax=lmax, use_pixel_weights=True)
+                kappa_alm = hp.map2alm(
+                    kappa_full, lmax=lmax, use_pixel_weights=True, datapath=conf["files"]["healpy_data"]
+                )
                 gamma_alm = kappa_alm * kappa2gamma_fac
-                _, gamma1_full, gamma2_full = hp.alm2map([np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=nside)
+                _, gamma1_full, gamma2_full = hp.alm2map(
+                    [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
+                )
 
-                # masking
-                gamma1_patch = np.zeros(npix, dtype=np.float32)
-                gamma1_patch = gamma1_full[patch_pix]
+                for i_patch, patch_pix in enumerate(patches_pix):
+                    LOGGER.info(f"Starting with patch index {i_patch}")
 
-                gamma2_patch = np.zeros(npix, dtype=np.float32)
-                gamma2_patch = gamma2_full[patch_pix]
+                    # TODO each patch is done multiple times
 
-                # mode removal
-                _, gamma_alm_E, gamma_alm_B = hp.map2alm([np.zeros_like(gamma1_patch), gamma1_patch, gamma2_patch], use_pixel_weights=True)
-                kappa_alm = gamma_alm_E * gamma2kappa_fac
+                    # masking
+                    gamma1_patch = np.zeros(n_pix, dtype=np.float32)
+                    gamma1_patch = gamma1_full[patch_pix]
 
-                # band limiting
-                kappa_alm *= l_mask_fac
+                    gamma2_patch = np.zeros(n_pix, dtype=np.float32)
+                    gamma2_patch = gamma2_full[patch_pix]
 
-                kappa_patch = hp.alm2map(kappa_alm, nside=nside)
+                    # mode removal
+                    _, gamma_alm_E, gamma_alm_B = hp.map2alm(
+                        [np.zeros_like(gamma1_patch), gamma1_patch, gamma2_patch],
+                        use_pixel_weights=True,
+                        datapath=conf["files"]["healpy_data"],
+                    )
+                    kappa_alm = gamma_alm_E * gamma2kappa_fac
 
-                # cut out padded data vector
+                    # band limiting
+                    kappa_alm *= l_mask_fac
+
+                    kappa_patch = hp.alm2map(kappa_alm, nside=n_side)
+
+                    # cut out padded data vector
+                    kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, patch_pix)
+
+                    data_vectors[map_type][i_patch, :, i_z] = kappa_dv
+
+            data_vec_file = get_filename_data_vectors(grid_dir_out)
+            with h5py.File(data_vec_file, "a") as f:
+                f.create_dataset(data=data_vectors[map_type], name=map_type)
+                f.attrs["info"] = "shape (N, patch_pix, n_tomo)"
+
+            LOGGER.info(f"Stored datavectors of map type {map_type} in {data_vec_file}")
+
+        LOGGER.info(f"Done with index {index}")
 
         yield index
 
@@ -141,19 +216,19 @@ def get_data_vec(m, data_vec_len, corresponding_pix, cutout_pix):
     """
     This function makes cutouts from full sky maps to a nice data vector that can be fed into a DeepSphere network
     :param m: The map one should make a cutout from
-    :param data_vec_len: length of the full data vec
-    :param corresponding_pix: pixel inside the data vec that should be populated
-    :param cutout_pix: pixel that should be cut out from the map
+    :param data_vec_len: length of the full data vec (including padding)
+    :param corresponding_pix: pixel inside the data vec that should be populated (excludes padding)
+    :param cutout_pix: pixel that should be cut out from the map (excludes padding)
     :return: the data vec
     """
 
     data_vec = np.zeros(data_vec_len)
     n_pix = corresponding_pix.shape[0]
 
+    assert corresponding_pix.shape[0] == cutout_pix.shape[0]
+
     # assign
     for i in range(n_pix):
         data_vec[corresponding_pix[i]] = m[cutout_pix[i]]
 
     return data_vec
-
-

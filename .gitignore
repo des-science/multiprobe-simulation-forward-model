@@ -9,6 +9,9 @@
 !data/*.h5
 !data/*.hdf5
 
+# repository specific
+notebooks/temp
+
 # Mac specific
 .DS_Store
 
