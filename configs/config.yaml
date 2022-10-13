@@ -7,7 +7,7 @@ dirs:
 
 files:
   # relative to the root of this repository
-  pixels: "data/DESY3_pixels_512.hdf5"
+  pixels: "data/DESY3_pixels_512.h5"
   grid_perms: "data/CosmoGridV1_perms_list.npy"
   # absolute path at NERSC
   meta_info: "data/CosmoGridV1_metainfo.h5"

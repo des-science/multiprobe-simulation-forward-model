@@ -16,6 +16,7 @@ import healpy as hp
 import os, argparse, warnings, h5py, time
 
 from numba import njit
+from argparse import Namespace
 
 from msfm.utils import logging, input_output
 from msfm.utils.filenames import *
@@ -43,6 +44,12 @@ def setup(args):
         help="logging level",
     )
     parser.add_argument(
+        "--repo_dir",
+        type=str,
+        default="/global/homes/a/athomsen/multiprobe-simulation-forward-model",
+        help="root dir of the msfm repo to convert relative paths to absolute ones",
+    )
+    parser.add_argument(
         "--grid_dir_in",
         type=str,
         default="/global/cfs/cdirs/des/cosmogrid/DESY3/grid",
@@ -51,7 +58,7 @@ def setup(args):
     parser.add_argument(
         "--grid_dir_out",
         type=str,
-        default="/global/cscratch1/sd/athomsen/DESY3/grid",
+        default="/pscratch/sd/a/athomsen/DESY3/grid",
         help="output root dir of the simulation grid",
     )
     parser.add_argument(
@@ -63,7 +70,8 @@ def setup(args):
     parser.add_argument("--test", action="store_true", help="test mode")
     parser.add_argument("--max_sleep", type=int, default=120, help="sleep before copying to avoid clashes")
 
-    args, _ = parser.parse_known_args(args)
+    # args, _ = parser.parse_known_args(args)
+    args, _ = parser.parse_args(args)
 
     logging.set_all_loggers_level(args.verbosity)
 
@@ -71,8 +79,7 @@ def setup(args):
 
 
 def main(indices, args):
-    # setup
-    args = setup(args)
+    # args = setup(args)
 
     if args.test:
         args.max_sleep = 0
@@ -107,7 +114,8 @@ def main(indices, args):
     )
     l_mask_fac = np.where(np.logical_and(l != 1, l != 0), 1.0, 0.0)
 
-    with h5py.File(conf["files"]["pixels"]) as f:
+    pixel_file = os.path.join(args.repo_dir, conf["files"]["pixels"])
+    with h5py.File(pixel_file) as f:
         # pixel indices of padded data vector
         data_vec_pix = f["metacal/map_cut_outs/data_vec_ids"][:]
         data_vec_len = len(data_vec_pix)
@@ -125,11 +133,15 @@ def main(indices, args):
     LOGGER.info(f"Loaded pixel file")
 
     # grid directories
-    grid_perms = np.load(conf["files"]["grid_perms"])
+    grid_perms_file = os.path.join(args.repo_dir, conf["files"]["grid_perms"])
+    grid_perms = np.load(grid_perms_file)
     grid_dirs_in = [os.path.join(args.grid_dir_in, grid_perm) for grid_perm in grid_perms]
     grid_dirs_out = [os.path.join(args.grid_dir_out, grid_perm) for grid_perm in grid_perms]
     n_grid = len(grid_dirs_in)
     LOGGER.info(f"Got grid of size {n_grid} with base path {args.grid_dir_in}")
+
+    # other directories
+    datapath = os.path.join(args.repo_dir, conf["files"]["healpy_data"])
 
     # index corresponds to simulation permutation on the grid
     for index in indices:
@@ -155,15 +167,16 @@ def main(indices, args):
                 patches_pix = tomo_patches_pix[i_z]
                 corresponding_pix = tomo_corresponding_pix[i_z]
 
+                # base (rotated) footprint
+                base_patch_pix = patches_pix[0]
+
                 map_dir = f"{map_type}/{z_bin}"
                 with h5py.File(full_maps_file, "r") as f:
                     kappa_full = f[map_dir][:]
                 LOGGER.info(f"Loaded {map_dir} from {full_maps_file}")
 
                 # kappa -> gamma (full sky)
-                kappa_alm = hp.map2alm(
-                    kappa_full, lmax=lmax, use_pixel_weights=True, datapath=conf["files"]["healpy_data"]
-                )
+                kappa_alm = hp.map2alm(kappa_full, lmax=lmax, use_pixel_weights=True, datapath=datapath)
                 gamma_alm = kappa_alm * kappa2gamma_fac
                 _, gamma1_full, gamma2_full = hp.alm2map(
                     [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
@@ -174,18 +187,18 @@ def main(indices, args):
 
                     # TODO each patch is done multiple times
 
-                    # masking
+                    # masking TODO use Janis' memory efficient numba function?
                     gamma1_patch = np.zeros(n_pix, dtype=np.float32)
-                    gamma1_patch = gamma1_full[patch_pix]
+                    gamma1_patch[base_patch_pix] = gamma1_full[patch_pix]
 
                     gamma2_patch = np.zeros(n_pix, dtype=np.float32)
-                    gamma2_patch = gamma2_full[patch_pix]
+                    gamma2_patch[base_patch_pix] = gamma2_full[patch_pix]
 
                     # mode removal
                     _, gamma_alm_E, gamma_alm_B = hp.map2alm(
                         [np.zeros_like(gamma1_patch), gamma1_patch, gamma2_patch],
                         use_pixel_weights=True,
-                        datapath=conf["files"]["healpy_data"],
+                        datapath=datapath,
                     )
                     kappa_alm = gamma_alm_E * gamma2kappa_fac
 
@@ -208,7 +221,7 @@ def main(indices, args):
 
         LOGGER.info(f"Done with index {index}")
 
-        yield index
+        # yield index
 
 
 @njit()
@@ -232,3 +245,17 @@ def get_data_vec(m, data_vec_len, corresponding_pix, cutout_pix):
         data_vec[corresponding_pix[i]] = m[cutout_pix[i]]
 
     return data_vec
+
+
+if __name__ == "__main__":
+    args = Namespace(
+        grid_dir_in="/global/cfs/cdirs/des/cosmogrid/DESY3/grid",
+        grid_dir_out="/pscratch/sd/a/athomsen/DESY3/grid",
+        config="configs/config.yaml",
+        max_sleep=0,
+        test=False,
+        repo_dir="/global/homes/a/athomsen/multiprobe-simulation-forward-model",
+    )
+    indices = [0, 1, 2]
+
+    main(indices, args)
