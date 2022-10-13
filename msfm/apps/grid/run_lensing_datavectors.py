@@ -44,12 +44,6 @@ def setup(args):
         help="logging level",
     )
     parser.add_argument(
-        "--repo_dir",
-        type=str,
-        default="/global/homes/a/athomsen/multiprobe-simulation-forward-model",
-        help="root dir of the msfm repo to convert relative paths to absolute ones",
-    )
-    parser.add_argument(
         "--grid_dir_in",
         type=str,
         default="/global/cfs/cdirs/des/cosmogrid/DESY3/grid",
@@ -62,6 +56,12 @@ def setup(args):
         help="output root dir of the simulation grid",
     )
     parser.add_argument(
+        "--repo_dir",
+        type=str,
+        default="/global/homes/a/athomsen/multiprobe-simulation-forward-model",
+        help="root dir of the msfm repo to convert relative paths to absolute ones",
+    )
+    parser.add_argument(
         "--config",
         type=str,
         default="configs/config.yaml",
@@ -70,8 +70,7 @@ def setup(args):
     parser.add_argument("--test", action="store_true", help="test mode")
     parser.add_argument("--max_sleep", type=int, default=120, help="sleep before copying to avoid clashes")
 
-    # args, _ = parser.parse_known_args(args)
-    args, _ = parser.parse_args(args)
+    args, _ = parser.parse_known_args(args)
 
     logging.set_all_loggers_level(args.verbosity)
 
@@ -79,7 +78,7 @@ def setup(args):
 
 
 def main(indices, args):
-    # args = setup(args)
+    args = setup(args)
 
     if args.test:
         args.max_sleep = 0
@@ -89,7 +88,8 @@ def main(indices, args):
     LOGGER.info(f"Waiting for {sleep_sec:.2f}s to prevent overloading IO")
     time.sleep(sleep_sec)
 
-    conf = input_output.read_yaml(args.config)
+    conf_file = os.path.join(args.repo_dir, args.config)
+    conf = input_output.read_yaml(conf_file)
     LOGGER.info(f"Loaded configuration file")
 
     # constants
@@ -184,6 +184,17 @@ def main(indices, args):
 
                 for i_patch, patch_pix in enumerate(patches_pix):
                     LOGGER.info(f"Starting with patch index {i_patch}")
+                    ###########################
+                    # This is super important #
+                    ###########################
+                    # The 90° rots do NOT change the shear, however, the mirroring does,
+                    # therefore we have to swap sign of gamma2 for the last 2 patches!!!
+                    # FIXME: This should not be hard coded
+                    if i_patch < 2:
+                        gamma2_sign = 1.0
+                    else:
+                        gamma2_sign = -1.0
+                    LOGGER.debug(f"Using gamma2 sign: {gamma2_sign}")
 
                     # TODO each patch is done multiple times
 
@@ -194,6 +205,9 @@ def main(indices, args):
                     gamma2_patch = np.zeros(n_pix, dtype=np.float32)
                     gamma2_patch[base_patch_pix] = gamma2_full[patch_pix]
 
+                    # fix the sign
+                    gamma2_patch *= gamma2_sign
+
                     # mode removal
                     _, gamma_alm_E, gamma_alm_B = hp.map2alm(
                         [np.zeros_like(gamma1_patch), gamma1_patch, gamma2_patch],
@@ -201,6 +215,7 @@ def main(indices, args):
                         datapath=datapath,
                     )
                     kappa_alm = gamma_alm_E * gamma2kappa_fac
+                    LOGGER.debug(f"Mode removal successfull")
 
                     # band limiting
                     kappa_alm *= l_mask_fac
@@ -208,7 +223,7 @@ def main(indices, args):
                     kappa_patch = hp.alm2map(kappa_alm, nside=n_side)
 
                     # cut out padded data vector
-                    kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, patch_pix)
+                    kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
 
                     data_vectors[map_type][i_patch, :, i_z] = kappa_dv
 
@@ -221,10 +236,10 @@ def main(indices, args):
 
         LOGGER.info(f"Done with index {index}")
 
-        # yield index
+        yield index
 
 
-@njit()
+@njit
 def get_data_vec(m, data_vec_len, corresponding_pix, cutout_pix):
     """
     This function makes cutouts from full sky maps to a nice data vector that can be fed into a DeepSphere network
@@ -246,16 +261,30 @@ def get_data_vec(m, data_vec_len, corresponding_pix, cutout_pix):
 
     return data_vec
 
-
+# This main only exists for testing purposes when not using esub
 if __name__ == "__main__":
-    args = Namespace(
-        grid_dir_in="/global/cfs/cdirs/des/cosmogrid/DESY3/grid",
-        grid_dir_out="/pscratch/sd/a/athomsen/DESY3/grid",
-        config="configs/config.yaml",
-        max_sleep=0,
-        test=False,
-        repo_dir="/global/homes/a/athomsen/multiprobe-simulation-forward-model",
-    )
-    indices = [0, 1, 2]
+    system = "local"
 
-    main(indices, args)
+    if system == "perlmutter":
+        args = Namespace(
+            grid_dir_in="/global/cfs/cdirs/des/cosmogrid/DESY3/grid",
+            grid_dir_out="/pscratch/sd/a/athomsen/DESY3/grid",
+            repo_dir="/global/homes/a/athomsen/multiprobe-simulation-forward-model",            
+            config="configs/config.yaml",
+            max_sleep=0,
+            test=False,
+        )
+    elif system == "local":
+        args = Namespace(
+            grid_dir_in="/Users/arne/data/CosmoGrid_example/DES/grid",
+            grid_dir_out="/Users/arne/data/CosmoGrid_example/DES/grid",
+            repo_dir="/Users/arne/git/multiprobe-simulation-forward-model",
+            config="configs/config.yaml",
+            max_sleep=0,
+            test=False,
+        )
+    else:
+        raise NotImplementedError
+
+    indices = [0]
+    next(main(indices, args))
