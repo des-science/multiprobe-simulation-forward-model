@@ -15,6 +15,9 @@ notebooks/temp
 # Mac specific
 .DS_Store
 
+# Arne Misc
+*.dat
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

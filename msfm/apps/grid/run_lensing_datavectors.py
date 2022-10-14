@@ -12,7 +12,6 @@ into multiple survey footprint cut-outs
 """
 
 import numpy as np
-import healpy as hp
 import os, argparse, warnings, h5py, time
 
 from numba import njit
@@ -21,6 +20,10 @@ from functools import reduce
 
 from msfm.utils import logging, input_output
 from msfm.utils.filenames import *
+
+# set the environmental variable OMP_NUM_THREADS to the number of logical processors
+# os.environ["OMP_NUM_THREADS"] =
+import healpy as hp
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -68,7 +71,7 @@ def setup(args):
         default="configs/config.yaml",
         help="configuration yaml file",
     )
-    parser.add_argument("--test", action="store_true", help="test mode")
+    parser.add_argument("--debug", action="store_true", help="debug/test mode")
     parser.add_argument("--max_sleep", type=int, default=120, help="sleep before copying to avoid clashes")
 
     args, _ = parser.parse_known_args(args)
@@ -79,11 +82,11 @@ def setup(args):
 
 
 def main(indices, args):
-    # args = setup(args)
+    args = setup(args)
 
-    if args.test:
+    if args.debug:
         args.max_sleep = 0
-        LOGGER.warning("!!! test mode !!!")
+        LOGGER.warning("!!! debug/test mode !!!")
 
     sleep_sec = np.random.uniform(0, args.max_sleep) if args.max_sleep > 0 else 0
     LOGGER.info(f"Waiting for {sleep_sec:.2f}s to prevent overloading IO")
@@ -173,8 +176,8 @@ def main(indices, args):
         full_maps_file = get_filename_full_maps(grid_dir_in)
 
         # output containers
-        data_vectors = {} # NEST ordering and padding
-        data_patches = {} # RING ordering and no padding
+        data_vectors = {}  # NEST ordering and padding
+        data_patches = {}  # RING ordering and no padding
         for map_type in conf["survey"]["map_types"]["lensing"]:
             z_bins = conf["survey"]["metacal"]["z_bins"]
 
@@ -208,7 +211,7 @@ def main(indices, args):
                     # This is super important #
                     ###########################
                     # The 90° rots do NOT change the shear, however, the mirroring does,
-                    # therefore we have to swap sign of gamma2 for the last 2 patches!!!
+                    # therefore we have to swap sign of gamma2 for the last 2 patches!
                     # FIXME: This should not be hard coded
                     if i_patch < 2:
                         gamma2_sign = 1.0
@@ -265,7 +268,9 @@ def main(indices, args):
         with h5py.File(patches_file, "a") as f:
             for map_type in conf["survey"]["map_types"]["lensing"]:
                 try:
-                    f.create_dataset(name=map_type, shape=(n_perms_per_param * n_patches, non_tomo_patches_len, len(z_bins)))
+                    f.create_dataset(
+                        name=map_type, shape=(n_perms_per_param * n_patches, non_tomo_patches_len, len(z_bins))
+                    )
                 except ValueError:
                     LOGGER.info(f"dataset {map_type} already exists in {patches_file}")
 
@@ -286,7 +291,6 @@ def get_data_vec(m, data_vec_len, corresponding_pix, cutout_pix):
     :param cutout_pix: pixel that should be cut out from the map (excludes padding)
     :return: the data vec
     """
-
     data_vec = np.zeros(data_vec_len)
     n_pix = corresponding_pix.shape[0]
 
@@ -301,29 +305,15 @@ def get_data_vec(m, data_vec_len, corresponding_pix, cutout_pix):
 
 # This main only exists for testing purposes when not using esub
 if __name__ == "__main__":
-    system = "local"
+    args = [
+        "--grid_dir_in=/Users/arne/data/CosmoGrid_example/DES/grid",
+        "--grid_dir_out=/Users/arne/data/CosmoGrid_example/DES/grid",
+        "--repo_dir=/Users/arne/git/multiprobe-simulation-forward-model",
+        "--config=configs/config.yaml",
+        "--max_sleep=0",
+        "--debug",
+    ]
 
-    if system == "perlmutter":
-        args = Namespace(
-            grid_dir_in="/global/cfs/cdirs/des/cosmogrid/DESY3/grid",
-            grid_dir_out="/pscratch/sd/a/athomsen/DESY3/grid",
-            repo_dir="/global/homes/a/athomsen/multiprobe-simulation-forward-model",
-            config="configs/config.yaml",
-            max_sleep=0,
-            test=False,
-        )
-    elif system == "local":
-        args = Namespace(
-            grid_dir_in="/Users/arne/data/CosmoGrid_example/DES/grid",
-            grid_dir_out="/Users/arne/data/CosmoGrid_example/DES/grid",
-            repo_dir="/Users/arne/git/multiprobe-simulation-forward-model",
-            config="configs/config.yaml",
-            max_sleep=0,
-            test=False,
-        )
-    else:
-        raise NotImplementedError
-
-    indices = [2, 3]
+    indices = [0]
     for _ in main(indices, args):
         pass
