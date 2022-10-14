@@ -78,7 +78,7 @@ def setup(args):
 
 
 def main(indices, args):
-    args = setup(args)
+    # args = setup(args)
 
     if args.test:
         args.max_sleep = 0
@@ -96,6 +96,7 @@ def main(indices, args):
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
     n_patches = conf["analysis"]["n_patches"]
+    n_perms_per_param = conf["analysis"]["n_perms_per_param"]
 
     lmax = 3 * n_side - 1
     l = hp.Alm.getlm(lmax)[0]
@@ -133,10 +134,21 @@ def main(indices, args):
     LOGGER.info(f"Loaded pixel file")
 
     # grid directories
-    grid_perms_file = os.path.join(args.repo_dir, conf["files"]["grid_perms"])
-    grid_perms = np.load(grid_perms_file)
-    grid_dirs_in = [os.path.join(args.grid_dir_in, grid_perm) for grid_perm in grid_perms]
-    grid_dirs_out = [os.path.join(args.grid_dir_out, grid_perm) for grid_perm in grid_perms]
+    grid_params_file = os.path.join(args.repo_dir, conf["files"]["grid_params"])
+    grid_params = np.load(grid_params_file)
+
+    # permutation level
+    grid_dirs_in = [
+        os.path.join(args.grid_dir_in, grid_param, f"perm_{i:04d}")
+        for grid_param in grid_params
+        for i in range(n_perms_per_param)
+    ]
+
+    # parameter level
+    grid_dirs_out = [
+        os.path.join(args.grid_dir_out, grid_param) for grid_param in grid_params for _ in range(n_perms_per_param)
+    ]
+
     n_grid = len(grid_dirs_in)
     LOGGER.info(f"Got grid of size {n_grid} with base path {args.grid_dir_in}")
 
@@ -145,8 +157,9 @@ def main(indices, args):
 
     # index corresponds to simulation permutation on the grid
     for index in indices:
-        grid_dir_in = grid_dirs_in[index]
-        grid_dir_out = grid_dirs_out[index]
+        grid_dir_in = grid_dirs_in[index]  # permutation level
+        grid_dir_out = grid_dirs_out[index]  # parameter level
+        perm_id = index % n_perms_per_param
         LOGGER.info(f"Index {index} takes input from {grid_dir_in}")
 
         if not os.path.isdir(grid_dir_out):
@@ -227,15 +240,27 @@ def main(indices, args):
 
                     data_vectors[map_type][i_patch, :, i_z] = kappa_dv
 
-            data_vec_file = get_filename_data_vectors(grid_dir_out)
-            with h5py.File(data_vec_file, "a") as f:
-                f.create_dataset(data=data_vectors[map_type], name=map_type)
-                f.attrs["info"] = "shape (N, patch_pix, n_tomo)"
+            # with h5py.File(data_vec_file, "a") as f:
+            #     f.create_dataset(data=data_vectors[map_type], name=map_type)
+            #     f.attrs["info"] = "shape (N, patch_pix, n_tomo)"
 
-            LOGGER.info(f"Stored datavectors of map type {map_type} in {data_vec_file}")
+            # LOGGER.info(f"Stored datavectors of map type {map_type} in {data_vec_file}")
+
+        # save the results
+        data_vec_file = get_filename_data_vectors(grid_dir_out)
+        with h5py.File(data_vec_file, "a") as f:
+            for map_type in conf["survey"]["map_types"]["lensing"]:
+                try:
+                    # create dataset for every parameter level directory, collecting the permutation levels
+                    f.create_dataset(name=map_type, shape=(n_perms_per_param * n_patches, data_vec_len, len(z_bins)))
+                except ValueError:
+                    LOGGER.info(f"dataset {map_type} already exists in {data_vec_file}")
+
+                f[map_type][n_patches * perm_id : n_patches * (perm_id + 1)] = data_vectors[map_type]
+
+        LOGGER.info(f"Stored datavectors of map type {map_type} in {data_vec_file}")
 
         LOGGER.info(f"Done with index {index}")
-
         yield index
 
 
@@ -261,6 +286,7 @@ def get_data_vec(m, data_vec_len, corresponding_pix, cutout_pix):
 
     return data_vec
 
+
 # This main only exists for testing purposes when not using esub
 if __name__ == "__main__":
     system = "local"
@@ -269,7 +295,7 @@ if __name__ == "__main__":
         args = Namespace(
             grid_dir_in="/global/cfs/cdirs/des/cosmogrid/DESY3/grid",
             grid_dir_out="/pscratch/sd/a/athomsen/DESY3/grid",
-            repo_dir="/global/homes/a/athomsen/multiprobe-simulation-forward-model",            
+            repo_dir="/global/homes/a/athomsen/multiprobe-simulation-forward-model",
             config="configs/config.yaml",
             max_sleep=0,
             test=False,
@@ -286,5 +312,6 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError
 
-    indices = [0]
-    next(main(indices, args))
+    indices = [2, 3]
+    for _ in main(indices, args):
+        pass
