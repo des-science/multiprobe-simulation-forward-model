@@ -17,6 +17,7 @@ import os, argparse, warnings, h5py, time
 
 from numba import njit
 from argparse import Namespace
+from functools import reduce
 
 from msfm.utils import logging, input_output
 from msfm.utils.filenames import *
@@ -121,6 +122,10 @@ def main(indices, args):
         data_vec_pix = f["metacal/map_cut_outs/data_vec_ids"][:]
         data_vec_len = len(data_vec_pix)
 
+        # pixel indices of the non padded patches (non tomographic)
+        non_tomo_patches_pix = f["metacal/masks/RING/non_tomo"][:]
+        non_tomo_patches_len = len(non_tomo_patches_pix)
+
         tomo_patches_pix = []
         tomo_corresponding_pix = []
         for z_bin in conf["survey"]["metacal"]["z_bins"]:
@@ -167,13 +172,15 @@ def main(indices, args):
 
         full_maps_file = get_filename_full_maps(grid_dir_in)
 
-        # output container
-        data_vectors = {}
+        # output containers
+        data_vectors = {} # NEST ordering and padding
+        data_patches = {} # RING ordering and no padding
         for map_type in conf["survey"]["map_types"]["lensing"]:
             z_bins = conf["survey"]["metacal"]["z_bins"]
 
             # TODO more than one map per patch
             data_vectors[map_type] = np.zeros((n_patches, data_vec_len, len(z_bins)), dtype=np.float32)
+            data_patches[map_type] = np.zeros((n_patches, non_tomo_patches_len, len(z_bins)), dtype=np.float32)
 
             for i_z, z_bin in enumerate(z_bins):
                 # only consider this tomographic bin
@@ -239,12 +246,7 @@ def main(indices, args):
                     kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
 
                     data_vectors[map_type][i_patch, :, i_z] = kappa_dv
-
-            # with h5py.File(data_vec_file, "a") as f:
-            #     f.create_dataset(data=data_vectors[map_type], name=map_type)
-            #     f.attrs["info"] = "shape (N, patch_pix, n_tomo)"
-
-            # LOGGER.info(f"Stored datavectors of map type {map_type} in {data_vec_file}")
+                    data_patches[map_type][i_patch, :, i_z] = kappa_patch[non_tomo_patches_pix]
 
         # save the results
         data_vec_file = get_filename_data_vectors(grid_dir_out)
@@ -257,8 +259,18 @@ def main(indices, args):
                     LOGGER.info(f"dataset {map_type} already exists in {data_vec_file}")
 
                 f[map_type][n_patches * perm_id : n_patches * (perm_id + 1)] = data_vectors[map_type]
+        LOGGER.info(f"Stored datavectors in {data_vec_file}")
 
-        LOGGER.info(f"Stored datavectors of map type {map_type} in {data_vec_file}")
+        patches_file = get_filename_data_patches(grid_dir_out)
+        with h5py.File(patches_file, "a") as f:
+            for map_type in conf["survey"]["map_types"]["lensing"]:
+                try:
+                    f.create_dataset(name=map_type, shape=(n_perms_per_param * n_patches, non_tomo_patches_len, len(z_bins)))
+                except ValueError:
+                    LOGGER.info(f"dataset {map_type} already exists in {patches_file}")
+
+                f[map_type][n_patches * perm_id : n_patches * (perm_id + 1)] = data_patches[map_type]
+        LOGGER.info(f"Stored patches in {patches_file}")
 
         LOGGER.info(f"Done with index {index}")
         yield index
