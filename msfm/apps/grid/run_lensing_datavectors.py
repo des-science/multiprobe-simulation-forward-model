@@ -8,15 +8,12 @@ This file contains functions to transform the full sky weak lensing signal and i
 into multiple survey footprint cut-outs
 
 - Made to be run with esub
-- Paths for Perlmutter/Cori
 """
 
 import numpy as np
 import os, argparse, warnings, h5py, time
 
 from numba import njit
-from argparse import Namespace
-from functools import reduce
 
 from msfm.utils import logging, input_output
 from msfm.utils.filenames import *
@@ -129,6 +126,9 @@ def main(indices, args):
         non_tomo_patches_pix = f["metacal/masks/RING/non_tomo"][:]
         non_tomo_patches_len = len(non_tomo_patches_pix)
 
+        # to correct the shear for patch cut outs that have been mirrored
+        gamma2_signs = f["metacal/map_cut_outs/patches/gamma_2_sign"][:]
+
         tomo_patches_pix = []
         tomo_corresponding_pix = []
         for z_bin in conf["survey"]["metacal"]["z_bins"]:
@@ -180,10 +180,11 @@ def main(indices, args):
         data_patches = {}  # RING ordering and no padding
         for map_type in conf["survey"]["map_types"]["lensing"]:
             z_bins = conf["survey"]["metacal"]["z_bins"]
+            n_z_bins = len(z_bins)
 
-            # TODO more than one map per patch
-            data_vectors[map_type] = np.zeros((n_patches, data_vec_len, len(z_bins)), dtype=np.float32)
-            data_patches[map_type] = np.zeros((n_patches, non_tomo_patches_len, len(z_bins)), dtype=np.float32)
+            # TODO do every patch multiple times
+            data_vectors[map_type] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
+            data_patches[map_type] = np.zeros((n_patches, non_tomo_patches_len, n_z_bins), dtype=np.float32)
 
             for i_z, z_bin in enumerate(z_bins):
                 # only consider this tomographic bin
@@ -207,17 +208,11 @@ def main(indices, args):
 
                 for i_patch, patch_pix in enumerate(patches_pix):
                     LOGGER.info(f"Starting with patch index {i_patch}")
-                    ###########################
-                    # This is super important #
-                    ###########################
+
                     # The 90° rots do NOT change the shear, however, the mirroring does,
                     # therefore we have to swap sign of gamma2 for the last 2 patches!
-                    # FIXME: This should not be hard coded
-                    if i_patch < 2:
-                        gamma2_sign = 1.0
-                    else:
-                        gamma2_sign = -1.0
-                    LOGGER.debug(f"Using gamma2 sign: {gamma2_sign}")
+                    gamma2_sign = gamma2_signs[i_patch]
+                    LOGGER.debug(f"Using gamma2 sign {gamma2_sign}")
 
                     # TODO each patch is done multiple times
 
@@ -253,28 +248,31 @@ def main(indices, args):
 
         # save the results
         data_vec_file = get_filename_data_vectors(grid_dir_out)
-        with h5py.File(data_vec_file, "a") as f:
-            for map_type in conf["survey"]["map_types"]["lensing"]:
-                try:
-                    # create dataset for every parameter level directory, collecting the permutation levels
-                    f.create_dataset(name=map_type, shape=(n_perms_per_param * n_patches, data_vec_len, len(z_bins)))
-                except ValueError:
-                    LOGGER.info(f"dataset {map_type} already exists in {data_vec_file}")
-
-                f[map_type][n_patches * perm_id : n_patches * (perm_id + 1)] = data_vectors[map_type]
+        save_output_container(
+            conf,
+            "datavectors",
+            data_vec_file,
+            data_vectors,
+            perm_id,
+            n_perms_per_param,
+            n_patches,
+            data_vec_len,
+            n_z_bins,
+        )
         LOGGER.info(f"Stored datavectors in {data_vec_file}")
 
         patches_file = get_filename_data_patches(grid_dir_out)
-        with h5py.File(patches_file, "a") as f:
-            for map_type in conf["survey"]["map_types"]["lensing"]:
-                try:
-                    f.create_dataset(
-                        name=map_type, shape=(n_perms_per_param * n_patches, non_tomo_patches_len, len(z_bins))
-                    )
-                except ValueError:
-                    LOGGER.info(f"dataset {map_type} already exists in {patches_file}")
-
-                f[map_type][n_patches * perm_id : n_patches * (perm_id + 1)] = data_patches[map_type]
+        save_output_container(
+            conf,
+            "patches",
+            patches_file,
+            data_patches,
+            perm_id,
+            n_perms_per_param,
+            n_patches,
+            non_tomo_patches_len,
+            n_z_bins,
+        )
         LOGGER.info(f"Stored patches in {patches_file}")
 
         LOGGER.info(f"Done with index {index}")
@@ -303,6 +301,21 @@ def get_data_vec(m, data_vec_len, corresponding_pix, cutout_pix):
     return data_vec
 
 
+def save_output_container(
+    conf, label, filename, output_container, perm_id, n_perms_per_param, n_patches, output_len, n_z_bins
+):
+    with h5py.File(filename, "a") as f:
+        for map_type in conf["survey"]["map_types"]["lensing"]:
+            try:
+                # create dataset for every parameter level directory, collecting the permutation levels
+                f.create_dataset(name=map_type, shape=(n_perms_per_param * n_patches, output_len, n_z_bins))
+            except ValueError:
+                LOGGER.info(f"dataset {map_type} already exists in {filename}")
+
+            f[map_type][n_patches * perm_id : n_patches * (perm_id + 1)] = output_container[map_type]
+    LOGGER.info(f"Stored {label} in {filename}")
+
+
 # This main only exists for testing purposes when not using esub
 if __name__ == "__main__":
     args = [
@@ -312,8 +325,9 @@ if __name__ == "__main__":
         "--config=configs/config.yaml",
         "--max_sleep=0",
         "--debug",
+        "--verbosity=debug",
     ]
 
-    indices = [0]
+    indices = [0, 1, 2, 3]
     for _ in main(indices, args):
         pass
