@@ -28,10 +28,11 @@ try:
     n_cpus = len(os.sched_getaffinity(0))
 except AttributeError:
     LOGGER.debug(f"os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
-    n_cpus = os.cpu_count()    
+    n_cpus = os.cpu_count()
 
 os.environ["OMP_NUM_THREADS"] = "n_cpus"
 import healpy as hp
+
 
 def resources(args):
     return dict(main_memory=1000, main_time_per_index=4)
@@ -85,6 +86,8 @@ def setup(args):
 
 def main(indices, args):
     args = setup(args)
+
+    LOGGER.timer.start("main")
 
     if args.debug:
         args.max_sleep = 0
@@ -280,7 +283,7 @@ def main(indices, args):
         )
         LOGGER.info(f"Stored patches in {patches_file}")
 
-        LOGGER.info(f"Done with index {index}")
+        LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('main')}")
         yield index
 
 

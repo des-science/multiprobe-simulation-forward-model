@@ -5,7 +5,7 @@ Created on Jul 2021
 author: Tomasz Kacprzak
 """
 
-import os, sys, logging, time
+import os, sys, logging, time, datetime
 
 from tqdm import tqdm
 
@@ -28,7 +28,7 @@ class Timer:
         self.time_start[name] = time.time()
 
     def elapsed(self, name="default"):
-        return "{:4.2f} min".format((time.time() - self.time_start[name]) / 60.0)
+        return str(datetime.timedelta(seconds=(time.time() - self.time_start[name])))[:-4]
 
     def start(self, name="default"):
         self.time_start[name] = time.time()
