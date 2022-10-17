@@ -18,15 +18,20 @@ from numba import njit
 from msfm.utils import logging, input_output
 from msfm.utils.filenames import *
 
-# set the environmental variable OMP_NUM_THREADS to the number of logical processors
-# os.environ["OMP_NUM_THREADS"] =
-import healpy as hp
-
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logging.get_logger(__file__)
 
+# set the environmental variable OMP_NUM_THREADS to the number of logical processors for healpy parallelixation
+try:
+    n_cpus = len(os.sched_getaffinity(0))
+except AttributeError:
+    LOGGER.debug(f"os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
+    n_cpus = os.cpu_count()    
+
+os.environ["OMP_NUM_THREADS"] = "n_cpus"
+import healpy as hp
 
 def resources(args):
     return dict(main_memory=1000, main_time_per_index=4)
