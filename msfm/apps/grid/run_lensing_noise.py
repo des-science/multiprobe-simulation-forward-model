@@ -33,6 +33,7 @@ os.environ["OMP_NUM_THREADS"] = str(n_cpus)
 
 import healpy as hp
 
+
 def resources(args):
     return dict(main_memory=1000, main_time_per_index=4)
 
@@ -214,7 +215,7 @@ def main(indices, args):
             LOGGER.info(f"Loaded {map_dir} from {full_maps_file}")
 
             # normalize to number density contrast
-            delta_full = (delta_full - np.mean(delta_full))/np.mean(delta_full)
+            delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
 
             # number of galaxies per pixel
             counts_full = n_bar * (1 + bias * delta_full)
@@ -227,25 +228,31 @@ def main(indices, args):
                 counts_patch = counts_full[patch_pix]
                 n_gals_patch = np.sum(counts_patch)
 
-                # indices to sum over all of the galaxies in the individual pixels 
+                # indices to sum over all of the galaxies in the individual pixels
                 seg_ids = []
                 for id, n_gals in enumerate(counts_patch):
-                    seg_ids.extend(n_gals*[id])
+                    seg_ids.extend(n_gals * [id])
 
                 # inputs to the tf.function have to be tensors
                 counts_patch = tf.constant(counts_patch, dtype=tf.int32)
                 seg_ids = tf.constant(seg_ids, dtype=tf.int32)
 
                 # randomize
-                phase = tf.random.uniform(shape=(n_gals_cat,), minval=0, maxval=2*np.pi)
-                gamma_abs = tf.math.abs(gamma_cat[:,0] + 1j*gamma_cat[:,1])
-                gamma1 = tf.math.cos(phase)*gamma_abs
-                gamma2 = tf.math.sin(phase)*gamma_abs
+                phase = tf.random.uniform(shape=(n_gals_cat,), minval=0, maxval=2 * np.pi)
+                gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
+                gamma1 = tf.math.cos(phase) * gamma_abs
+                gamma2 = tf.math.sin(phase) * gamma_abs
 
                 # joint samples for e1, e2 and w
-                emp_dist = tfp.distributions.Empirical(samples=tf.stack([gamma1, gamma2, gamma_cat[:,2]], axis=1), event_ndims=1)
+                emp_dist = tfp.distributions.Empirical(
+                    samples=tf.stack([gamma1, gamma2, gamma_cat[:, 2]], axis=1), event_ndims=1
+                )
 
-                gamma1, gamma2 = tf_noise_gen(emp_dist, counts_patch)
+                samples = emp_dist.sample(sample_shape=n_gals_patch)
+
+                LOGGER.timer.start("noise_gen")
+                gamma1, gamma2 = tf_noise_gen(samples, seg_ids)
+                LOGGER.debug(f"Noise generation successfull after {LOGGER.timer.elapsed('noise_gen')}")
 
                 gamma1_patch = np.zeros(n_pix, dtype=np.float32)
                 gamma1_patch[base_patch_pix] = gamma1
@@ -254,17 +261,19 @@ def main(indices, args):
                 gamma2_patch[base_patch_pix] = gamma2
 
                 # mode removal
+                LOGGER.timer.start("mode_removal")
                 _, gamma_alm_E, gamma_alm_B = hp.map2alm(
                     [np.zeros_like(gamma1_patch), gamma1_patch, gamma2_patch],
                     use_pixel_weights=True,
                     datapath=datapath,
                 )
                 kappa_alm = gamma_alm_E * gamma2kappa_fac
-                LOGGER.debug(f"Mode removal successfull")
 
                 kappa_alm *= l_mask_fac
 
                 kappa_patch = hp.alm2map(kappa_alm, nside=n_side)
+
+                LOGGER.debug(f"Mode removal successfull after {LOGGER.timer.elapsed('mode_removal')}")
 
                 # cut out padded data vector
                 kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
@@ -286,59 +295,30 @@ def main(indices, args):
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('main')}")
         yield index
 
-# TODO this is slow
-# @tf.function
-def tf_noise_gen(emp_dist, counts_patch):
-    LOGGER.info(f"Tracing the noise generator tf.function")
-    LOGGER.timer.start("noise_gen")
-    
-    n_gals_patch = tf.reduce_sum(counts_patch)
-    # seg_ids = tf.Variable(tf.zeros((n_gals_patch,), dtype=tf.int32))
-    # total_gals = tf.Variable(0, dtype=tf.int32)
-    # for i in tf.range(counts_patch.shape[0]):
-    #     n_gal = counts_patch[i]
-    #     seg_ids[total_gals:total_gals+n_gal] = i
 
-    #     total_gals += n_gal
 
-    # seg_ids = []
-    # for i in tf.range(counts_patch.shape[0]):
-    #     print(i)
-    #     n_gal = counts_patch[i]
-    #     seg_ids.extend(n_gal*[i])
-
-    # LOGGER.timer.start("seg_id")
-
-    # TODO there has to be a better way
-    numpy_counts = counts_patch.numpy()
-
-    seg_ids = []
-    for i in range(counts_patch.shape[0]):
-        n_gal = numpy_counts[i]
-        seg_ids.extend(n_gal*[i])
-        # print(f"n_gal ={n_gal}")
-        # print(f"i = {i}")
-
-    # LOGGER.info(f"Generating the segmentation indices took {LOGGER.timer.elapsed('seg_id')}")
+# the input tensors have variable length because of the varying number of galaxies in the count map
+@tf.function(
+    input_signature=[tf.TensorSpec(shape=(None, 3), dtype=tf.float32), tf.TensorSpec(shape=(None,), dtype=tf.int32)]
+)
+def tf_noise_gen(samples, seg_ids):
+    LOGGER.warning(
+        f"Tracing the noise generator tf.function for samples.shape = {samples.shape} and seg_ids.shape = {seg_ids.shape}"
+    )
 
     # shape (total_gals, 3)
-    samples = emp_dist.sample(sample_shape=n_gals_patch)
-    e_samples = samples[:,:2]
-    w_samples = tf.expand_dims(samples[:,2], axis=1)
+    e_samples = samples[:, :2]
+    w_samples = tf.expand_dims(samples[:, 2], axis=1)
 
     # apply weights
-    samples = tf.concat([e_samples*w_samples, w_samples], axis=1)
+    samples = tf.concat([e_samples * w_samples, w_samples], axis=1)
 
     sum_per_pix = tf.math.segment_sum(samples, seg_ids)
 
     # normalize with weights
-    e_per_pix = sum_per_pix[:,:2]/tf.expand_dims(sum_per_pix[:,2], axis=1)
+    e_per_pix = sum_per_pix[:, :2] / tf.expand_dims(sum_per_pix[:, 2], axis=1)
 
-    LOGGER.info(f"Noise generation took {LOGGER.timer.elapsed('noise_gen')}")
-
-    return e_per_pix[:,0], e_per_pix[:,1]
-
-
+    return e_per_pix[:, 0], e_per_pix[:, 1]
 
 # This main only exists for testing purposes when not using esub
 if __name__ == "__main__":
