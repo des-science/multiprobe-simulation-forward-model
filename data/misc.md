@@ -1,1 +1,2 @@
-- path on the SAN `/home/ipa/refreg/experiments/tomaszk/projects/220627_cosmogrid_desy3/001_perms/cosmogrid_desy3/CosmoGrid/DESY3`
+- Path to the full sky CosmoGrid maps with DES Y3 redshift bins on the SAN `/home/ipa/refreg/experiments/tomaszk/projects/220627_cosmogrid_desy3/001_perms/cosmogrid_desy3/CosmoGrid/DESY3`
+- Start jupyter on Euler `./start_jupyter_nb.sh -u athomsen -l -n 16 -m 2048 -s new -w /cluster/home/athomsen/des_y3/repos/multiprobe-simulation-forward-model/notebooks`
