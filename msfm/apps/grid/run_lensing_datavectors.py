@@ -1,13 +1,10 @@
 # Copyright (C) 2022 ETH Zurich, Institute for Particle Physics and Astrophysics
 
 """
-Created on 23.9.2022
+Created September 2022
 Author: Arne Thomsen
 
-This file contains functions to transform the full sky weak lensing signal and intrinsic alignment maps from UFalcon 
-into multiple survey footprint cut-outs
-
-- Made to be run with esub
+Transform the full sky weak lensing signal and intrinsic alignment maps into multiple survey footprint cut-outs
 """
 
 import numpy as np
@@ -15,7 +12,7 @@ import os, argparse, warnings, h5py, time
 
 from numba import njit
 
-from msfm.utils import logging, input_output
+from msfm.utils import logging, input_output, shear
 from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -29,8 +26,8 @@ try:
 except AttributeError:
     LOGGER.debug(f"os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
     n_cpus = os.cpu_count()
+os.environ["OMP_NUM_THREADS"] = str(n_cpus)
 
-os.environ["OMP_NUM_THREADS"] = "n_cpus"
 import healpy as hp
 
 
@@ -111,21 +108,11 @@ def main(indices, args):
     l = hp.Alm.getlm(lmax)[0]
     l[l == 1] = 0
 
-    # from eq. (11) in https://academic.oup.com/mnras/article/505/3/4626/6287258
-    kappa2gamma_fac = np.where(
-        np.logical_and(l != 1, l != 0),
-        -np.sqrt(((l + 2.0) * (l - 1)) / ((l + 1) * l)),
-        0,
-    )
-    gamma2kappa_fac = np.where(
-        np.logical_and(l != 1, l != 0),
-        1 / kappa2gamma_fac,
-        0,
-    )
-    l_mask_fac = np.where(np.logical_and(l != 1, l != 0), 1.0, 0.0)
+    kappa2gamma_fac, gamma2kappa_fac = shear.get_kaiser_squires_factors(l)
+    l_mask_fac = shear.get_l_mask(l)
 
     pixel_file = os.path.join(args.repo_dir, conf["files"]["pixels"])
-    with h5py.File(pixel_file) as f:
+    with h5py.File(pixel_file, "r") as f:
         # pixel indices of padded data vector
         data_vec_pix = f["metacal/map_cut_outs/data_vec_ids"][:]
         data_vec_len = len(data_vec_pix)
@@ -207,6 +194,9 @@ def main(indices, args):
                     kappa_full = f[map_dir][:]
                 LOGGER.info(f"Loaded {map_dir} from {full_maps_file}")
 
+                # kappa remove mean
+                kappa_full -= np.mean(kappa_full)
+
                 # kappa -> gamma (full sky)
                 kappa_alm = hp.map2alm(kappa_full, lmax=lmax, use_pixel_weights=True, datapath=datapath)
                 gamma_alm = kappa_alm * kappa2gamma_fac
@@ -243,7 +233,6 @@ def main(indices, args):
                     kappa_alm = gamma_alm_E * gamma2kappa_fac
                     LOGGER.debug(f"Mode removal successfull")
 
-                    # band limiting
                     kappa_alm *= l_mask_fac
 
                     kappa_patch = hp.alm2map(kappa_alm, nside=n_side)
@@ -291,11 +280,15 @@ def main(indices, args):
 def get_data_vec(m, data_vec_len, corresponding_pix, cutout_pix):
     """
     This function makes cutouts from full sky maps to a nice data vector that can be fed into a DeepSphere network
-    :param m: The map one should make a cutout from
-    :param data_vec_len: length of the full data vec (including padding)
-    :param corresponding_pix: pixel inside the data vec that should be populated (excludes padding)
-    :param cutout_pix: pixel that should be cut out from the map (excludes padding)
-    :return: the data vec
+
+    Args:
+        m (ndarray): The map one should make a cutout from
+        data_vec_len (int): length of the full data vec (including padding)
+        corresponding_pix (ndarray): pixel inside the data vec that should be populated (excludes padding)
+        cutout_pix (ndarray): pixel that should be cut out from the map (excludes padding)
+
+    Returns:
+        ndarray: the data vec
     """
     data_vec = np.zeros(data_vec_len)
     n_pix = corresponding_pix.shape[0]

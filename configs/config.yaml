@@ -8,11 +8,11 @@ dirs:
 files:
   # relative to the root of this repository
   pixels: "data/DESY3_pixels_512.h5"
+  noise: "data/DESY3_noise.h5"
   grid_perms: "data/CosmoGridV1_perm_dirs.npy"
   grid_params: "data/CosmoGridV1_param_dirs.npy"
   meta_info: "data/CosmoGridV1_metainfo.h5"
   healpy_data: "data/healpy_data"
-
 
 survey:
   map_types:

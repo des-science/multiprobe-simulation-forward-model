@@ -9,7 +9,7 @@ from tqdm import tqdm
 from numba import njit
 from time import time
 
-from msfm.utils.io import read_yaml
+from msfm.utils.input_output import read_yaml
 from msfm.utils.maps import make_normallized_maps
 
 # global constants
@@ -123,6 +123,8 @@ def make_noise_empirical_sampling(footprint_ids, n_gals_per_id, e1, e2, w, N, ou
     # joint samples for e1, e2 and w
     emp_dist = tfp.distributions.Empirical(samples=tf.stack([e1, e2, w], axis=1), event_ndims=1)
 
+    print(tf.stack([e1, e2, w], axis=1).shape)
+
     n1_maps = np.zeros((N, n_pix))
     n2_maps = np.zeros((N, n_pix))
     # TODO vectorize
@@ -159,7 +161,7 @@ def make_noise_empirical_sampling(footprint_ids, n_gals_per_id, e1, e2, w, N, ou
 
 if __name__ == "__main__":
     # number of noise realizations
-    N = 100
+    N = 3
 
     # set paths
     metacal_dir = "/Users/arne/data/DESY3/DES_Y3KP_NGSF/"

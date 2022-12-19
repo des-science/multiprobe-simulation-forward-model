@@ -83,7 +83,6 @@ def setup(args):
 
     return args
 
-
 def main(indices, args):
     args = setup(args)
 
@@ -129,9 +128,6 @@ def main(indices, args):
         non_tomo_patches_pix = f["metacal/masks/RING/non_tomo"][:]
         non_tomo_patches_len = len(non_tomo_patches_pix)
 
-        # to correct the shear for patch cut outs that have been mirrored
-        gamma2_signs = f["metacal/map_cut_outs/patches/gamma_2_sign"][:]
-
         tomo_patches_pix = []
         tomo_corresponding_pix = []
         for z_bin in conf["survey"]["metacal"]["z_bins"]:
@@ -156,6 +152,8 @@ def main(indices, args):
             tomo_gamma_cat.append(gamma_cat)
             tomo_n_bar.append(n_bar)
     LOGGER.info(f"Loaded noise file")
+
+    # TODO if/else branch for fiducial cosmology?
 
     # grid directories
     grid_params_file = os.path.join(args.repo_dir, conf["files"]["grid_params"])
@@ -224,9 +222,14 @@ def main(indices, args):
 
             for i_patch, patch_pix in enumerate(patches_pix):
                 LOGGER.info(f"Starting with patch index {i_patch}")
+                LOGGER.timer.start("noise_gen")
 
+                # not a full healpy map, just the patch with no zeros
                 counts_patch = counts_full[patch_pix]
                 n_gals_patch = np.sum(counts_patch)
+
+                # TODO Could be done like https://www.tensorflow.org/guide/function#accumulating_values_in_a_loop
+                # and could probably include most of what's underneath in one large tf.function
 
                 # indices to sum over all of the galaxies in the individual pixels
                 seg_ids = []
@@ -234,25 +237,25 @@ def main(indices, args):
                     seg_ids.extend(n_gals * [id])
 
                 # inputs to the tf.function have to be tensors
-                counts_patch = tf.constant(counts_patch, dtype=tf.int32)
                 seg_ids = tf.constant(seg_ids, dtype=tf.int32)
 
-                # randomize
+                # randomize TODO set random seed on operator level?
                 phase = tf.random.uniform(shape=(n_gals_cat,), minval=0, maxval=2 * np.pi)
                 gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
                 gamma1 = tf.math.cos(phase) * gamma_abs
                 gamma2 = tf.math.sin(phase) * gamma_abs
 
-                # joint samples for e1, e2 and w
+                # TODO sample within the tf.function? Could be a bit faster
+                # joint samples for e1, e2 and w, this is faster than random indexing
                 emp_dist = tfp.distributions.Empirical(
                     samples=tf.stack([gamma1, gamma2, gamma_cat[:, 2]], axis=1), event_ndims=1
                 )
 
                 samples = emp_dist.sample(sample_shape=n_gals_patch)
 
-                LOGGER.timer.start("noise_gen")
                 gamma1, gamma2 = tf_noise_gen(samples, seg_ids)
                 LOGGER.debug(f"Noise generation successfull after {LOGGER.timer.elapsed('noise_gen')}")
+                LOGGER.timer.start("mode_removal")
 
                 gamma1_patch = np.zeros(n_pix, dtype=np.float32)
                 gamma1_patch[base_patch_pix] = gamma1
@@ -261,10 +264,9 @@ def main(indices, args):
                 gamma2_patch[base_patch_pix] = gamma2
 
                 # mode removal
-                LOGGER.timer.start("mode_removal")
                 _, gamma_alm_E, gamma_alm_B = hp.map2alm(
                     [np.zeros_like(gamma1_patch), gamma1_patch, gamma2_patch],
-                    use_pixel_weights=True,
+                    use_pixel_weights=True, 
                     datapath=datapath,
                 )
                 kappa_alm = gamma_alm_E * gamma2kappa_fac
@@ -280,30 +282,50 @@ def main(indices, args):
 
                 data_noise[i_patch, :, i_z] = kappa_dv
 
+                if args.debug:
+                    # correct cut out procedure involves a full sky map
+                    counts_patch_map = np.zeros(n_pix, dtype=np.float32)
+                    counts_patch_map[base_patch_pix] = counts_patch
+                    counts_dv = get_data_vec(counts_patch_map, data_vec_len, corresponding_pix, base_patch_pix)
+                    data_counts[i_patch, :, i_z] = counts_dv
+
         # save the results
         data_vec_file = get_filename_data_vectors(grid_dir_out)
         with h5py.File(data_vec_file, "a") as f:
             try:
                 # create dataset for every parameter level directory, collecting the permutation levels
                 f.create_dataset(name="sn", shape=(n_perms_per_param * n_patches, data_vec_len, n_z_bins))
+
             except ValueError:
                 LOGGER.info(f"dataset sn already exists in {data_vec_file}")
 
             f["sn"][n_patches * perm_id : n_patches * (perm_id + 1)] = data_noise
+
+            if args.debug:
+                try:
+                    f.create_dataset(name="ct", shape=(n_perms_per_param * n_patches, data_vec_len, n_z_bins))
+
+                except ValueError:
+                    LOGGER.info(f"dataset ct already exists in {data_vec_file}")
+
+                f["ct"][n_patches * perm_id : n_patches * (perm_id + 1)] = data_counts
+                LOGGER.info(f"Stored counts in {data_vec_file}")
+
         LOGGER.info(f"Stored noise in {data_vec_file}")
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('main')}")
         yield index
 
 
-
 # the input tensors have variable length because of the varying number of galaxies in the count map
 @tf.function(
-    input_signature=[tf.TensorSpec(shape=(None, 3), dtype=tf.float32), tf.TensorSpec(shape=(None,), dtype=tf.int32)]
+    # jit_compile=True,
+    input_signature=[tf.TensorSpec(shape=(None, 3), dtype=tf.float32), tf.TensorSpec(shape=(None,), dtype=tf.int32)],
 )
 def tf_noise_gen(samples, seg_ids):
     LOGGER.warning(
-        f"Tracing the noise generator tf.function for samples.shape = {samples.shape} and seg_ids.shape = {seg_ids.shape}"
+        f"Tracing the noise generator tf.function for samples.shape = {samples.shape} and "
+        f"seg_ids.shape = {seg_ids.shape}"
     )
 
     # shape (total_gals, 3)
@@ -320,6 +342,7 @@ def tf_noise_gen(samples, seg_ids):
 
     return e_per_pix[:, 0], e_per_pix[:, 1]
 
+
 # This main only exists for testing purposes when not using esub
 if __name__ == "__main__":
     args = [
@@ -333,6 +356,5 @@ if __name__ == "__main__":
     ]
 
     indices = [0, 1, 2, 3]
-    # indices = [0]
     for _ in main(indices, args):
         pass
