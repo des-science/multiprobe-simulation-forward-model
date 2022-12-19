@@ -1,0 +1,1 @@
+- path on the SAN `/home/ipa/refreg/experiments/tomaszk/projects/220627_cosmogrid_desy3/001_perms/cosmogrid_desy3/CosmoGrid/DESY3`
