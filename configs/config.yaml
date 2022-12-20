@@ -31,7 +31,10 @@ analysis:
   n_side: 512
   n_pix: 3145728
   n_patches: 4
-  n_perms_per_param: 4
+  grid:
+    n_perms_per_param: 4
+  fiducial:
+    n_perms_per_param: 200
 
 model:
   name: "GCNN"
