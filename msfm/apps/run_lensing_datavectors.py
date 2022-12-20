@@ -83,6 +83,7 @@ def setup(args):
         default=120,
         help="set the maximal amount of time to sleep before copying to avoid clashes",
     )
+    parser.add_argument("--store_patches", action="store_true", help="whether to store the patches without padding in RING ordering")
 
     args, _ = parser.parse_known_args(args)
 
@@ -164,6 +165,9 @@ def main(indices, args):
         for _ in range(n_perms_per_param)
     ]
 
+    n_params = len(dirs_in)
+    LOGGER.info(f"Got simulation set {args.simset} of size {n_params} with base path {args.dir_in}")
+
     # other directories
     hp_datapath = os.path.join(args.repo_dir, conf["files"]["healpy_data"])
 
@@ -181,14 +185,17 @@ def main(indices, args):
 
         # output containers
         data_vectors = {}  # NEST ordering and padding
-        data_patches = {}  # RING ordering and no padding
+        if args.store_patches:
+            data_patches = {}  # RING ordering and no padding
+
         for map_type in conf["survey"]["map_types"]["lensing"]:
             z_bins = conf["survey"]["metacal"]["z_bins"]
             n_z_bins = len(z_bins)
 
             # TODO do every patch multiple times
             data_vectors[map_type] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-            data_patches[map_type] = np.zeros((n_patches, non_tomo_patches_len, n_z_bins), dtype=np.float32)
+            if args.store_patches:
+                data_patches[map_type] = np.zeros((n_patches, non_tomo_patches_len, n_z_bins), dtype=np.float32)
 
             for i_z, z_bin in enumerate(z_bins):
                 # only consider this tomographic bin
@@ -250,7 +257,8 @@ def main(indices, args):
                     kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
 
                     data_vectors[map_type][i_patch, :, i_z] = kappa_dv
-                    data_patches[map_type][i_patch, :, i_z] = kappa_patch[non_tomo_patches_pix]
+                    if args.store_patches:
+                        data_patches[map_type][i_patch, :, i_z] = kappa_patch[non_tomo_patches_pix]
 
         # save the results
         data_vec_file = get_filename_data_vectors(dir_out)
@@ -267,19 +275,20 @@ def main(indices, args):
         )
         LOGGER.info(f"Stored datavectors in {data_vec_file}")
 
-        patches_file = get_filename_data_patches(dir_out)
-        save_output_container(
-            conf,
-            "patches",
-            patches_file,
-            data_patches,
-            perm_id,
-            n_perms_per_param,
-            n_patches,
-            non_tomo_patches_len,
-            n_z_bins,
-        )
-        LOGGER.info(f"Stored patches in {patches_file}")
+        if args.store_patches:
+            patches_file = get_filename_data_patches(dir_out)
+            save_output_container(
+                conf,
+                "patches",
+                patches_file,
+                data_patches,
+                perm_id,
+                n_perms_per_param,
+                n_patches,
+                non_tomo_patches_len,
+                n_z_bins,
+            )
+            LOGGER.info(f"Stored patches in {patches_file}")
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('main')}")
         yield index
