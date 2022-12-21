@@ -16,13 +16,14 @@ files:
 
 survey:
   map_types:
-    lensing: ["kg", "ia"]
+    full_sky: ["kg", "ia", "dg"]
+    lensing: ["kg", "ia", "sn"]
     clustering: "dg"
   metacal: 
     # from Table 2 in https://arxiv.org/pdf/2012.08566.pdf
     z_lims: [[0.0, 0.358], [0.358, 0.631], [0.631, 0.872], [0.872, 2.0]]
     z_bins: ['desy3metacal1', 'desy3metacal2', 'desy3metacal3', 'desy3metacal4']
-    # FIXME these are only placeholder values that were roughly estimated
+    # FIXME these are only placeholder values that were roughly estimated from histograms
     bias: [0.7, 1.2, 1.8, 3]
   maglim: 
     # from Table 2 in https://arxiv.org/pdf/2011.03411.pdf

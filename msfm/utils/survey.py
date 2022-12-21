@@ -13,7 +13,7 @@ def load_pixel_file(conf, repo_dir):
     file is generated in notebooks/survey_file_gen/pixel_file.ipynb
 
     Args:
-        conf (yaml): yaml dictionary setting the configuration parameters
+        conf (yaml): yaml dictionary setting the configuration parameters, contains relative paths
         repo_dir (str): absolute path to the repository
 
     Returns:
@@ -23,6 +23,7 @@ def load_pixel_file(conf, repo_dir):
         tomo_patches_pix: tomographic patch indices in RING ordering to cut out from the full sky maps
         tomo_corresponding_pix: needed to convert the pixels in RING ordering to NEST
     """
+    
     pixel_file = os.path.join(repo_dir, conf["files"]["pixels"])
 
     with h5py.File(pixel_file, "r") as f:
@@ -48,3 +49,32 @@ def load_pixel_file(conf, repo_dir):
     LOGGER.info(f"Loaded pixel file")
 
     return data_vec_pix, patches_pix, gamma2_signs, tomo_patches_pix, tomo_corresponding_pix
+
+
+def load_noise_file(conf, repo_dir):
+    """Loads the .h5 file that contains the noise information of the survey. That
+    file is generated in notebooks/survey_file_gen/noise_file.ipynb
+
+    Args:
+        conf (yaml): yaml dictionary setting the configuration parameters, contains relative paths
+        repo_dir (str): absolute path to the repository
+
+    Returns:
+        tomo_gamma_cat: list for the tomographic bins containing all of the gamma values for the galaxies in the survey
+        tomo_n_bar: tomographic list of the mean number of galaxies per pixel
+    """
+
+    noise_file = os.path.join(repo_dir, conf["files"]["noise"])
+    with h5py.File(noise_file, "r") as f:
+        tomo_gamma_cat = []
+        tomo_n_bar = []
+        for z_bin in conf["survey"]["metacal"]["z_bins"]:
+            # shape (n_gal, 3) with e1, e2, w
+            gamma_cat = f[f"{z_bin}/cat"][:]
+            n_bar = f[f"{z_bin}/n_bar"][()]
+
+            tomo_gamma_cat.append(gamma_cat)
+            tomo_n_bar.append(n_bar)
+    LOGGER.info(f"Loaded noise file")
+
+    return tomo_gamma_cat, tomo_n_bar
