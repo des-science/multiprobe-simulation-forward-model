@@ -14,7 +14,7 @@ import os, argparse, warnings, h5py, time
 from numba import njit
 from icecream import ic
 
-from msfm.utils import logging, input_output, shear, cosmogrid
+from msfm.utils import logging, input_output, shear, cosmogrid, survey
 from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -83,7 +83,9 @@ def setup(args):
         default=120,
         help="set the maximal amount of time to sleep before copying to avoid clashes",
     )
-    parser.add_argument("--store_patches", action="store_true", help="whether to store the patches without padding in RING ordering")
+    parser.add_argument(
+        "--store_patches", action="store_true", help="whether to store the patches without padding in RING ordering"
+    )
 
     args, _ = parser.parse_known_args(args)
 
@@ -118,34 +120,15 @@ def main(indices, args):
     lmax = 3 * n_side - 1
     l = hp.Alm.getlm(lmax)[0]
     l[l == 1] = 0
-
     kappa2gamma_fac, gamma2kappa_fac = shear.get_kaiser_squires_factors(l)
     l_mask_fac = shear.get_l_mask(l)
 
-    pixel_file = os.path.join(args.repo_dir, conf["files"]["pixels"])
-    with h5py.File(pixel_file, "r") as f:
-        # pixel indices of padded data vector
-        data_vec_pix = f["metacal/map_cut_outs/data_vec_ids"][:]
-        data_vec_len = len(data_vec_pix)
-
-        # pixel indices of the non padded patches (non tomographic)
-        non_tomo_patches_pix = f["metacal/masks/RING/non_tomo"][:]
-        non_tomo_patches_len = len(non_tomo_patches_pix)
-
-        # to correct the shear for patch cut outs that have been mirrored
-        gamma2_signs = f["metacal/map_cut_outs/patches/gamma_2_sign"][:]
-
-        tomo_patches_pix = []
-        tomo_corresponding_pix = []
-        for z_bin in conf["survey"]["metacal"]["z_bins"]:
-            # shape (4, pix_in_bin)
-            patches_pix = f[f"metacal/map_cut_outs/patches/RING/{z_bin}"][:]
-            # shape (pix_in_bin,)
-            corresponding_pix = f[f"metacal/map_cut_outs/RING_ids_to_data_vec/{z_bin}"][:]
-
-            tomo_patches_pix.append(patches_pix)
-            tomo_corresponding_pix.append(corresponding_pix)
-    LOGGER.info(f"Loaded pixel file")
+    # pixel file
+    data_vec_pix, patches_pix, gamma2_signs, tomo_patches_pix, tomo_corresponding_pix = survey.load_pixel_file(
+        conf, args.repo_dir
+    )
+    data_vec_len = len(data_vec_pix)
+    patches_len = len(patches_pix)
 
     # set up the paths
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
@@ -195,7 +178,7 @@ def main(indices, args):
             # TODO do every patch multiple times
             data_vectors[map_type] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
             if args.store_patches:
-                data_patches[map_type] = np.zeros((n_patches, non_tomo_patches_len, n_z_bins), dtype=np.float32)
+                data_patches[map_type] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
 
             for i_z, z_bin in enumerate(z_bins):
                 # only consider this tomographic bin
@@ -258,7 +241,7 @@ def main(indices, args):
 
                     data_vectors[map_type][i_patch, :, i_z] = kappa_dv
                     if args.store_patches:
-                        data_patches[map_type][i_patch, :, i_z] = kappa_patch[non_tomo_patches_pix]
+                        data_patches[map_type][i_patch, :, i_z] = kappa_patch[patches_pix]
 
         # save the results
         data_vec_file = get_filename_data_vectors(dir_out)
@@ -285,7 +268,7 @@ def main(indices, args):
                 perm_id,
                 n_perms_per_param,
                 n_patches,
-                non_tomo_patches_len,
+                patches_len,
                 n_z_bins,
             )
             LOGGER.info(f"Stored patches in {patches_file}")
@@ -338,7 +321,7 @@ def save_output_container(
 # This main only exists for testing purposes when not using esub
 if __name__ == "__main__":
     args = [
-        "--simset=fiducial",
+        "--simset=grid",
         "--dir_in=/Users/arne/data/CosmoGrid_example/DES/grid",
         "--dir_out=/Users/arne/data/CosmoGrid_example/DES/grid",
         "--repo_dir=/Users/arne/git/multiprobe-simulation-forward-model",
