@@ -12,6 +12,7 @@
 # repository specific
 notebooks/temp
 data/DESY3_noise.h5
+.vscode
 
 # Mac specific
 .DS_Store
