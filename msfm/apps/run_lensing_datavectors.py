@@ -338,10 +338,8 @@ def main(indices, args):
                             counts_patch_map[base_patch_pix] = counts_patch
                             counts_dv = get_data_vec(counts_patch_map, data_vec_len, corresponding_pix, base_patch_pix)
                             data_vectors["ct"][i_patch, :, i_z] = counts_dv
-
-                            data_vectors["ct"][i_patch, :, i_z] = kappa_dv
                             if args.store_patches:
-                                data_patches["ct"][i_patch, :, i_z] = kappa_patch[patches_pix]
+                                data_patches["ct"][i_patch, :, i_z] = counts_patch[patches_pix]
 
                 else:
                     raise NotImplementedError
@@ -349,7 +347,6 @@ def main(indices, args):
         # save the results
         data_vec_file = get_filename_data_vectors(dir_out)
         save_output_container(
-            conf,
             "datavectors",
             data_vec_file,
             data_vectors,
@@ -364,7 +361,6 @@ def main(indices, args):
         if args.store_patches:
             patches_file = get_filename_data_patches(dir_out)
             save_output_container(
-                conf,
                 "patches",
                 patches_file,
                 data_patches,
@@ -462,10 +458,10 @@ def tf_noise_gen(samples, seg_ids):
 
 
 def save_output_container(
-    conf, label, filename, output_container, perm_id, n_perms_per_param, n_patches, output_len, n_z_bins
+    label, filename, output_container, perm_id, n_perms_per_param, n_patches, output_len, n_z_bins
 ):
     with h5py.File(filename, "a") as f:
-        for map_type in conf["survey"]["map_types"]["lensing"]:
+        for map_type in output_container.keys():
             try:
                 # create dataset for every parameter level directory, collecting the permutation levels
                 f.create_dataset(name=map_type, shape=(n_perms_per_param * n_patches, output_len, n_z_bins))
