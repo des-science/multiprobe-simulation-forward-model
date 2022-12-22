@@ -455,8 +455,8 @@ def tf_noise_gen(samples, seg_ids):
 
     sum_per_pix = tf.math.segment_sum(samples, seg_ids)
 
-    # normalize with weights
-    e_per_pix = sum_per_pix[:, :2] / tf.expand_dims(sum_per_pix[:, 2], axis=1)
+    # normalize with weights, set 0/0 equal to 0 instead of nan
+    e_per_pix = tf.math.divide_no_nan(sum_per_pix[:, :2], tf.expand_dims(sum_per_pix[:, 2], axis=1))
 
     return e_per_pix[:, 0], e_per_pix[:, 1]
 
@@ -487,8 +487,10 @@ if __name__ == "__main__":
         "--max_sleep=0",
         "--debug",
         "--verbosity=debug",
+        "--store_counts"
     ]
 
-    indices = [0, 1, 2, 3]
+    # indices = [0, 1, 2, 3]
+    indices = [0]
     for _ in main(indices, args):
         pass
