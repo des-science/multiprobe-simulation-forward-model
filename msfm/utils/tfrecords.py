@@ -6,46 +6,46 @@ import tensorflow as tf
 # https://towardsdatascience.com/a-practical-guide-to-tfrecords-584536bc786c
 def parse_forward_maps(kg, ia, sn, dg, cosmo, sobol):
     """define the dictionary -- the structure -- of a single example"""
-    
+
     assert kg.shape == ia.shape == sn.shape == dg.shape
 
     data = {
         # tensor shapes
-        "n_pix" : _int64_feature(kg.shape[0]),
-        "n_z_bins" : _int64_feature(kg.shape[1]),
-        "n_params" : _int64_feature(cosmo.shape[0]),
+        "n_pix": _int64_feature(kg.shape[0]),
+        "n_z_bins": _int64_feature(kg.shape[1]),
+        "n_params": _int64_feature(cosmo.shape[0]),
         # lensing, metacal
-        "kg" : _bytes_feature(tf.io.serialize_tensor(kg)),
-        "kg" : _bytes_feature(tf.io.serialize_tensor(kg)),
-        "ia" : _bytes_feature(tf.io.serialize_tensor(ia)),
-        "sn" : _bytes_feature(tf.io.serialize_tensor(sn)),
+        "kg": _bytes_feature(tf.io.serialize_tensor(kg)),
+        "ia": _bytes_feature(tf.io.serialize_tensor(ia)),
+        "sn": _bytes_feature(tf.io.serialize_tensor(sn)),
         # clustering, maglim
-        "dg" : _bytes_feature(tf.io.serialize_tensor(dg)),
+        "dg": _bytes_feature(tf.io.serialize_tensor(dg)),
         # labels
-        'cosmo'  : _bytes_feature(tf.io.serialize_tensor(cosmo)),
-        'sobol'  : _int64_feature(sobol)
+        "cosmo": _bytes_feature(tf.io.serialize_tensor(cosmo)),
+        "sobol": _int64_feature(sobol),
     }
 
-    #create an Example, wrapping the single features
+    # create an Example, wrapping the single features
     out = tf.train.Example(features=tf.train.Features(feature=data))
     return out
+
 
 def parse_inverse_maps(element):
     """use the same structure as above"""
     data = {
         # tensor shapes
-        "n_pix" : tf.io.FixedLenFeature([], tf.int64),
-        "n_z_bins" : tf.io.FixedLenFeature([], tf.int64),
-        "n_params" : tf.io.FixedLenFeature([], tf.int64),
+        "n_pix": tf.io.FixedLenFeature([], tf.int64),
+        "n_z_bins": tf.io.FixedLenFeature([], tf.int64),
+        "n_params": tf.io.FixedLenFeature([], tf.int64),
         # lensing, metacal
-        "kg" : tf.io.FixedLenFeature([], tf.string),
-        "ia" : tf.io.FixedLenFeature([], tf.string),
-        "sn" : tf.io.FixedLenFeature([], tf.string),
+        "kg": tf.io.FixedLenFeature([], tf.string),
+        "ia": tf.io.FixedLenFeature([], tf.string),
+        "sn": tf.io.FixedLenFeature([], tf.string),
         # clustering, maglim
-        "dg" : tf.io.FixedLenFeature([], tf.string),
+        "dg": tf.io.FixedLenFeature([], tf.string),
         # labels
-        "cosmo" : tf.io.FixedLenFeature([], tf.string),
-        "sobol" : tf.io.FixedLenFeature([], tf.int64)
+        "cosmo": tf.io.FixedLenFeature([], tf.string),
+        "sobol": tf.io.FixedLenFeature([], tf.int64),
     }
 
     content = tf.io.parse_single_example(element, data)
@@ -70,15 +70,17 @@ def parse_inverse_maps(element):
 
 # https://www.tensorflow.org/tutorials/load_data/tfrecord#data_types_for_tftrainexample
 def _bytes_feature(value):
-  """Returns a bytes_list from a string / byte."""
-  if isinstance(value, type(tf.constant(0))):
-    value = value.numpy() # BytesList won't unpack a string from an EagerTensor.
-  return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+    """Returns a bytes_list from a string / byte."""
+    if isinstance(value, type(tf.constant(0))):
+        value = value.numpy()  # BytesList won't unpack a string from an EagerTensor.
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
 
 def _float_feature(value):
-  """Returns a float_list from a float / double."""
-  return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
+    """Returns a float_list from a float / double."""
+    return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
+
 
 def _int64_feature(value):
-  """Returns an int64_list from a bool / enum / int / uint."""
-  return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+    """Returns an int64_list from a bool / enum / int / uint."""
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
