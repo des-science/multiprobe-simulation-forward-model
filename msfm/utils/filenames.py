@@ -14,4 +14,5 @@ def get_filename_full_maps(grid_dir, with_bary=False):
 
     return os.path.join(grid_dir, file_name)
 
-    
+def get_filename_tfrecords(out_dir, index, tag, simset):
+    return os.path.join(out_dir, f'{tag}_{simset}_patches_{index:03d}.tfrecord')

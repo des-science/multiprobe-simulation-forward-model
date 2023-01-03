@@ -119,11 +119,6 @@ def main(indices, args):
     n_pix = conf["analysis"]["n_pix"]
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_param = conf["analysis"][args.simset]["n_perms_per_param"]
-    z_bins = conf["survey"]["metacal"]["z_bins"]
-    n_z_bins = len(z_bins)
-
-    # FIXME correct metacal bias
-    tomo_bias = conf["survey"]["metacal"]["bias"]
 
     lmax = 3 * n_side - 1
     l = hp.Alm.getlm(lmax)[0]
@@ -143,19 +138,20 @@ def main(indices, args):
 
     # set up the paths
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
-    cosmogrid_params = cosmogrid.get_parameters_list(meta_info_file, args.simset)
+    params_info = cosmogrid.get_parameter_info(meta_info_file, args.simset)
+    params_dir = params_info["path_par"]
 
     # permutation level
     dirs_in = [
         os.path.join(args.dir_in, param.decode("utf-8"), f"perm_{i:04d}")
-        for param in cosmogrid_params
+        for param in params_dir
         for i in range(n_perms_per_param)
     ]
 
     # parameter level
     dirs_out = [
         os.path.join(args.dir_out, param.decode("utf-8"))
-        for param in cosmogrid_params
+        for param in params_dir
         for _ in range(n_perms_per_param)
     ]
 
@@ -165,8 +161,10 @@ def main(indices, args):
     # other directories
     hp_datapath = os.path.join(args.repo_dir, conf["files"]["healpy_data"])
 
-    # index corresponds to simulation permutation (either on the grid or for the fiducial perturbations)
+    # index corresponds to simulation permutation (either on the grid or for the fiducial perturbations) ##############
     for index in indices:
+        LOGGER.timer.start("index")
+
         dir_in = dirs_in[index]  # permutation level
         dir_out = dirs_out[index]  # parameter level
         perm_id = index % n_perms_per_param
@@ -175,6 +173,7 @@ def main(indices, args):
         if not os.path.isdir(dir_out):
             input_output.robust_makedirs(dir_out)
 
+        # TODO copy the file to local scratch first?
         full_maps_file = get_filename_full_maps(dir_in)
 
         # output containers
@@ -182,9 +181,15 @@ def main(indices, args):
         if args.store_patches:
             data_patches = {}  # RING ordering and no padding
 
-        for map_type_in in conf["survey"]["map_types"]["full_sky"]:
+        for map_type_in in conf["survey"]["map_types"]["input"]:
+            LOGGER.info(f"Starting with input map type {map_type_in}")
+            LOGGER.timer.start("map_type")
+
+            # lensing, metacal sample #################################################################################
             z_bins = conf["survey"]["metacal"]["z_bins"]
             n_z_bins = len(z_bins)
+            # FIXME correct metacal bias
+            tomo_bias = conf["survey"]["metacal"]["bias"]
 
             if map_type_in in conf["survey"]["map_types"]["lensing"]:
                 map_type_out = map_type_in
@@ -344,6 +349,31 @@ def main(indices, args):
                 else:
                     raise NotImplementedError
 
+            # TODO
+            # clustering, maglim sample ###############################################################################
+            # z_bins = conf["survey"]["maglim"]["z_bins"]
+            # n_z_bins = len(z_bins)
+
+            # if map_type_in in conf["survey"]["map_types"]["lensing"]:
+            #     map_type_out = map_type_in
+            # elif map_type_in in conf["survey"]["map_types"]["clustering"]:
+            #     map_type_out = "sn"
+            #     if args.store_counts:
+            #         data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
+            #         if args.store_patches:
+            #             data_patches["ct"] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
+
+            # # TODO do every patch multiple times
+            # data_vectors[map_type_out] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
+            # if args.store_patches:
+            #     data_patches[map_type_out] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
+
+            # for i_z, z_bin in enumerate(z_bins):
+            #     pass
+
+            LOGGER.info(f"Done with map type {map_type_out} after {LOGGER.timer.elapsed('map_type')}")
+
+
         # save the results
         data_vec_file = get_filename_data_vectors(dir_out)
         save_output_container(
@@ -372,7 +402,7 @@ def main(indices, args):
             )
             LOGGER.info(f"Stored patches in {patches_file}")
 
-        LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('main')}")
+        LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
 
 
@@ -460,6 +490,19 @@ def tf_noise_gen(samples, seg_ids):
 def save_output_container(
     label, filename, output_container, perm_id, n_perms_per_param, n_patches, output_len, n_z_bins
 ):
+    """Saves an .h5 file collecting all results on the level of the cosmological parameters (so for different 
+    permutations/runs and patches)
+
+    Args:
+        label (str): either "datavectors" or "patches"
+        filename (str): path to the output .h5 file
+        output_container (_type_): _description_
+        perm_id (_type_): _description_
+        n_perms_per_param (_type_): _description_
+        n_patches (_type_): _description_
+        output_len (_type_): _description_
+        n_z_bins (_type_): _description_
+    """
     with h5py.File(filename, "a") as f:
         for map_type in output_container.keys():
             try:
@@ -483,10 +526,12 @@ if __name__ == "__main__":
         "--max_sleep=0",
         "--debug",
         "--verbosity=debug",
-        "--store_counts"
+        "--store_counts",
     ]
 
     # indices = [0, 1, 2, 3]
     indices = [0]
     for _ in main(indices, args):
         pass
+
+    LOGGER.info(f"Done with main after {LOGGER.timer.elapsed('main')}")
