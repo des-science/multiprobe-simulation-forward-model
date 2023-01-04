@@ -48,6 +48,7 @@ def setup(args):
     parser.add_argument(
         "--simset", type=str, default="grid", choices=("grid", "fiducial"), help="set of simulations to use"
     )
+    parser.add_argument("--with_bary", action="store_true", help="activate debug mode")
     parser.add_argument(
         "--dir_in",
         type=str,
@@ -102,10 +103,10 @@ def main(indices, args):
     # set up the paths
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
     params_info = cosmogrid.get_parameter_info(meta_info_file, args.simset)
-    params_dir = params_info["path_par"]
+    params_dir = [param_dir.decode("utf-8") for param_dir in params_info["path_par"]]
 
     # parameter level
-    dirs_in = [os.path.join(args.dir_in, param_dir.decode("utf-8")) for param_dir in params_dir]
+    dirs_in = [os.path.join(args.dir_in, param_dir) for param_dir in params_dir]
 
     n_params = len(dirs_in)
     LOGGER.info(f"Got simulation set {args.simset} of size {n_params} with base path {args.dir_in}")
