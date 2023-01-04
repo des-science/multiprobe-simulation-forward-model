@@ -38,7 +38,7 @@ import healpy as hp
 
 
 def resources(args):
-    return dict(main_memory=2000, main_time=4, main_scratch=0, main_n_cores=16)
+    return dict(main_memory=2000, main_time=4, main_scratch=0, main_n_cores=8)
 
 
 def setup(args):
@@ -105,6 +105,7 @@ def main(indices, args):
 
     LOGGER.timer.start("main")
     LOGGER.info(f"Got index set of size {len(indices)}")
+    LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
 
     if args.debug:
         args.max_sleep = 0
@@ -496,7 +497,7 @@ def tf_noise_gen(samples, seg_ids):
 
 
 def save_output_container(
-    label, filename, output_container, perm_id, n_perms_per_param, n_patches, output_len, n_z_bins
+    label, filename, output_container, i_perm, n_perms_per_param, n_patches, output_len, n_z_bins
 ):
     """Saves an .h5 file collecting all results on the level of the cosmological parameters (so for different
     permutations/runs and patches)
@@ -504,12 +505,12 @@ def save_output_container(
     Args:
         label (str): either "datavectors" or "patches"
         filename (str): path to the output .h5 file
-        output_container (_type_): _description_
-        perm_id (_type_): _description_
-        n_perms_per_param (_type_): _description_
-        n_patches (_type_): _description_
-        output_len (_type_): _description_
-        n_z_bins (_type_): _description_
+        output_container (dict): Dictionary of arrays of shape (n_patches, output_len, n_z_bins)
+        i_perm (int): Index of the permutation
+        n_perms_per_param (int): 
+        n_patches (int): 
+        output_len (int): 
+        n_z_bins (int): 
     """
     with h5py.File(filename, "a") as f:
         for map_type in output_container.keys():
@@ -517,9 +518,9 @@ def save_output_container(
                 # create dataset for every parameter level directory, collecting the permutation levels
                 f.create_dataset(name=map_type, shape=(n_perms_per_param * n_patches, output_len, n_z_bins))
             except ValueError:
-                LOGGER.warning(f"dataset {map_type} already exists in {filename}")
+                LOGGER.debug(f"dataset {map_type} already exists in {filename}")
 
-            f[map_type][n_patches * perm_id : n_patches * (perm_id + 1)] = output_container[map_type]
+            f[map_type][n_patches * i_perm : n_patches * (i_perm + 1)] = output_container[map_type]
     LOGGER.info(f"Stored {label} in {filename}")
 
 
