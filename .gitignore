@@ -10,6 +10,7 @@
 !data/*.hdf5
 
 # repository specific
+esub_logs
 notebooks/temp
 data/DESY3_noise.h5
 .vscode

@@ -36,7 +36,7 @@ import healpy as hp
 
 
 def resources(args):
-    return dict(main_memory=1000, main_time_per_index=4)
+    return dict(main_memory=4000, main_time=4, main_scratch=0, main_n_cores=4)
 
 
 def setup(args):
@@ -101,6 +101,7 @@ def main(indices, args):
     args = setup(args)
 
     LOGGER.timer.start("main")
+    LOGGER.info(f"Got index set of size {len(indices)}")
 
     if args.debug:
         args.max_sleep = 0
@@ -150,9 +151,7 @@ def main(indices, args):
 
     # parameter level
     dirs_out = [
-        os.path.join(args.dir_out, param.decode("utf-8"))
-        for param in params_dir
-        for _ in range(n_perms_per_param)
+        os.path.join(args.dir_out, param.decode("utf-8")) for param in params_dir for _ in range(n_perms_per_param)
     ]
 
     n_params = len(dirs_in)
@@ -373,7 +372,6 @@ def main(indices, args):
 
             LOGGER.info(f"Done with map type {map_type_out} after {LOGGER.timer.elapsed('map_type')}")
 
-
         # save the results
         data_vec_file = get_filename_data_vectors(dir_out)
         save_output_container(
@@ -490,7 +488,7 @@ def tf_noise_gen(samples, seg_ids):
 def save_output_container(
     label, filename, output_container, perm_id, n_perms_per_param, n_patches, output_len, n_z_bins
 ):
-    """Saves an .h5 file collecting all results on the level of the cosmological parameters (so for different 
+    """Saves an .h5 file collecting all results on the level of the cosmological parameters (so for different
     permutations/runs and patches)
 
     Args:
