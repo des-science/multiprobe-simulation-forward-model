@@ -54,6 +54,7 @@ def setup(args):
     parser.add_argument(
         "--simset", type=str, default="grid", choices=("grid", "fiducial"), help="set of simulations to use"
     )
+    parser.add_argument("--with_bary", action="store_true", help="activate debug mode")
     parser.add_argument(
         "--dir_in",
         type=str,
@@ -140,19 +141,19 @@ def main(indices, args):
     # set up the paths
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
     params_info = cosmogrid.get_parameter_info(meta_info_file, args.simset)
-    params_dir = params_info["path_par"]
+    params_dir = [param_dir.decode("utf-8") for param_dir in params_info["path_par"]]
+
+    # remove baryon perturbations for the fiducial set
+    if args.simset == "fiducial" and not args.with_bary:
+        params_dir = [param_dir for param_dir in params_dir if not "bary" in param_dir]
 
     # permutation level
     dirs_in = [
-        os.path.join(args.dir_in, param.decode("utf-8"), f"perm_{i:04d}")
-        for param in params_dir
-        for i in range(n_perms_per_param)
+        os.path.join(args.dir_in, param, f"perm_{i:04d}") for param in params_dir for i in range(n_perms_per_param)
     ]
 
     # parameter level
-    dirs_out = [
-        os.path.join(args.dir_out, param.decode("utf-8")) for param in params_dir for _ in range(n_perms_per_param)
-    ]
+    dirs_out = [os.path.join(args.dir_out, param) for param in params_dir for _ in range(n_perms_per_param)]
 
     n_params = len(dirs_in)
     LOGGER.info(f"Got simulation set {args.simset} of size {n_params} with base path {args.dir_in}")
@@ -173,7 +174,7 @@ def main(indices, args):
             input_output.robust_makedirs(dir_out)
 
         # TODO copy the file to local scratch first?
-        full_maps_file = get_filename_full_maps(dir_in)
+        full_maps_file = get_filename_full_maps(dir_in, with_bary=args.with_bary)
 
         # output containers
         data_vectors = {}  # NEST ordering and padding
@@ -507,7 +508,7 @@ def save_output_container(
                 # create dataset for every parameter level directory, collecting the permutation levels
                 f.create_dataset(name=map_type, shape=(n_perms_per_param * n_patches, output_len, n_z_bins))
             except ValueError:
-                LOGGER.info(f"dataset {map_type} already exists in {filename}")
+                LOGGER.warning(f"dataset {map_type} already exists in {filename}")
 
             f[map_type][n_patches * perm_id : n_patches * (perm_id + 1)] = output_container[map_type]
     LOGGER.info(f"Stored {label} in {filename}")
