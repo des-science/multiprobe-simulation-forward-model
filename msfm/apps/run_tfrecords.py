@@ -16,6 +16,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import os, argparse, warnings, h5py
 
+from numpy.random import default_rng
 from numba import njit
 from icecream import ic
 
@@ -71,6 +72,7 @@ def setup(args):
         default="configs/config.yaml",
         help="configuration yaml file",
     )
+    parser.add_argument("--np_seed", type=int, default=7, help="random seed to shuffle the patches")
     parser.add_argument("--debug", action="store_true", help="activate debug mode")
 
     args, _ = parser.parse_known_args(args)
@@ -81,8 +83,6 @@ def setup(args):
 
 
 def main(indices, args):
-    ic(len(indices))
-
     args = setup(args)
 
     LOGGER.timer.start("main")
@@ -93,8 +93,6 @@ def main(indices, args):
 
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
     params_info = cosmogrid.get_parameter_info(meta_info_file, args.simset)
-
-    ic(params_info.shape)
 
     # constants
     n_patches = conf["analysis"]["n_patches"]
@@ -124,10 +122,11 @@ def main(indices, args):
         )
 
     # shuffle the indices
-    ind_shape = [n_params, n_examples_per_param]
-    # TODO fix random seed
-    ind_shuffle = np.random.permutation(n_examples)
+    ind_shape = (n_params, n_examples_per_param)
+    rng = default_rng(seed=args.np_seed)
+    ind_shuffle = rng.permutation(n_examples)
     LOGGER.info(f"Iterating over {n_examples} indices of shape {ind_shape}")
+    assert n_examples == np.prod(ind_shape)
 
     LOGGER.debug(f"n_files = {n_files}")
     LOGGER.debug(f"n_examples_per_file = {n_examples_per_file}")
@@ -137,7 +136,7 @@ def main(indices, args):
         file_tfrecord = get_filename_tfrecords(
             args.dir_out, tag=conf["survey"]["name"], index=index, simset=args.simset
         )
-        LOGGER.info(f"Writing .tfrecord to {file_tfrecord}")
+        LOGGER.info(f"Index {index} is writing to {file_tfrecord}")
 
         js = index * n_examples_per_file
         je = (index + 1) * n_examples_per_file
@@ -153,11 +152,10 @@ def main(indices, args):
 
                 # get the indices to parameter and patch
                 ind_param, ind_example = np.unravel_index(ind_shuffle[j], ind_shape)
-                ic(ind_param)
-                ic(ind_example)
+                LOGGER.debug(f"j = {j} in range({js},{je}): ind_param={ind_param} ind_example={ind_example}")
 
-                ind_param = 0
-                ind_example = 0
+                # ind_param = 0
+                # ind_example = 0
 
                 # maps
                 dir_param = dirs_in[ind_param]
@@ -167,6 +165,8 @@ def main(indices, args):
                 # labels
                 cosmo = np.array([params_info[ind_param][p] for p in conf["analysis"]["cosmo"]], dtype=np.float32)
                 sobol = params_info[ind_param]["sobol_index"]
+                LOGGER.debug(f"cosmo = {cosmo}")
+                LOGGER.debug(f"sobol seed = {sobol}")
 
                 serialized = tfrecords.parse_forward_maps(kg, ia, sn, cosmo, sobol).SerializeToString()
 
@@ -191,15 +191,8 @@ def load_datavectors(filename, ind_example):
         kg = f["kg"][ind_example, ...]
         ia = f["ia"][ind_example, ...]
         sn = f["sn"][ind_example, ...]
-        # dg = f["dg"][:]
 
-        # maps = []
-        # for map_type in f.keys():
-
-        # ic(f.keys())
-        # ic(f["kg"].shape)
-        # ic(f["kg"].shape)
-
+    LOGGER.debug(f"Successfully loaded file {filename}")
     return kg, ia, sn
 
 
@@ -215,8 +208,8 @@ if __name__ == "__main__":
         "--verbosity=debug",
     ]
 
-    # indices = [0, 1, 2, 3]
-    indices = [0]
+    indices = [0, 1, 2, 3]
+    # indices = [0]
     for _ in main(indices, args):
         pass
 
