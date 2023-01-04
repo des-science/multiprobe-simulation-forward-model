@@ -170,7 +170,7 @@ def main(indices, args):
             input_output.robust_makedirs(param_dir_out)
         LOGGER.info(f"Index {index} takes input from {param_dir_in}")
 
-        for i_perm in range(n_perms_per_param):
+        for i_perm in LOGGER.progressbar(range(n_perms_per_param), desc='testing logger', at_level='info'):
             LOGGER.timer.start("permutation")
             LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
