@@ -6,6 +6,8 @@ Author: Arne Thomsen
 
 Transform the full sky weak lensing signal and intrinsic alignment maps into multiple survey footprint cut-outs,
 both for the fiducial and the grid cosmology
+
+Meant for Euler (CPU nodes, local scratch)
 """
 
 import numpy as np
@@ -403,6 +405,12 @@ def main(indices, args):
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
+
+def merge(indices, args):
+    x = []
+    # for index in indices:
+    #     x.append(load(index))
+    # save(x, "full_dataset")
 
 
 def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath=None):
