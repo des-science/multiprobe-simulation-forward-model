@@ -374,7 +374,7 @@ def main(indices, args):
             LOGGER.info(f"Done with map type {map_type_out} after {LOGGER.timer.elapsed('map_type')}")
 
         # save the results
-        data_vec_file = get_filename_data_vectors(dir_out)
+        data_vec_file = get_filename_data_vectors(dir_out, args.with_bary)
         save_output_container(
             "datavectors",
             data_vec_file,
@@ -388,7 +388,7 @@ def main(indices, args):
         LOGGER.info(f"Stored datavectors in {data_vec_file}")
 
         if args.store_patches:
-            patches_file = get_filename_data_patches(dir_out)
+            patches_file = get_filename_data_patches(dir_out, args.with_bary)
             save_output_container(
                 "patches",
                 patches_file,

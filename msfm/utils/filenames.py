@@ -1,10 +1,20 @@
 import os, sys
 
-def get_filename_data_vectors(out_dir):
-    return os.path.join(out_dir, "data_vectors.h5")
+def get_filename_data_vectors(out_dir, with_bary=False):
+    if with_bary:
+        file_name = "data_vectors_baryonified.h5"
+    else:
+        file_name = "data_vectors_nobaryons.h5"
 
-def get_filename_data_patches(out_dir):
-    return os.path.join(out_dir, "data_patches.h5")
+    return os.path.join(out_dir, file_name)
+
+def get_filename_data_patches(out_dir, with_bary=False):
+    if with_bary:
+        file_name = "data_patches_baryonified.h5"
+    else:
+        file_name = "data_patches_nobaryons.h5"
+
+    return os.path.join(out_dir, file_name)
 
 def get_filename_full_maps(grid_dir, with_bary=False):
     if with_bary:
