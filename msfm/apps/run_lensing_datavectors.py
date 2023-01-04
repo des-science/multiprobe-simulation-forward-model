@@ -38,7 +38,7 @@ import healpy as hp
 
 
 def resources(args):
-    return dict(main_memory=4000, main_time=4, main_scratch=0, main_n_cores=4)
+    return dict(main_memory=2000, main_time=4, main_scratch=0, main_n_cores=16)
 
 
 def setup(args):
@@ -170,6 +170,7 @@ def main(indices, args):
         LOGGER.info(f"Index {index} takes input from {param_dir_in}")
 
         for i_perm in range(n_perms_per_param):
+            LOGGER.timer.start("permutation")
             LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
             # TODO copy the file to local scratch first?
@@ -375,36 +376,35 @@ def main(indices, args):
 
                 LOGGER.info(f"Done with map type {map_type_out} after {LOGGER.timer.elapsed('map_type')}")
 
-                # save the results
-                data_vec_file = get_filename_data_vectors(param_dir_out, args.with_bary)
+            # save the results
+            data_vec_file = get_filename_data_vectors(param_dir_out, args.with_bary)
+            save_output_container(
+                "datavectors",
+                data_vec_file,
+                data_vectors,
+                i_perm,
+                n_perms_per_param,
+                n_patches,
+                data_vec_len,
+                n_z_bins,
+            )
+
+            if args.store_patches:
+                patches_file = get_filename_data_patches(param_dir_out, args.with_bary)
                 save_output_container(
-                    "datavectors",
-                    data_vec_file,
-                    data_vectors,
+                    "patches",
+                    patches_file,
+                    data_patches,
                     i_perm,
                     n_perms_per_param,
                     n_patches,
-                    data_vec_len,
+                    patches_len,
                     n_z_bins,
                 )
-                LOGGER.info(f"Stored datavectors in {data_vec_file}")
+            LOGGER.info(f"Done with permutation {i_perm:04d} after {LOGGER.timer.elapsed('permutation')}")
 
-                if args.store_patches:
-                    patches_file = get_filename_data_patches(param_dir_out, args.with_bary)
-                    save_output_container(
-                        "patches",
-                        patches_file,
-                        data_patches,
-                        i_perm,
-                        n_perms_per_param,
-                        n_patches,
-                        patches_len,
-                        n_z_bins,
-                    )
-                    LOGGER.info(f"Stored patches in {patches_file}")
-
-            LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
-            yield index
+        LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
+        yield index
 
 
 # def merge(indices, args):
