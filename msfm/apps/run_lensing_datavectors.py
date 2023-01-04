@@ -149,283 +149,284 @@ def main(indices, args):
     if args.simset == "fiducial" and not args.with_bary:
         params_dir = [param_dir for param_dir in params_dir if not "bary" in param_dir]
 
-    # permutation level
-    dirs_in = [
-        os.path.join(args.dir_in, param, f"perm_{i:04d}") for param in params_dir for i in range(n_perms_per_param)
-    ]
-
     # parameter level
-    dirs_out = [os.path.join(args.dir_out, param) for param in params_dir for _ in range(n_perms_per_param)]
+    params_dir_in = [os.path.join(args.dir_in, param) for param in params_dir]
+    params_dir_out = [os.path.join(args.dir_out, param) for param in params_dir]
 
-    n_params = len(dirs_in)
+    n_params = len(params_dir_in)
     LOGGER.info(f"Got simulation set {args.simset} of size {n_params} with base path {args.dir_in}")
 
     # other directories
     hp_datapath = os.path.join(args.repo_dir, conf["files"]["healpy_data"])
 
-    # index corresponds to simulation permutation (either on the grid or for the fiducial perturbations) ##############
+    # index corresponds to a cosmological parameter (either on the grid or for the fiducial perturbations) ############
     for index in indices:
         LOGGER.timer.start("index")
 
-        dir_in = dirs_in[index]  # permutation level
-        dir_out = dirs_out[index]  # parameter level
-        perm_id = index % n_perms_per_param
-        LOGGER.info(f"Index {index} takes input from {dir_in}")
+        param_dir_in = params_dir_in[index]
+        param_dir_out = params_dir_out[index]
+        if not os.path.isdir(param_dir_out):
+            input_output.robust_makedirs(param_dir_out)
+        LOGGER.info(f"Index {index} takes input from {param_dir_in}")
 
-        if not os.path.isdir(dir_out):
-            input_output.robust_makedirs(dir_out)
+        for i_perm in range(n_perms_per_param):
+            LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
-        # TODO copy the file to local scratch first?
-        full_maps_file = get_filename_full_maps(dir_in, with_bary=args.with_bary)
+            # TODO copy the file to local scratch first?
+            perm_dir_in = os.path.join(param_dir_in, f"perm_{i_perm:04d}")
+            full_maps_file = get_filename_full_maps(perm_dir_in, with_bary=args.with_bary)
 
-        # output containers
-        data_vectors = {}  # NEST ordering and padding
-        if args.store_patches:
-            data_patches = {}  # RING ordering and no padding
-
-        for map_type_in in conf["survey"]["map_types"]["input"]:
-            LOGGER.info(f"Starting with input map type {map_type_in}")
-            LOGGER.timer.start("map_type")
-
-            # lensing, metacal sample #################################################################################
-            z_bins = conf["survey"]["metacal"]["z_bins"]
-            n_z_bins = len(z_bins)
-            # FIXME correct metacal bias
-            tomo_bias = conf["survey"]["metacal"]["bias"]
-
-            if map_type_in in conf["survey"]["map_types"]["lensing"]:
-                map_type_out = map_type_in
-            elif map_type_in in conf["survey"]["map_types"]["clustering"]:
-                map_type_out = "sn"
-                if args.store_counts:
-                    data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-                    if args.store_patches:
-                        data_patches["ct"] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
-
-            # TODO do every patch multiple times
-            data_vectors[map_type_out] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
+            # output containers
+            data_vectors = {}  # NEST ordering and padding
             if args.store_patches:
-                data_patches[map_type_out] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
+                data_patches = {}  # RING ordering and no padding
 
-            for i_z, z_bin in enumerate(z_bins):
-                # only consider this tomographic bin
-                patches_pix = tomo_patches_pix[i_z]
-                corresponding_pix = tomo_corresponding_pix[i_z]
+            for map_type_in in conf["survey"]["map_types"]["input"]:
+                LOGGER.info(f"Starting with input map type {map_type_in}")
+                LOGGER.timer.start("map_type")
 
-                # base (rotated) footprint
-                base_patch_pix = patches_pix[0]
+                # lensing, metacal sample #############################################################################
+                z_bins = conf["survey"]["metacal"]["z_bins"]
+                n_z_bins = len(z_bins)
+                # FIXME correct metacal bias
+                tomo_bias = conf["survey"]["metacal"]["bias"]
 
-                # load the full sky maps for the metacal redshift bins
-                map_dir = f"{map_type_in}/{z_bin}"
-                with h5py.File(full_maps_file, "r") as f:
-                    map_full = f[map_dir][:]
-                LOGGER.info(f"Loaded {map_dir} from {full_maps_file}")
-
-                # lensing signal and intrinsic alignment
                 if map_type_in in conf["survey"]["map_types"]["lensing"]:
-                    kappa_full = map_full
-
-                    # remove mean
-                    kappa_full -= np.mean(kappa_full)
-
-                    # kappa -> gamma (full sky)
-                    kappa_alm = hp.map2alm(kappa_full, lmax=lmax, use_pixel_weights=True, datapath=hp_datapath)
-                    gamma_alm = kappa_alm * kappa2gamma_fac
-                    _, gamma1_full, gamma2_full = hp.alm2map(
-                        [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
-                    )
-
-                    for i_patch, patch_pix in enumerate(patches_pix):
-                        LOGGER.info(f"Starting with patch index {i_patch}")
-
-                        # The 90° rots do NOT change the shear, however, the mirroring does,
-                        # therefore we have to swap sign of gamma2 for the last 2 patches!
-                        gamma2_sign = gamma2_signs[i_patch]
-                        LOGGER.debug(f"Using gamma2 sign {gamma2_sign}")
-
-                        # TODO each patch is done multiple times
-
-                        # masking TODO use Janis' memory efficient numba function?
-                        gamma1_patch = np.zeros(n_pix, dtype=np.float32)
-                        gamma1_patch[base_patch_pix] = gamma1_full[patch_pix]
-
-                        gamma2_patch = np.zeros(n_pix, dtype=np.float32)
-                        gamma2_patch[base_patch_pix] = gamma2_full[patch_pix]
-
-                        # fix the sign
-                        gamma2_patch *= gamma2_sign
-
-                        kappa_patch = mode_removal(
-                            gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
-                        )
-
-                        # cut out padded data vector
-                        kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
-
-                        data_vectors[map_type_out][i_patch, :, i_z] = kappa_dv
-                        if args.store_patches:
-                            data_patches[map_type_out][i_patch, :, i_z] = kappa_patch[patches_pix]
-
-                # galaxy clustering map to generate the noise
+                    map_type_out = map_type_in
                 elif map_type_in in conf["survey"]["map_types"]["clustering"]:
-                    delta_full = map_full
-
-                    # only consider this tomographic bin
-                    n_bar = tomo_n_bar[i_z]
-                    bias = tomo_bias[i_z]
-                    gamma_cat = tomo_gamma_cat[i_z]
-                    n_gals_cat = gamma_cat.shape[0]
-
-                    # normalize to number density contrast
-                    delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
-
-                    # number of galaxies per pixel
-                    counts_full = n_bar * (1 + bias * delta_full)
-                    counts_full = np.where(0 < counts_full, counts_full, 0)
-                    counts_full = np.random.poisson(counts_full)
-
-                    for i_patch, patch_pix in enumerate(patches_pix):
-                        LOGGER.info(f"Starting with patch index {i_patch}")
-                        LOGGER.timer.start("noise_gen")
-
-                        # not a full healpy map, just the patch with no zeros
-                        counts_patch = counts_full[patch_pix]
-                        n_gals_patch = np.sum(counts_patch)
-
-                        # TODO Could be done like https://www.tensorflow.org/guide/function#accumulating_values_in_a_loop
-                        # and could probably include most of what's underneath in one large tf.function
-
-                        # indices to sum over all of the galaxies in the individual pixels
-                        seg_ids = []
-                        for id, n_gals in enumerate(counts_patch):
-                            seg_ids.extend(n_gals * [id])
-
-                        # inputs to the tf.function have to be tensors
-                        seg_ids = tf.constant(seg_ids, dtype=tf.int32)
-
-                        # randomize TODO set random seed on operator level?
-                        phase = tf.random.uniform(shape=(n_gals_cat,), minval=0, maxval=2 * np.pi)
-                        gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
-                        gamma1 = tf.math.cos(phase) * gamma_abs
-                        gamma2 = tf.math.sin(phase) * gamma_abs
-
-                        # TODO sample within the tf.function? Could be a bit faster
-                        # joint samples for e1, e2 and w, this is faster than random indexing
-                        emp_dist = tfp.distributions.Empirical(
-                            samples=tf.stack([gamma1, gamma2, gamma_cat[:, 2]], axis=1), event_ndims=1
-                        )
-
-                        samples = emp_dist.sample(sample_shape=n_gals_patch)
-
-                        gamma1, gamma2 = tf_noise_gen(samples, seg_ids)
-                        LOGGER.debug(f"Noise generation successfull after {LOGGER.timer.elapsed('noise_gen')}")
-                        LOGGER.timer.start("mode_removal")
-
-                        gamma1_patch = np.zeros(n_pix, dtype=np.float32)
-                        gamma1_patch[base_patch_pix] = gamma1
-
-                        gamma2_patch = np.zeros(n_pix, dtype=np.float32)
-                        gamma2_patch[base_patch_pix] = gamma2
-
-                        kappa_patch = mode_removal(
-                            gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
-                        )
-                        LOGGER.debug(f"Mode removal successfull after {LOGGER.timer.elapsed('mode_removal')}")
-
-                        # cut out padded data vector
-                        kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
-
-                        data_vectors[map_type_out][i_patch, :, i_z] = kappa_dv
+                    map_type_out = "sn"
+                    if args.store_counts:
+                        data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
                         if args.store_patches:
-                            data_patches[map_type_out][i_patch, :, i_z] = kappa_patch[patches_pix]
+                            data_patches["ct"] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
 
-                        if args.store_counts:
-                            # correct cut out procedure involves a full sky map
-                            counts_patch_map = np.zeros(n_pix, dtype=np.float32)
-                            counts_patch_map[base_patch_pix] = counts_patch
-                            counts_dv = get_data_vec(counts_patch_map, data_vec_len, corresponding_pix, base_patch_pix)
-                            data_vectors["ct"][i_patch, :, i_z] = counts_dv
+                # TODO do every patch multiple times
+                data_vectors[map_type_out] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
+                if args.store_patches:
+                    data_patches[map_type_out] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
+
+                for i_z, z_bin in enumerate(z_bins):
+                    # only consider this tomographic bin
+                    patches_pix = tomo_patches_pix[i_z]
+                    corresponding_pix = tomo_corresponding_pix[i_z]
+
+                    # base (rotated) footprint
+                    base_patch_pix = patches_pix[0]
+
+                    # load the full sky maps for the metacal redshift bins
+                    map_dir = f"{map_type_in}/{z_bin}"
+                    with h5py.File(full_maps_file, "r") as f:
+                        map_full = f[map_dir][:]
+                    LOGGER.info(f"Loaded {map_dir} from {full_maps_file}")
+
+                    # lensing signal and intrinsic alignment
+                    if map_type_in in conf["survey"]["map_types"]["lensing"]:
+                        kappa_full = map_full
+
+                        # remove mean
+                        kappa_full -= np.mean(kappa_full)
+
+                        # kappa -> gamma (full sky)
+                        kappa_alm = hp.map2alm(kappa_full, lmax=lmax, use_pixel_weights=True, datapath=hp_datapath)
+                        gamma_alm = kappa_alm * kappa2gamma_fac
+                        _, gamma1_full, gamma2_full = hp.alm2map(
+                            [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
+                        )
+
+                        for i_patch, patch_pix in enumerate(patches_pix):
+                            LOGGER.info(f"Starting with patch index {i_patch}")
+
+                            # The 90° rots do NOT change the shear, however, the mirroring does,
+                            # therefore we have to swap sign of gamma2 for the last 2 patches!
+                            gamma2_sign = gamma2_signs[i_patch]
+                            LOGGER.debug(f"Using gamma2 sign {gamma2_sign}")
+
+                            # TODO each patch is done multiple times
+
+                            # masking TODO use Janis' memory efficient numba function?
+                            gamma1_patch = np.zeros(n_pix, dtype=np.float32)
+                            gamma1_patch[base_patch_pix] = gamma1_full[patch_pix]
+
+                            gamma2_patch = np.zeros(n_pix, dtype=np.float32)
+                            gamma2_patch[base_patch_pix] = gamma2_full[patch_pix]
+
+                            # fix the sign
+                            gamma2_patch *= gamma2_sign
+
+                            kappa_patch = mode_removal(
+                                gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
+                            )
+
+                            # cut out padded data vector
+                            kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
+
+                            data_vectors[map_type_out][i_patch, :, i_z] = kappa_dv
                             if args.store_patches:
-                                data_patches["ct"][i_patch, :, i_z] = counts_patch[patches_pix]
+                                data_patches[map_type_out][i_patch, :, i_z] = kappa_patch[patches_pix]
 
-                else:
-                    raise NotImplementedError
+                    # galaxy clustering map to generate the noise
+                    elif map_type_in in conf["survey"]["map_types"]["clustering"]:
+                        delta_full = map_full
 
-            # TODO
-            # clustering, maglim sample ###############################################################################
-            # z_bins = conf["survey"]["maglim"]["z_bins"]
-            # n_z_bins = len(z_bins)
+                        # only consider this tomographic bin
+                        n_bar = tomo_n_bar[i_z]
+                        bias = tomo_bias[i_z]
+                        gamma_cat = tomo_gamma_cat[i_z]
+                        n_gals_cat = gamma_cat.shape[0]
 
-            # if map_type_in in conf["survey"]["map_types"]["lensing"]:
-            #     map_type_out = map_type_in
-            # elif map_type_in in conf["survey"]["map_types"]["clustering"]:
-            #     map_type_out = "sn"
-            #     if args.store_counts:
-            #         data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-            #         if args.store_patches:
-            #             data_patches["ct"] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
+                        # normalize to number density contrast
+                        delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
 
-            # # TODO do every patch multiple times
-            # data_vectors[map_type_out] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-            # if args.store_patches:
-            #     data_patches[map_type_out] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
+                        # number of galaxies per pixel
+                        counts_full = n_bar * (1 + bias * delta_full)
+                        counts_full = np.where(0 < counts_full, counts_full, 0)
+                        counts_full = np.random.poisson(counts_full)
 
-            # for i_z, z_bin in enumerate(z_bins):
-            #     pass
+                        for i_patch, patch_pix in enumerate(patches_pix):
+                            LOGGER.info(f"Starting with patch index {i_patch}")
+                            LOGGER.timer.start("noise_gen")
 
-            LOGGER.info(f"Done with map type {map_type_out} after {LOGGER.timer.elapsed('map_type')}")
+                            # not a full healpy map, just the patch with no zeros
+                            counts_patch = counts_full[patch_pix]
+                            n_gals_patch = np.sum(counts_patch)
 
-        # save the results
-        data_vec_file = get_filename_data_vectors(dir_out, args.with_bary)
-        save_output_container(
-            "datavectors",
-            data_vec_file,
-            data_vectors,
-            perm_id,
-            n_perms_per_param,
-            n_patches,
-            data_vec_len,
-            n_z_bins,
-        )
-        LOGGER.info(f"Stored datavectors in {data_vec_file}")
+                            # TODO Could be done like https://www.tensorflow.org/guide/function#accumulating_values_in_a_loop
+                            # and could probably include most of what's underneath in one large tf.function
 
-        if args.store_patches:
-            patches_file = get_filename_data_patches(dir_out, args.with_bary)
-            save_output_container(
-                "patches",
-                patches_file,
-                data_patches,
-                perm_id,
-                n_perms_per_param,
-                n_patches,
-                patches_len,
-                n_z_bins,
-            )
-            LOGGER.info(f"Stored patches in {patches_file}")
+                            # indices to sum over all of the galaxies in the individual pixels
+                            seg_ids = []
+                            for id, n_gals in enumerate(counts_patch):
+                                seg_ids.extend(n_gals * [id])
 
-        LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
-        yield index
+                            # inputs to the tf.function have to be tensors
+                            seg_ids = tf.constant(seg_ids, dtype=tf.int32)
 
-def merge(indices, args):
-    x = []
-    # for index in indices:
-    #     x.append(load(index))
-    # save(x, "full_dataset")
+                            # randomize TODO set random seed on operator level?
+                            phase = tf.random.uniform(shape=(n_gals_cat,), minval=0, maxval=2 * np.pi)
+                            gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
+                            gamma1 = tf.math.cos(phase) * gamma_abs
+                            gamma2 = tf.math.sin(phase) * gamma_abs
+
+                            # TODO sample within the tf.function? Could be a bit faster
+                            # joint samples for e1, e2 and w, this is faster than random indexing
+                            emp_dist = tfp.distributions.Empirical(
+                                samples=tf.stack([gamma1, gamma2, gamma_cat[:, 2]], axis=1), event_ndims=1
+                            )
+
+                            samples = emp_dist.sample(sample_shape=n_gals_patch)
+
+                            gamma1, gamma2 = tf_noise_gen(samples, seg_ids)
+                            LOGGER.debug(f"Noise generation successfull after {LOGGER.timer.elapsed('noise_gen')}")
+                            LOGGER.timer.start("mode_removal")
+
+                            gamma1_patch = np.zeros(n_pix, dtype=np.float32)
+                            gamma1_patch[base_patch_pix] = gamma1
+
+                            gamma2_patch = np.zeros(n_pix, dtype=np.float32)
+                            gamma2_patch[base_patch_pix] = gamma2
+
+                            kappa_patch = mode_removal(
+                                gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
+                            )
+                            LOGGER.debug(f"Mode removal successfull after {LOGGER.timer.elapsed('mode_removal')}")
+
+                            # cut out padded data vector
+                            kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
+
+                            data_vectors[map_type_out][i_patch, :, i_z] = kappa_dv
+                            if args.store_patches:
+                                data_patches[map_type_out][i_patch, :, i_z] = kappa_patch[patches_pix]
+
+                            if args.store_counts:
+                                # correct cut out procedure involves a full sky map
+                                counts_patch_map = np.zeros(n_pix, dtype=np.float32)
+                                counts_patch_map[base_patch_pix] = counts_patch
+                                counts_dv = get_data_vec(
+                                    counts_patch_map, data_vec_len, corresponding_pix, base_patch_pix
+                                )
+                                data_vectors["ct"][i_patch, :, i_z] = counts_dv
+                                if args.store_patches:
+                                    data_patches["ct"][i_patch, :, i_z] = counts_patch[patches_pix]
+
+                    else:
+                        raise NotImplementedError
+
+                # TODO
+                # clustering, maglim sample ###########################################################################
+                # z_bins = conf["survey"]["maglim"]["z_bins"]
+                # n_z_bins = len(z_bins)
+
+                # if map_type_in in conf["survey"]["map_types"]["lensing"]:
+                #     map_type_out = map_type_in
+                # elif map_type_in in conf["survey"]["map_types"]["clustering"]:
+                #     map_type_out = "sn"
+                #     if args.store_counts:
+                #         data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
+                #         if args.store_patches:
+                #             data_patches["ct"] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
+
+                # # TODO do every patch multiple times
+                # data_vectors[map_type_out] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
+                # if args.store_patches:
+                #     data_patches[map_type_out] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
+
+                # for i_z, z_bin in enumerate(z_bins):
+                #     pass
+
+                LOGGER.info(f"Done with map type {map_type_out} after {LOGGER.timer.elapsed('map_type')}")
+
+                # save the results
+                data_vec_file = get_filename_data_vectors(param_dir_out, args.with_bary)
+                save_output_container(
+                    "datavectors",
+                    data_vec_file,
+                    data_vectors,
+                    i_perm,
+                    n_perms_per_param,
+                    n_patches,
+                    data_vec_len,
+                    n_z_bins,
+                )
+                LOGGER.info(f"Stored datavectors in {data_vec_file}")
+
+                if args.store_patches:
+                    patches_file = get_filename_data_patches(param_dir_out, args.with_bary)
+                    save_output_container(
+                        "patches",
+                        patches_file,
+                        data_patches,
+                        i_perm,
+                        n_perms_per_param,
+                        n_patches,
+                        patches_len,
+                        n_z_bins,
+                    )
+                    LOGGER.info(f"Stored patches in {patches_file}")
+
+            LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
+            yield index
+
+
+# def merge(indices, args):
+#     x = []
+# for index in indices:
+#     x.append(load(index))
+# save(x, "full_dataset")
 
 
 def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath=None):
     """Takes in survey patches of gamma maps and puts out survey patches of kappa maps that only contain E-modes
 
     Args:
-        gamma1_patch (_type_): _description_
-        gamma2_patch (_type_): _description_
-        gamma2kappa_fac (_type_): _description_
-        l_mask_fac (_type_): _description_
-        n_side (_type_): _description_
-        hp_datapath (_type_, optional): _description_. Defaults to None.
+        gamma1_patch (np.ndarray): Array of size n_pix, but only the survey patch is populated
+        gamma2_patch (np.ndarray): Same
+        gamma2kappa_fac (np.ndarray): Kaiser squires conversion factors
+        l_mask_fac (np.ndarray): Mask l = 0,1
+        n_side (int): Resolution of the map
+        hp_datapath (str, optional): Path to a healpy pixel weights file. Defaults to None.
 
     Returns:
-        _type_: _description_
+        np.ndarray: Array of size n_pix, but only the survey patch is populated
     """
     _, gamma_alm_E, gamma_alm_B = hp.map2alm(
         [np.zeros_like(gamma1_patch), gamma1_patch, gamma2_patch],
@@ -536,8 +537,8 @@ if __name__ == "__main__":
         "--store_counts",
     ]
 
-    # indices = [0, 1, 2, 3]
-    indices = [0]
+    indices = [0, 1, 2, 3]
+    # indices = [0]
     for _ in main(indices, args):
         pass
 
