@@ -49,7 +49,7 @@ survey:
       ]
 
 analysis:
-  cosmo: ["Om", "s8", "H0", "Ob", "ns", "w0"]
+  cosmo: ["H0", "Ob", "Om", "ns", "s8", "w0"]
   n_side: 512
   n_pix: 3145728
   n_patches: 4
