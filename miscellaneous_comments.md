@@ -2,3 +2,4 @@
   - on the SAN `/home/ipa/refreg/experiments/tomaszk/projects/220627_cosmogrid_desy3/001_perms/cosmogrid_desy3/CosmoGrid/DESY3`
   - at NERSC `/global/cfs/cdirs/des/cosmogrid/DESY3`
 - Start jupyter on Euler `./start_jupyter_nb.sh -u athomsen -l -W 04:00 --n 16 -m 2048 -s new -w /cluster/home/athomsen/des/repos/multiprobe-simulation-forward-model/notebooks`
+- Run on a set number of cores (for debugging in an interactive session): `taskset --cpu-list 0-16`  
