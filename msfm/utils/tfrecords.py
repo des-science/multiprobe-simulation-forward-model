@@ -70,7 +70,7 @@ def parse_inverse_maps(element):
     # return kg, ia, sn, dg, cosmo, sobol
     return kg, ia, sn, cosmo, sobol
 
-def parse_forward_fiducial(kg_perts, ia_perts, sn_perts):
+def parse_forward_fiducial(kg, ia, sn):
     """ The fiducials don't need a label and contain the perturbation for the delta loss with
     n_perts = 2 * n_params + 1
 
@@ -83,18 +83,18 @@ def parse_forward_fiducial(kg_perts, ia_perts, sn_perts):
         _type_: _description_
     """
     # assert kg.shape == ia.shape == sn.shape == dg.shape
-    assert kg_perts.shape == ia_perts.shape == sn_perts.shape
+    assert kg.shape == ia.shape == sn.shape
 
     # define the structure of a single example
     data = {
         # tensor shapes
-        "n_perts": _int64_feature(kg_perts.shape[0]),
-        "n_pix": _int64_feature(kg_perts.shape[1]),
-        "n_z_bins": _int64_feature(kg_perts.shape[2]),
+        "n_perts": _int64_feature(kg.shape[0]),
+        "n_pix": _int64_feature(kg.shape[1]),
+        "n_z_bins": _int64_feature(kg.shape[2]),
         # lensing, metacal
-        "kg": _bytes_feature(tf.io.serialize_tensor(kg_perts)),
-        "ia": _bytes_feature(tf.io.serialize_tensor(ia_perts)),
-        "sn": _bytes_feature(tf.io.serialize_tensor(sn_perts)),
+        "kg": _bytes_feature(tf.io.serialize_tensor(kg)),
+        "ia": _bytes_feature(tf.io.serialize_tensor(ia)),
+        "sn": _bytes_feature(tf.io.serialize_tensor(sn)),
         # clustering, maglim TODO
         # "dg": _bytes_feature(tf.io.serialize_tensor(dg)),
     }
