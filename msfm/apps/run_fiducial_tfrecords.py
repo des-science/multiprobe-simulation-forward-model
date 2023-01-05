@@ -35,7 +35,7 @@ LOGGER = logging.get_logger(__file__)
 
 
 def resources(args):
-    return dict(main_memory=1000, main_time=4, main_scratch=0, main_n_cores=8)
+    return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=1)
 
 
 def setup(args):
@@ -90,6 +90,8 @@ def main(indices, args):
     args = setup(args)
 
     LOGGER.timer.start("main")
+    LOGGER.info(f"Got index set of size {len(indices)}")
+    LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
 
     conf_file = os.path.join(args.repo_dir, args.config)
     conf = input_output.read_yaml(conf_file)
@@ -117,20 +119,18 @@ def main(indices, args):
     n_params = len(params_dir_in)
     LOGGER.info(f"Got simulation set fiducial of size {n_params} with base path {args.dir_in}")
 
-    n_files = len(indices)
-    if n_examples_per_param % n_files == 0:
-        n_examples_per_file = n_examples_per_param // n_files
+    if n_examples_per_param % args.n_files == 0:
+        n_examples_per_file = n_examples_per_param // args.n_files
     else:
         raise ValueError(
             f"The total number of examples per parameter {n_examples_per_param} "
-            f"has to be divisible by the number of files {n_files}"
+            f"has to be divisible by the number of files {args.n_files}"
         )
 
     # shuffle the indices
     rng = default_rng(seed=args.np_seed)
     i_examples = rng.permutation(n_examples_per_param)
 
-    LOGGER.debug(f"n_files = {n_files}")
     LOGGER.debug(f"n_examples_per_file = {n_examples_per_file}")
 
     # index corresponds to a .tfrecord file ###########################################################################
@@ -148,7 +148,7 @@ def main(indices, args):
         n_done = 0
         with tf.io.TFRecordWriter(file_tfrecord) as file_writer:
 
-            for j in LOGGER.progressbar(range(js, je), at_level="info", desc="Storing DES patches"):
+            for j in LOGGER.progressbar(range(js, je), at_level="info", desc="Storing DES patches\n", total=je-js):
                 if args.debug:
                     if n_done > 5:
                         LOGGER.warning("Debug mode, aborting after 5 subindices")
@@ -156,7 +156,7 @@ def main(indices, args):
 
                 # get the indices to the patch
                 i_example = i_examples[j]
-                LOGGER.debug(f"j = {j} in range({js},{je}): i_example={i_example}")
+                LOGGER.info(f"j = {j} in range({js},{je}): i_example = {i_example}")
 
                 # maps, loop over the perturbations in the right order
                 kg_perts, ia_perts, sn_perts = [], [], []
@@ -177,9 +177,10 @@ def main(indices, args):
 
                 # check correctness
                 inv_kg, inv_ia, inv_sn = tfrecords.parse_inverse_fiducial(serialized)
-                assert np.allclose(inv_kg, kg)
-                assert np.allclose(inv_ia, ia)
-                assert np.allclose(inv_sn, sn)
+
+                assert np.allclose(inv_kg, kg_perts)
+                assert np.allclose(inv_ia, ia_perts)
+                assert np.allclose(inv_sn, sn_perts)
 
                 file_writer.write(serialized)
 
