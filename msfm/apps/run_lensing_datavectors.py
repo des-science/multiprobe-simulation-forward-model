@@ -38,7 +38,7 @@ import healpy as hp
 
 
 def resources(args):
-    return dict(main_memory=2000, main_time=4, main_scratch=0, main_n_cores=8)
+    return dict(main_memory=1000, main_time=4, main_scratch=0, main_n_cores=8)
 
 
 def setup(args):
@@ -219,7 +219,7 @@ def main(indices, args):
                     map_dir = f"{map_type_in}/{z_bin}"
                     with h5py.File(full_maps_file, "r") as f:
                         map_full = f[map_dir][:]
-                    LOGGER.info(f"Loaded {map_dir} from {full_maps_file}")
+                    LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
 
                     # lensing signal and intrinsic alignment
                     if map_type_in in conf["survey"]["map_types"]["lensing"]:
@@ -236,7 +236,7 @@ def main(indices, args):
                         )
 
                         for i_patch, patch_pix in enumerate(patches_pix):
-                            LOGGER.info(f"Starting with patch index {i_patch}")
+                            LOGGER.debug(f"Starting with patch index {i_patch}")
 
                             # The 90° rots do NOT change the shear, however, the mirroring does,
                             # therefore we have to swap sign of gamma2 for the last 2 patches!
@@ -285,7 +285,7 @@ def main(indices, args):
                         counts_full = np.random.poisson(counts_full)
 
                         for i_patch, patch_pix in enumerate(patches_pix):
-                            LOGGER.info(f"Starting with patch index {i_patch}")
+                            LOGGER.debug(f"Starting with patch index {i_patch}")
                             LOGGER.timer.start("noise_gen")
 
                             # not a full healpy map, just the patch with no zeros
