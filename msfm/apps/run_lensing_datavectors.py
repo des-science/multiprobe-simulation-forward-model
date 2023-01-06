@@ -105,7 +105,10 @@ def main(indices, args):
 
     LOGGER.timer.start("main")
     LOGGER.info(f"Got index set of size {len(indices)}")
-    LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
+    try:
+        LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
+    except AttributeError:
+        pass
 
     if args.debug:
         args.max_sleep = 0
@@ -124,6 +127,7 @@ def main(indices, args):
     n_pix = conf["analysis"]["n_pix"]
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_param = conf["analysis"][args.simset]["n_perms_per_param"]
+    n_noise_per_patch = conf["analysis"][args.simset]["n_noise_per_patch"]
 
     lmax = 3 * n_side - 1
     l = hp.Alm.getlm(lmax)[0]
@@ -141,7 +145,7 @@ def main(indices, args):
     # noise file
     tomo_gamma_cat, tomo_n_bar = survey.load_noise_file(conf, args.repo_dir)
 
-    # set up the paths
+    # set up the directories
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
     params_info = cosmogrid.get_parameter_info(meta_info_file, args.simset)
     params_dir = [param_dir.decode("utf-8") for param_dir in params_info["path_par"]]
@@ -150,7 +154,6 @@ def main(indices, args):
     if args.simset == "fiducial" and not args.with_bary:
         params_dir = [param_dir for param_dir in params_dir if not "bary" in param_dir]
 
-    # parameter level
     params_dir_in = [os.path.join(args.dir_in, param) for param in params_dir]
     params_dir_out = [os.path.join(args.dir_out, param) for param in params_dir]
 
@@ -170,7 +173,7 @@ def main(indices, args):
             input_output.robust_makedirs(param_dir_out)
         LOGGER.info(f"Index {index} takes input from {param_dir_in}")
 
-        for i_perm in LOGGER.progressbar(range(n_perms_per_param), desc='testing logger', at_level='info'):
+        for i_perm in LOGGER.progressbar(range(n_perms_per_param), desc="testing logger", at_level="info"):
             LOGGER.timer.start("permutation")
             LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
@@ -178,7 +181,7 @@ def main(indices, args):
             perm_dir_in = os.path.join(param_dir_in, f"perm_{i_perm:04d}")
             full_maps_file = get_filename_full_maps(perm_dir_in, with_bary=args.with_bary)
 
-            # output containers
+            # output containers, one for each permutation
             data_vectors = {}  # NEST ordering and padding
             if args.store_patches:
                 data_patches = {}  # RING ordering and no padding
@@ -193,19 +196,34 @@ def main(indices, args):
                 # FIXME correct metacal bias
                 tomo_bias = conf["survey"]["metacal"]["bias"]
 
-                if map_type_in in conf["survey"]["map_types"]["lensing"]:
-                    map_type_out = map_type_in
-                elif map_type_in in conf["survey"]["map_types"]["clustering"]:
+                # TODO do every patch multiple times like in KiDS1000 with the redshift errors
+                if map_type_in == "dg":
                     map_type_out = "sn"
+                    dvs_shape = (n_patches, n_noise_per_patch, data_vec_len, n_z_bins)
+
                     if args.store_counts:
                         data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-                        if args.store_patches:
-                            data_patches["ct"] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
 
-                # TODO do every patch multiple times
-                data_vectors[map_type_out] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-                if args.store_patches:
-                    data_patches[map_type_out] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
+                else:
+                    map_type_out = map_type_in
+                    dvs_shape = (n_patches, data_vec_len, n_z_bins)
+
+                data_vectors[map_type_out] = np.zeros(dvs_shape, dtype=np.float32)
+
+                # data_vectors, map_type_out = get_map_container(args.simset, map_type_in, galaxy_sample, data_vectors, data_vec_len, n_z_bins, n_patches, args.n_noise)
+
+                # if map_type_in in conf["survey"]["map_types"]["lensing"]:
+                #     map_type_out = map_type_in
+                # elif map_type_in in conf["survey"]["map_types"]["clustering"]:
+                #     map_type_out = "sn"
+                #     if args.store_counts:
+                #         data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
+                #         if args.store_patches:
+                #             data_patches["ct"] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
+
+                # data_vectors[map_type_out] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
+                # if args.store_patches:
+                #     data_patches[map_type_out] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
 
                 for i_z, z_bin in enumerate(z_bins):
                     # only consider this tomographic bin
@@ -221,8 +239,7 @@ def main(indices, args):
                         map_full = f[map_dir][:]
                     LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
 
-                    # lensing signal and intrinsic alignment
-                    if map_type_in in conf["survey"]["map_types"]["lensing"]:
+                    if map_type_out in ["kg", "ia"]:
                         kappa_full = map_full
 
                         # remove mean
@@ -266,8 +283,7 @@ def main(indices, args):
                             if args.store_patches:
                                 data_patches[map_type_out][i_patch, :, i_z] = kappa_patch[patches_pix]
 
-                    # galaxy clustering map to generate the noise
-                    elif map_type_in in conf["survey"]["map_types"]["clustering"]:
+                    elif map_type_out in ["sn"] and ():
                         delta_full = map_full
 
                         # only consider this tomographic bin
@@ -286,7 +302,7 @@ def main(indices, args):
 
                         for i_patch, patch_pix in enumerate(patches_pix):
                             LOGGER.debug(f"Starting with patch index {i_patch}")
-                            LOGGER.timer.start("noise_gen")
+                            LOGGER.timer.start("noise_patch")
 
                             # not a full healpy map, just the patch with no zeros
                             counts_patch = counts_full[patch_pix]
@@ -303,41 +319,51 @@ def main(indices, args):
                             # inputs to the tf.function have to be tensors
                             seg_ids = tf.constant(seg_ids, dtype=tf.int32)
 
-                            # randomize TODO set random seed on operator level?
-                            phase = tf.random.uniform(shape=(n_gals_cat,), minval=0, maxval=2 * np.pi)
-                            gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
-                            gamma1 = tf.math.cos(phase) * gamma_abs
-                            gamma2 = tf.math.sin(phase) * gamma_abs
+                            for i_noise in range(n_noise_per_patch):
+                                LOGGER.debug(f"Starting with noise realization {i_noise}")
+                                LOGGER.timer.start("noise_realization")
 
-                            # TODO sample within the tf.function? Could be a bit faster
-                            # joint samples for e1, e2 and w, this is faster than random indexing
-                            emp_dist = tfp.distributions.Empirical(
-                                samples=tf.stack([gamma1, gamma2, gamma_cat[:, 2]], axis=1), event_ndims=1
-                            )
+                                # randomize TODO set random seed on operator level?
+                                phase = tf.random.uniform(shape=(n_gals_cat,), minval=0, maxval=2 * np.pi)
+                                gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
+                                gamma1 = tf.math.cos(phase) * gamma_abs
+                                gamma2 = tf.math.sin(phase) * gamma_abs
 
-                            samples = emp_dist.sample(sample_shape=n_gals_patch)
+                                # TODO sample within the tf.function? Could be a bit faster
+                                # joint samples for e1, e2 and w, this is faster than random indexing
+                                emp_dist = tfp.distributions.Empirical(
+                                    samples=tf.stack([gamma1, gamma2, gamma_cat[:, 2]], axis=1), event_ndims=1
+                                )
 
-                            gamma1, gamma2 = tf_noise_gen(samples, seg_ids)
-                            LOGGER.debug(f"Noise generation successfull after {LOGGER.timer.elapsed('noise_gen')}")
-                            LOGGER.timer.start("mode_removal")
+                                samples = emp_dist.sample(sample_shape=n_gals_patch)
 
-                            gamma1_patch = np.zeros(n_pix, dtype=np.float32)
-                            gamma1_patch[base_patch_pix] = gamma1
+                                gamma1, gamma2 = tf_noise_gen(samples, seg_ids)
+                                LOGGER.debug(
+                                    f"Noise generation done after {LOGGER.timer.elapsed('noise_realization')}"
+                                )
+                                LOGGER.timer.start("mode_removal")
 
-                            gamma2_patch = np.zeros(n_pix, dtype=np.float32)
-                            gamma2_patch[base_patch_pix] = gamma2
+                                gamma1_patch = np.zeros(n_pix, dtype=np.float32)
+                                gamma1_patch[base_patch_pix] = gamma1
 
-                            kappa_patch = mode_removal(
-                                gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
-                            )
-                            LOGGER.debug(f"Mode removal successfull after {LOGGER.timer.elapsed('mode_removal')}")
+                                gamma2_patch = np.zeros(n_pix, dtype=np.float32)
+                                gamma2_patch[base_patch_pix] = gamma2
 
-                            # cut out padded data vector
-                            kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
+                                kappa_patch = mode_removal(
+                                    gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
+                                )
+                                LOGGER.debug(f"Mode removal done after {LOGGER.timer.elapsed('mode_removal')}")
 
-                            data_vectors[map_type_out][i_patch, :, i_z] = kappa_dv
-                            if args.store_patches:
-                                data_patches[map_type_out][i_patch, :, i_z] = kappa_patch[patches_pix]
+                                # cut out padded data vector
+                                kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
+
+                                data_vectors[map_type_out][i_patch, i_noise, :, i_z] = kappa_dv
+                                # if args.store_patches:
+                                #     data_patches[map_type_out][i_patch, :, i_z] = kappa_patch[patches_pix]
+
+                                LOGGER.debug(
+                                    f"Done with noise realization {i_noise} after {LOGGER.timer.elapsed('noise_realization')}"
+                                )
 
                             if args.store_counts:
                                 # correct cut out procedure involves a full sky map
@@ -347,14 +373,19 @@ def main(indices, args):
                                     counts_patch_map, data_vec_len, corresponding_pix, base_patch_pix
                                 )
                                 data_vectors["ct"][i_patch, :, i_z] = counts_dv
-                                if args.store_patches:
-                                    data_patches["ct"][i_patch, :, i_z] = counts_patch[patches_pix]
+                                # if args.store_patches:
+                                #     data_patches["ct"][i_patch, :, i_z] = counts_patch[patches_pix]
+
+                            LOGGER.debug(
+                                f"Done with noise patch {i_patch} after {LOGGER.timer.elapsed('noise_patch')}"
+                            )
 
                     else:
                         raise NotImplementedError
 
                 # TODO
                 # clustering, maglim sample ###########################################################################
+                # galaxy_sample = maglim
                 # z_bins = conf["survey"]["maglim"]["z_bins"]
                 # n_z_bins = len(z_bins)
 
@@ -386,6 +417,7 @@ def main(indices, args):
                 i_perm,
                 n_perms_per_param,
                 n_patches,
+                n_noise_per_patch,
                 data_vec_len,
                 n_z_bins,
             )
@@ -399,6 +431,7 @@ def main(indices, args):
                     i_perm,
                     n_perms_per_param,
                     n_patches,
+                    n_noise_per_patch,
                     patches_len,
                     n_z_bins,
                 )
@@ -406,13 +439,6 @@ def main(indices, args):
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
-
-
-# def merge(indices, args):
-#     x = []
-# for index in indices:
-#     x.append(load(index))
-# save(x, "full_dataset")
 
 
 def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath=None):
@@ -496,8 +522,35 @@ def tf_noise_gen(samples, seg_ids):
     return e_per_pix[:, 0], e_per_pix[:, 1]
 
 
+# def get_map_container(
+#     map_type_in,
+#     galaxy_sample,
+#     data_vectors,
+#     data_vec_len,
+#     n_z_bins,
+#     n_patches,
+#     n_noise_per_perm,
+#     store_patches=False,
+#     data_patches=None,
+#     patches_len=None,
+# ):
+#     if galaxy_sample == "metacal" and map_type_in == "dg":
+#         map_type_out = "sn"
+#         data_vectors[map_type_out] = np.zeros((n_noise_per_perm, n_patches, data_vec_len, n_z_bins), dtype=np.float32)
+#     else:
+#         map_type_out = map_type_in
+#         data_vectors[map_type_out] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
+
+#     # if store_patches and not patches_len is None:
+#     #     data_patches[map_type_out] = np.zeros((n_examples, patches_len, n_z_bins), dtype=np.float32)
+
+#     #     return data_vectors, data_patches, map_type_out
+#     # else:
+#     return data_vectors, map_type_out
+
+
 def save_output_container(
-    label, filename, output_container, i_perm, n_perms_per_param, n_patches, output_len, n_z_bins
+    label, filename, output_container, i_perm, n_perms_per_param, n_patches, n_noise_per_patch, output_len, n_z_bins
 ):
     """Saves an .h5 file collecting all results on the level of the cosmological parameters (so for different
     permutations/runs and patches)
@@ -507,20 +560,26 @@ def save_output_container(
         filename (str): path to the output .h5 file
         output_container (dict): Dictionary of arrays of shape (n_patches, output_len, n_z_bins)
         i_perm (int): Index of the permutation
-        n_perms_per_param (int): 
-        n_patches (int): 
-        output_len (int): 
-        n_z_bins (int): 
+        n_perms_per_param (int):
+        n_patches (int):
+        output_len (int):
+        n_z_bins (int):
     """
     with h5py.File(filename, "a") as f:
         for map_type in output_container.keys():
+            if map_type == "sn":
+                out_shape = (n_perms_per_param * n_patches, n_noise_per_patch, output_len, n_z_bins)
+            else:
+                out_shape = (n_perms_per_param * n_patches, output_len, n_z_bins)
+
             try:
                 # create dataset for every parameter level directory, collecting the permutation levels
-                f.create_dataset(name=map_type, shape=(n_perms_per_param * n_patches, output_len, n_z_bins))
+                f.create_dataset(name=map_type, shape=out_shape)
             except ValueError:
                 LOGGER.debug(f"dataset {map_type} already exists in {filename}")
 
             f[map_type][n_patches * i_perm : n_patches * (i_perm + 1)] = output_container[map_type]
+
     LOGGER.info(f"Stored {label} in {filename}")
 
 
@@ -538,8 +597,7 @@ if __name__ == "__main__":
         "--store_counts",
     ]
 
-    indices = [0, 1, 2, 3]
-    # indices = [0]
+    indices = [0]
     for _ in main(indices, args):
         pass
 

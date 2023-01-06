@@ -56,13 +56,16 @@ analysis:
   grid:
     n_params: 2500
     n_perms_per_param: 4
+    n_noise_per_patch: 1
   fiducial:
     n_params: 17
     n_perms_per_param: 200
+    n_noise_per_patch: 10
 
 model:
   name: "GCNN"
 
 training:
+  cosmo: ["Om", "s8", "w0", "Aia"]
   batch_size: 8
   n_epochs: 1
