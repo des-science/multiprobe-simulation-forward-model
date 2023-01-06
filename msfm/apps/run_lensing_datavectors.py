@@ -124,7 +124,7 @@ def main(indices, args):
     n_pix = conf["analysis"]["n_pix"]
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_param = conf["analysis"][args.simset]["n_perms_per_param"]
-    n_noise_per_patch = conf["analysis"][args.simset]["n_noise_per_patch"]
+    n_noise_per_example = conf["analysis"][args.simset]["n_noise_per_example"]
 
     lmax = 3 * n_side - 1
     l = hp.Alm.getlm(lmax)[0]
@@ -169,7 +169,7 @@ def main(indices, args):
             input_output.robust_makedirs(param_dir_out)
         LOGGER.info(f"Index {index} takes input from {param_dir_in}")
 
-        for i_perm in LOGGER.progressbar(range(n_perms_per_param), desc="testing logger", at_level="info"):
+        for i_perm in LOGGER.progressbar(range(n_perms_per_param), desc="Loop over permutations\n", at_level="info"):
             LOGGER.timer.start("permutation")
             LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
@@ -191,9 +191,10 @@ def main(indices, args):
                 tomo_bias = conf["survey"]["metacal"]["bias"]
 
                 # TODO do every patch multiple times like in KiDS1000 with the redshift errors
+                # FIXME even creates array for combinations that are discarded (like fiducial IA)
                 if map_type_in == "dg":
                     map_type_out = "sn"
-                    dvs_shape = (n_patches, n_noise_per_patch, data_vec_len, n_z_bins)
+                    dvs_shape = (n_patches, n_noise_per_example, data_vec_len, n_z_bins)
 
                     if args.store_counts:
                         data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
@@ -203,6 +204,7 @@ def main(indices, args):
                     dvs_shape = (n_patches, data_vec_len, n_z_bins)
 
                 data_vectors[map_type_out] = np.zeros(dvs_shape, dtype=np.float32)
+
 
                 for i_z, z_bin in enumerate(z_bins):
                     # only consider this tomographic bin
@@ -218,7 +220,10 @@ def main(indices, args):
                         map_full = f[map_dir][:]
                     LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
 
-                    if map_type_out in ["kg", "ia"]:
+                    # don't save the intrinsic alignment maps for the fiducial as Aia_fid = 0
+                    if (args.simset == "grid" and map_type_out in ["kg", "ia"]) or (
+                        args.simset == "fid" and map_type_out == "kg"
+                    ):
                         kappa_full = map_full
 
                         # remove mean
@@ -299,7 +304,7 @@ def main(indices, args):
                             # inputs to the tf.function have to be tensors
                             seg_ids = tf.constant(seg_ids, dtype=tf.int32)
 
-                            for i_noise in range(n_noise_per_patch):
+                            for i_noise in range(n_noise_per_example):
                                 LOGGER.debug(f"Starting with noise realization {i_noise}")
                                 LOGGER.timer.start("noise_realization")
 
@@ -390,7 +395,7 @@ def main(indices, args):
                 i_perm,
                 n_perms_per_param,
                 n_patches,
-                n_noise_per_patch,
+                n_noise_per_example,
                 data_vec_len,
                 n_z_bins,
             )
@@ -481,9 +486,8 @@ def tf_noise_gen(samples, seg_ids):
 
     return e_per_pix[:, 0], e_per_pix[:, 1]
 
-
 def save_output_container(
-    label, filename, output_container, i_perm, n_perms_per_param, n_patches, n_noise_per_patch, output_len, n_z_bins
+    label, filename, output_container, i_perm, n_perms_per_param, n_patches, n_noise_per_example, output_len, n_z_bins
 ):
     """Saves an .h5 file collecting all results on the level of the cosmological parameters (so for different
     permutations/runs and patches)
@@ -501,7 +505,7 @@ def save_output_container(
     with h5py.File(filename, "a") as f:
         for map_type in output_container.keys():
             if map_type == "sn":
-                out_shape = (n_perms_per_param * n_patches, n_noise_per_patch, output_len, n_z_bins)
+                out_shape = (n_perms_per_param * n_patches, n_noise_per_example, output_len, n_z_bins)
             else:
                 out_shape = (n_perms_per_param * n_patches, output_len, n_z_bins)
 
@@ -521,7 +525,7 @@ if __name__ == "__main__":
     args = [
         "--simset=grid",
         "--dir_in=/Users/arne/data/CosmoGrid_example/DES/grid",
-        "--dir_out=/Users/arne/data/CosmoGrid_example/DES/grid",
+        "--dir_out=/Users/arne/data/CosmoGrid_example/DES/grid/v1",
         "--repo_dir=/Users/arne/git/multiprobe-simulation-forward-model",
         "--config=configs/config.yaml",
         "--max_sleep=0",
