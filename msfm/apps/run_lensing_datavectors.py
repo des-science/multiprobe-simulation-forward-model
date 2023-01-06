@@ -137,7 +137,6 @@ def main(indices, args):
         conf, args.repo_dir
     )
     data_vec_len = len(data_vec_pix)
-    patches_len = len(patches_pix)
 
     # noise file
     tomo_gamma_cat, tomo_n_bar = survey.load_noise_file(conf, args.repo_dir)
@@ -356,9 +355,6 @@ def main(indices, args):
                             LOGGER.debug(
                                 f"Done with noise patch {i_patch} after {LOGGER.timer.elapsed('noise_patch')}"
                             )
-
-                    else:
-                        raise NotImplementedError
 
                 # TODO
                 # clustering, maglim sample ###########################################################################
