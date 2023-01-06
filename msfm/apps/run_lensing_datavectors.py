@@ -88,9 +88,6 @@ def setup(args):
         default=120,
         help="set the maximal amount of time to sleep before copying to avoid clashes",
     )
-    parser.add_argument(
-        "--store_patches", action="store_true", help="whether to store the patches without padding in RING ordering"
-    )
     parser.add_argument("--store_counts", action="store_true", help="whether to store the metacal galaxy count maps")
 
     args, _ = parser.parse_known_args(args)
@@ -181,10 +178,8 @@ def main(indices, args):
             perm_dir_in = os.path.join(param_dir_in, f"perm_{i_perm:04d}")
             full_maps_file = get_filename_full_maps(perm_dir_in, with_bary=args.with_bary)
 
-            # output containers, one for each permutation
-            data_vectors = {}  # NEST ordering and padding
-            if args.store_patches:
-                data_patches = {}  # RING ordering and no padding
+            # output containers, one for each permutation, in NEST ordering with padding
+            data_vectors = {}
 
             for map_type_in in conf["survey"]["map_types"]["input"]:
                 LOGGER.info(f"Starting with input map type {map_type_in}")
@@ -209,21 +204,6 @@ def main(indices, args):
                     dvs_shape = (n_patches, data_vec_len, n_z_bins)
 
                 data_vectors[map_type_out] = np.zeros(dvs_shape, dtype=np.float32)
-
-                # data_vectors, map_type_out = get_map_container(args.simset, map_type_in, galaxy_sample, data_vectors, data_vec_len, n_z_bins, n_patches, args.n_noise)
-
-                # if map_type_in in conf["survey"]["map_types"]["lensing"]:
-                #     map_type_out = map_type_in
-                # elif map_type_in in conf["survey"]["map_types"]["clustering"]:
-                #     map_type_out = "sn"
-                #     if args.store_counts:
-                #         data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-                #         if args.store_patches:
-                #             data_patches["ct"] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
-
-                # data_vectors[map_type_out] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-                # if args.store_patches:
-                #     data_patches[map_type_out] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
 
                 for i_z, z_bin in enumerate(z_bins):
                     # only consider this tomographic bin
@@ -280,10 +260,11 @@ def main(indices, args):
                             kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
 
                             data_vectors[map_type_out][i_patch, :, i_z] = kappa_dv
-                            if args.store_patches:
-                                data_patches[map_type_out][i_patch, :, i_z] = kappa_patch[patches_pix]
 
-                    elif map_type_out in ["sn"] and ():
+                    # don't generate noise maps for the perturbations of the fiducial
+                    elif map_type_out in ["sn"] and (
+                        args.simset == "grid" or (args.simset == "fiducial" and "cosmo_fiducial" in param_dir_in)
+                    ):
                         delta_full = map_full
 
                         # only consider this tomographic bin
@@ -358,8 +339,6 @@ def main(indices, args):
                                 kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
 
                                 data_vectors[map_type_out][i_patch, i_noise, :, i_z] = kappa_dv
-                                # if args.store_patches:
-                                #     data_patches[map_type_out][i_patch, :, i_z] = kappa_patch[patches_pix]
 
                                 LOGGER.debug(
                                     f"Done with noise realization {i_noise} after {LOGGER.timer.elapsed('noise_realization')}"
@@ -373,8 +352,6 @@ def main(indices, args):
                                     counts_patch_map, data_vec_len, corresponding_pix, base_patch_pix
                                 )
                                 data_vectors["ct"][i_patch, :, i_z] = counts_dv
-                                # if args.store_patches:
-                                #     data_patches["ct"][i_patch, :, i_z] = counts_patch[patches_pix]
 
                             LOGGER.debug(
                                 f"Done with noise patch {i_patch} after {LOGGER.timer.elapsed('noise_patch')}"
@@ -422,19 +399,6 @@ def main(indices, args):
                 n_z_bins,
             )
 
-            if args.store_patches:
-                patches_file = get_filename_data_patches(param_dir_out, args.with_bary)
-                save_output_container(
-                    "patches",
-                    patches_file,
-                    data_patches,
-                    i_perm,
-                    n_perms_per_param,
-                    n_patches,
-                    n_noise_per_patch,
-                    patches_len,
-                    n_z_bins,
-                )
             LOGGER.info(f"Done with permutation {i_perm:04d} after {LOGGER.timer.elapsed('permutation')}")
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
@@ -520,33 +484,6 @@ def tf_noise_gen(samples, seg_ids):
     e_per_pix = tf.math.divide_no_nan(sum_per_pix[:, :2], tf.expand_dims(sum_per_pix[:, 2], axis=1))
 
     return e_per_pix[:, 0], e_per_pix[:, 1]
-
-
-# def get_map_container(
-#     map_type_in,
-#     galaxy_sample,
-#     data_vectors,
-#     data_vec_len,
-#     n_z_bins,
-#     n_patches,
-#     n_noise_per_perm,
-#     store_patches=False,
-#     data_patches=None,
-#     patches_len=None,
-# ):
-#     if galaxy_sample == "metacal" and map_type_in == "dg":
-#         map_type_out = "sn"
-#         data_vectors[map_type_out] = np.zeros((n_noise_per_perm, n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-#     else:
-#         map_type_out = map_type_in
-#         data_vectors[map_type_out] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-
-#     # if store_patches and not patches_len is None:
-#     #     data_patches[map_type_out] = np.zeros((n_examples, patches_len, n_z_bins), dtype=np.float32)
-
-#     #     return data_vectors, data_patches, map_type_out
-#     # else:
-#     return data_vectors, map_type_out
 
 
 def save_output_container(
