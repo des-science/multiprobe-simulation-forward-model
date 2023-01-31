@@ -192,19 +192,20 @@ def main(indices, args):
 
                 # TODO do every patch multiple times like in KiDS1000 with the redshift errors
                 # FIXME even creates array for combinations that are discarded (like fiducial IA)
-                if map_type_in == "dg":
+                if map_type_in == "dg" and (
+                    args.simset == "grid" or (args.simset == "fiducial" and "cosmo_fiducial" in param_dir_in)
+                ):
                     map_type_out = "sn"
                     dvs_shape = (n_patches, n_noise_per_example, data_vec_len, n_z_bins)
 
                     if args.store_counts:
                         data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
 
-                else:
+                elif args.simset == "grid" or (args.simset == "fiducial" and "cosmo_fiducial" in param_dir_in):
                     map_type_out = map_type_in
                     dvs_shape = (n_patches, data_vec_len, n_z_bins)
 
                 data_vectors[map_type_out] = np.zeros(dvs_shape, dtype=np.float32)
-
 
                 for i_z, z_bin in enumerate(z_bins):
                     # only consider this tomographic bin
@@ -220,7 +221,7 @@ def main(indices, args):
                         map_full = f[map_dir][:]
                     LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
 
-                    # don't save the intrinsic alignment maps for the fiducial as Aia_fid = 0
+                    # don't save the intrinsic alignment maps for the fiducial as Aia = 0 then
                     if (args.simset == "grid" and map_type_out in ["kg", "ia"]) or (
                         args.simset == "fid" and map_type_out == "kg"
                     ):
@@ -266,7 +267,7 @@ def main(indices, args):
                             data_vectors[map_type_out][i_patch, :, i_z] = kappa_dv
 
                     # don't generate noise maps for the perturbations of the fiducial
-                    elif map_type_out in ["sn"] and (
+                    elif map_type_out == "sn" and (
                         args.simset == "grid" or (args.simset == "fiducial" and "cosmo_fiducial" in param_dir_in)
                     ):
                         delta_full = map_full
@@ -485,6 +486,7 @@ def tf_noise_gen(samples, seg_ids):
     e_per_pix = tf.math.divide_no_nan(sum_per_pix[:, :2], tf.expand_dims(sum_per_pix[:, 2], axis=1))
 
     return e_per_pix[:, 0], e_per_pix[:, 1]
+
 
 def save_output_container(
     label, filename, output_container, i_perm, n_perms_per_param, n_patches, n_noise_per_example, output_len, n_z_bins
