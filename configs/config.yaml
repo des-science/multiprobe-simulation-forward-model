@@ -56,11 +56,20 @@ analysis:
   grid:
     n_params: 2500
     n_perms_per_param: 4
-    n_noise_per_patch: 1
+    n_noise_per_example: 1
   fiducial:
     n_params: 17
     n_perms_per_param: 200
-    n_noise_per_patch: 10
+    n_noise_per_example: 10
+    # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
+    perturbations:
+      H0: 0.02
+      Ob: 0.001
+      Om: 0.01
+      ns: 0.02
+      s8: 0.015
+      w0: 0.05
+      Aia: 0.1
 
 model:
   name: "GCNN"

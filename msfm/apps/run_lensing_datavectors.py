@@ -169,6 +169,14 @@ def main(indices, args):
             input_output.robust_makedirs(param_dir_out)
         LOGGER.info(f"Index {index} takes input from {param_dir_in}")
 
+        # the perturbations of the fiducial cosmology are treated differently
+        if args.simset == "grid" or (args.simset == "fiducial" and "cosmo_fiducial" in param_dir_in):
+            is_perturbation = False
+            LOGGER.debug(f"This is not a perturbation")
+        else:
+            is_perturbation = True
+            LOGGER.debug(f"This is a perturbation and expected to run faster")
+
         for i_perm in LOGGER.progressbar(range(n_perms_per_param), desc="Loop over permutations\n", at_level="info"):
             LOGGER.timer.start("permutation")
             LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
@@ -191,21 +199,31 @@ def main(indices, args):
                 tomo_bias = conf["survey"]["metacal"]["bias"]
 
                 # TODO do every patch multiple times like in KiDS1000 with the redshift errors
-                # FIXME even creates array for combinations that are discarded (like fiducial IA)
-                if map_type_in == "dg" and (
-                    args.simset == "grid" or (args.simset == "fiducial" and "cosmo_fiducial" in param_dir_in)
-                ):
+
+                # always do the convergence
+                if map_type_in == "kg":
+                    map_type_out = map_type_in
+                    dvs_shape = (n_patches, data_vec_len, n_z_bins)
+
+                # don't do intrinsic alignment for the fiducial perturbations
+                elif map_type_in == "ia" and not is_perturbation:
+                    map_type_out = map_type_in
+                    dvs_shape = (n_patches, data_vec_len, n_z_bins)
+
+                # don't do shape noise for the fiducial perturbations
+                elif map_type_in == "dg" and not is_perturbation:
                     map_type_out = "sn"
                     dvs_shape = (n_patches, n_noise_per_example, data_vec_len, n_z_bins)
 
                     if args.store_counts:
                         data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
 
-                elif args.simset == "grid" or (args.simset == "fiducial" and "cosmo_fiducial" in param_dir_in):
-                    map_type_out = map_type_in
-                    dvs_shape = (n_patches, data_vec_len, n_z_bins)
+                else:
+                    map_type_out = None
+                    LOGGER.debug(f"Not creating a datavector for this combination of cosmology and input map type")
 
-                data_vectors[map_type_out] = np.zeros(dvs_shape, dtype=np.float32)
+                if map_type_out is not None:
+                    data_vectors[map_type_out] = np.zeros(dvs_shape, dtype=np.float32)
 
                 for i_z, z_bin in enumerate(z_bins):
                     # only consider this tomographic bin
@@ -221,10 +239,8 @@ def main(indices, args):
                         map_full = f[map_dir][:]
                     LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
 
-                    # don't save the intrinsic alignment maps for the fiducial as Aia = 0 then
-                    if (args.simset == "grid" and map_type_out in ["kg", "ia"]) or (
-                        args.simset == "fid" and map_type_out == "kg"
-                    ):
+                    # don't save intrinsic alignment maps for the perturbations of the fiducial
+                    if (map_type_out in ["kg", "ia"]) and (map_type_out is not None): 
                         kappa_full = map_full
 
                         # remove mean
@@ -267,9 +283,7 @@ def main(indices, args):
                             data_vectors[map_type_out][i_patch, :, i_z] = kappa_dv
 
                     # don't generate noise maps for the perturbations of the fiducial
-                    elif map_type_out == "sn" and (
-                        args.simset == "grid" or (args.simset == "fiducial" and "cosmo_fiducial" in param_dir_in)
-                    ):
+                    elif (map_type_out == "sn") and (map_type_out is not None):
                         delta_full = map_full
 
                         # only consider this tomographic bin
