@@ -18,11 +18,9 @@ by Janis Fluri
 
 import numpy as np
 import tensorflow as tf
-import tensorflow_probability as tfp
 import os, argparse, warnings, h5py
 
 from numpy.random import default_rng
-from numba import njit
 from icecream import ic
 
 from msfm.utils import logging, input_output, cosmogrid, tfrecords
@@ -55,7 +53,7 @@ def setup(args):
     parser.add_argument(
         "--dir_in",
         type=str,
-        default="/global/cfs/cdirs/des/cosmogrid/DESY3/grid",
+        default=b"/global/cfs/cdirs/des/cosmogrid/DESY3/grid",
         help="input root dir of the simulations",
     )
     parser.add_argument(
@@ -81,6 +79,9 @@ def setup(args):
 
     args, _ = parser.parse_known_args(args)
 
+    if not os.path.isdir(args.dir_out):
+        input_output.robust_makedirs(args.dir_out)
+
     logging.set_all_loggers_level(args.verbosity)
 
     return args
@@ -91,10 +92,7 @@ def main(indices, args):
 
     LOGGER.timer.start("main")
     LOGGER.info(f"Got index set of size {len(indices)}")
-    try:
-        LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
-    except AttributeError:
-        pass
+    LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
 
     conf_file = os.path.join(args.repo_dir, args.config)
     conf = input_output.read_yaml(conf_file)
@@ -107,7 +105,6 @@ def main(indices, args):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_param = conf["analysis"]["fiducial"]["n_perms_per_param"]
     n_examples_per_param = n_patches * n_perms_per_param
-    delta_Aia = conf["analysis"]["fiducial"]["perturbations"]["Aia"]
 
     # set up the paths
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
@@ -119,6 +116,7 @@ def main(indices, args):
         params_dir = [param_dir for param_dir in params_dir if not "bary" in param_dir]
 
     params_dir_in = [os.path.join(args.dir_in, param_dir) for param_dir in params_dir]
+    LOGGER.debug(params_dir_in)
 
     n_params = len(params_dir_in)
     LOGGER.info(f"Got simulation set fiducial of size {n_params} with base path {args.dir_in}")
@@ -134,6 +132,7 @@ def main(indices, args):
     # shuffle the indices
     rng = default_rng(seed=args.np_seed)
     i_examples = rng.permutation(n_examples_per_param)
+    # i_examples = np.arange(800)
 
     LOGGER.debug(f"n_examples_per_file = {n_examples_per_file}")
 
@@ -141,68 +140,51 @@ def main(indices, args):
     for index in indices:
         LOGGER.timer.start("index")
 
-        tfr_file = get_filename_tfrecords(
+        file_tfrecord = get_filename_tfrecords(
             args.dir_out, tag=conf["survey"]["name"], index=index, simset="fiducial"
         )
-        LOGGER.info(f"Index {index} is writing to {tfr_file}")
+        LOGGER.info(f"Index {index} is writing to {file_tfrecord}")
 
         js = index * n_examples_per_file
         je = (index + 1) * n_examples_per_file
 
         n_done = 0
-        with tf.io.TFRecordWriter(tfr_file) as tfr_writer:
+        with tf.io.TFRecordWriter(file_tfrecord) as file_writer:
 
-            for j in LOGGER.progressbar(range(js, je), at_level="info", desc="Storing DES patches\n", total=je-js):
+            for j in LOGGER.progressbar(range(js, je), at_level="info", desc="Storing DES examples\n", total=je - js):
                 if args.debug:
                     if n_done > 5:
                         LOGGER.warning("Debug mode, aborting after 5 subindices")
                         break
 
-                # get the indices to the patch
+                # get the indices to the example
                 i_example = i_examples[j]
                 LOGGER.info(f"j = {j} in range({js},{je}): i_example = {i_example}")
 
                 # loop over the perturbations in the right order
                 kg_perts = []
                 for param_dir_in in params_dir_in:
-                    ic(param_dir_in)
-
                     file_param = get_filename_data_vectors(param_dir_in, with_bary=args.with_bary)
-                    kg, ia, sn = load_datavectors(file_param, i_example)
-                    ic(kg.shape)
-                    ic(ia.shape)
-                    ic(sn.shape)
 
+                    kg = load_kg(file_param, i_example)
                     kg_perts.append(kg)
 
                     if "cosmo_fiducial" in param_dir_in:
-                        # intrinsic alignment only for the fiducial
-                        kg_perts.append(kg - delta_Aia * ia)
-                        kg_perts.append(kg + delta_Aia * ia)
-
-                        # noise only for the fiducial
-                        sn_reals = sn
+                        ia, sn_realz = load_ia_and_sn(file_param, i_example)
 
                 # shape (2 * n_params + 1, n_pix, n_z_bins) for the delta loss
                 kg_perts = np.stack(kg_perts, axis=0)
-                ic(kg_perts.shape)
-                ic(sn_reals)
 
+                serialized = tfrecords.parse_forward_fiducial(kg_perts, ia, sn_realz).SerializeToString()
 
+                # check correctness
+                inv_kg, inv_ia, inv_sn = tfrecords.parse_inverse_fiducial(serialized)
 
-                # ia_perts = np.stack(ia_perts, axis=0)
-                # sn_perts = np.stack(sn_perts, axis=0)
+                assert np.allclose(inv_kg, kg_perts)
+                assert np.allclose(inv_ia, ia)
+                assert np.allclose(inv_sn, sn_realz)
 
-                # serialized = tfrecords.parse_forward_fiducial(kg_perts, ia_perts, sn_perts).SerializeToString()
-
-                # # check correctness
-                # inv_kg, inv_ia, inv_sn = tfrecords.parse_inverse_fiducial(serialized)
-
-                # assert np.allclose(inv_kg, kg_perts)
-                # assert np.allclose(inv_ia, ia_perts)
-                # assert np.allclose(inv_sn, sn_perts)
-
-                # file_writer.write(serialized)
+                file_writer.write(serialized)
 
                 n_done += 1
 
@@ -210,30 +192,21 @@ def main(indices, args):
         yield index
 
 
-def load_datavectors(filename, ind_example):
+def load_kg(filename, ind_example):
     with h5py.File(filename, "r") as f:
         # shape (n_examples_per_param, n_pix, n_z_bins)
         kg = f["kg"][ind_example, ...]
+
+    LOGGER.debug(f"Successfully loaded kg from file {filename}")
+    return kg
+
+
+def load_ia_and_sn(filename, ind_example):
+    with h5py.File(filename, "r") as f:
+        # shape (n_examples_per_param, n_pix, n_z_bins)
         ia = f["ia"][ind_example, ...]
+        # shape (n_examples_per_param, n_noise, n_pix, n_z_bins)
         sn = f["sn"][ind_example, ...]
 
-    LOGGER.debug(f"Successfully loaded file {filename}")
-    return kg, ia, sn
-
-
-# This main only exists for testing purposes when not using esub
-if __name__ == "__main__":
-    args = [
-        "--dir_in=/Users/arne/data/CosmoGrid_example/DES/grid",
-        "--dir_out=/Users/arne/data/CosmoGrid_example/DES/grid",
-        "--repo_dir=/Users/arne/git/multiprobe-simulation-forward-model",
-        "--config=configs/config.yaml",
-        "--debug",
-        "--verbosity=debug",
-    ]
-
-    indices = [0, 1, 2, 3]
-    for _ in main(indices, args):
-        pass
-
-    LOGGER.info(f"Done with main after {LOGGER.timer.elapsed('main')}")
+    LOGGER.debug(f"Successfully loaded ia and sn from file {filename}")
+    return ia, sn
