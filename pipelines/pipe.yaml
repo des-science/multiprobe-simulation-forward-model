@@ -1,12 +1,12 @@
 # datavectors
 - name: lensing_fiducial_dv
-  cmd: esub msfm/apps/run_lensing_datavectors.py --simset=fiducial --dir_in=/cluster/scratch/athomsen/CosmoGrid/DESY3/fiducial --dir_out=/cluster/scratch/athomsen/CosmoGrid/DESY3/v1/fiducial --repo_dir=/cluster/home/athomsen/des/repos/multiprobe-simulation-forward-model --config=configs/config.yaml --mode=jobarray --function=all --n_jobs=13 --tasks="0>13" --job_name=dv_fid --system=slurm
+  cmd: esub msfm/apps/run_lensing_datavectors.py --simset=fiducial --dir_in=/cluster/scratch/athomsen/CosmoGrid/fiducial --dir_out=/cluster/scratch/athomsen/CosmoGrid/v1/fiducial --repo_dir=/cluster/home/athomsen/des/repos/multiprobe-simulation-forward-model --config=configs/config.yaml --mode=jobarray --function=all --n_jobs=1 --tasks="0" --job_name=dv_fid --system=slurm --main_time=8 --main_n_cores=16
 
-- name: lensing_fiducial_dv_bary
-  cmd: esub msfm/apps/run_lensing_datavectors.py --simset=fiducial --with_bary --dir_in=/cluster/scratch/athomsen/CosmoGrid/DESY3/fiducial --dir_out=/cluster/scratch/athomsen/CosmoGrid/DESY3/v1/fiducial --repo_dir=/cluster/home/athomsen/des/repos/multiprobe-simulation-forward-model --config=configs/config.yaml --mode=jobarray --function=all --n_jobs=17 --tasks="0>17" --job_name=dv_fid_bary --system=slurm
+- name: lensing_fiducial_perturbations_dv
+  cmd: esub msfm/apps/run_lensing_datavectors.py --simset=fiducial --dir_in=/cluster/scratch/athomsen/CosmoGrid/fiducial --dir_out=/cluster/scratch/athomsen/CosmoGrid/v1/fiducial --repo_dir=/cluster/home/athomsen/des/repos/multiprobe-simulation-forward-model --config=configs/config.yaml --mode=jobarray --function=all --n_jobs=12 --tasks="1>13" --job_name=dv_fid --system=slurm
 
 - name: lensing_grid_dv
-  cmd: esub msfm/apps/run_lensing_datavectors.py --simset=grid --dir_in=/cluster/scratch/athomsen/CosmoGrid/DESY3/grid --dir_out=/cluster/scratch/athomsen/CosmoGrid/DESY3/v1/grid --repo_dir=/cluster/home/athomsen/des/repos/multiprobe-simulation-forward-model --config=configs/config.yaml --mode=jobarray --function=all --n_jobs=2500 --tasks="0>2500" --job_name=dv_grid --system=slurm
+  cmd: esub msfm/apps/run_lensing_datavectors.py --simset=grid --dir_in=/cluster/scratch/athomsen/CosmoGrid/grid --dir_out=/cluster/scratch/athomsen/CosmoGrid/v1/grid --repo_dir=/cluster/home/athomsen/des/repos/multiprobe-simulation-forward-model --config=configs/config.yaml --mode=jobarray --function=all --n_jobs=2500 --tasks="0>2500" --job_name=dv_grid --system=slurm
 
 # .tfrecord
 - name: fiducial_tfr
