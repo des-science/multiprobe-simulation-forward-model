@@ -81,19 +81,18 @@ def parse_inverse_grid(element):
     # return kg, ia, sn, dg, cosmo, sobol
     return kg, ia, sn, cosmo, sobol
 
-def parse_forward_fiducial(kg_perts, ia, sn_realz):
+def parse_forward_fiducial(kg_perts, sn_realz):
     """ The fiducials don't need a label and contain the perturbation for the delta loss with
     n_perts = 2 * n_params + 1
 
     Args:
         kg_perts (np.ndarray): shape(n_perts, n_pix, n_z_bins)
-        ia (np.ndarray): shape(n_pix, n_z_bins)
         sn (np.ndarray): shape(n_noise, n_pix, n_z_bins)
 
     Returns:
         tf.train.Example: Example containing all of these tensors
     """
-    assert kg_perts.shape[1] == ia.shape[0] == sn_realz.shape[1]
+    assert kg_perts.shape[1:] == sn_realz.shape[1:]
 
     # define the structure of a single example
     data = {
@@ -103,9 +102,8 @@ def parse_forward_fiducial(kg_perts, ia, sn_realz):
         "n_pix": _int64_feature(kg_perts.shape[1]),
         "n_z_bins": _int64_feature(kg_perts.shape[2]),
         # lensing, metacal
-        "kg": _bytes_feature(tf.io.serialize_tensor(kg_perts)),
-        "ia": _bytes_feature(tf.io.serialize_tensor(ia)),
-        "sn": _bytes_feature(tf.io.serialize_tensor(sn_realz)),
+        "kg_perts": _bytes_feature(tf.io.serialize_tensor(kg_perts)),
+        "sn_realz": _bytes_feature(tf.io.serialize_tensor(sn_realz)),
         # clustering, maglim TODO
         # "dg": _bytes_feature(tf.io.serialize_tensor(dg)),
     }
@@ -124,26 +122,23 @@ def parse_inverse_fiducial(element):
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
         "n_z_bins": tf.io.FixedLenFeature([], tf.int64),
         # lensing, metacal
-        "kg": tf.io.FixedLenFeature([], tf.string),
-        "ia": tf.io.FixedLenFeature([], tf.string),
-        "sn": tf.io.FixedLenFeature([], tf.string),
+        "kg_perts": tf.io.FixedLenFeature([], tf.string),
+        "sn_realz": tf.io.FixedLenFeature([], tf.string),
         # clustering, maglim TODO
         # "dg": tf.io.FixedLenFeature([], tf.string),
     }
 
     content = tf.io.parse_single_example(element, data)
 
-    kg = tf.io.parse_tensor(content["kg"], out_type=tf.float32)
-    ia = tf.io.parse_tensor(content["ia"], out_type=tf.float32)
-    sn = tf.io.parse_tensor(content["sn"], out_type=tf.float32)
+    kg_perts = tf.io.parse_tensor(content["kg_perts"], out_type=tf.float32)
+    sn_realz = tf.io.parse_tensor(content["sn_realz"], out_type=tf.float32)
     # dg = tf.io.parse_tensor(content["dg"], out_type=tf.float32)
 
-    kg = tf.reshape(kg, shape=(content["n_perts"], content["n_pix"], content["n_z_bins"]))
-    ia = tf.reshape(ia, shape=(content["n_pix"], content["n_z_bins"]))
-    sn = tf.reshape(sn, shape=(content["n_noise"], content["n_pix"], content["n_z_bins"]))
+    kg_perts = tf.reshape(kg_perts, shape=(content["n_perts"], content["n_pix"], content["n_z_bins"]))
+    sn_realz = tf.reshape(sn_realz, shape=(content["n_noise"], content["n_pix"], content["n_z_bins"]))
     # dg = tf.reshape(dg, shape=(content["n_pix"], content["n_z_bins"]))
 
-    return kg, ia, sn
+    return kg_perts, sn_realz
 
 # features ############################################################################################################
 

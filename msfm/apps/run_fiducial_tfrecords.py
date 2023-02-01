@@ -105,6 +105,7 @@ def main(indices, args):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_param = conf["analysis"]["fiducial"]["n_perms_per_param"]
     n_examples_per_param = n_patches * n_perms_per_param
+    delta_Aia = conf["analysis"]["fiducial"]["perturbations"]["Aia"]
 
     # set up the paths
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
@@ -165,6 +166,7 @@ def main(indices, args):
                 kg_perts = []
                 for param_dir_in in params_dir_in:
                     file_param = get_filename_data_vectors(param_dir_in, with_bary=args.with_bary)
+                    LOGGER.debug(f"Taking inputs from {param_dir_in}")
 
                     kg = load_kg(file_param, i_example)
                     kg_perts.append(kg)
@@ -172,16 +174,20 @@ def main(indices, args):
                     if "cosmo_fiducial" in param_dir_in:
                         ia, sn_realz = load_ia_and_sn(file_param, i_example)
 
+                        LOGGER.debug(f"Adding intrinsic alignment as a perturbation to the fiducial")
+                        kg_perts.append(kg - delta_Aia * ia)
+                        kg_perts.append(kg + delta_Aia * ia)
+
                 # shape (2 * n_params + 1, n_pix, n_z_bins) for the delta loss
                 kg_perts = np.stack(kg_perts, axis=0)
+                LOGGER.debug(f"The tensor of kappa perturbations has shape {kg_perts.shape}")
 
-                serialized = tfrecords.parse_forward_fiducial(kg_perts, ia, sn_realz).SerializeToString()
+                serialized = tfrecords.parse_forward_fiducial(kg_perts, sn_realz).SerializeToString()
 
                 # check correctness
-                inv_kg, inv_ia, inv_sn = tfrecords.parse_inverse_fiducial(serialized)
+                inv_kg, inv_sn = tfrecords.parse_inverse_fiducial(serialized)
 
                 assert np.allclose(inv_kg, kg_perts)
-                assert np.allclose(inv_ia, ia)
                 assert np.allclose(inv_sn, sn_realz)
 
                 file_writer.write(serialized)
@@ -197,7 +203,7 @@ def load_kg(filename, ind_example):
         # shape (n_examples_per_param, n_pix, n_z_bins)
         kg = f["kg"][ind_example, ...]
 
-    LOGGER.debug(f"Successfully loaded kg from file {filename}")
+    LOGGER.debug(f"Successfully loaded kg")
     return kg
 
 
@@ -208,5 +214,5 @@ def load_ia_and_sn(filename, ind_example):
         # shape (n_examples_per_param, n_noise, n_pix, n_z_bins)
         sn = f["sn"][ind_example, ...]
 
-    LOGGER.debug(f"Successfully loaded ia and sn from file {filename}")
+    LOGGER.debug(f"Successfully loaded ia and sn")
     return ia, sn
