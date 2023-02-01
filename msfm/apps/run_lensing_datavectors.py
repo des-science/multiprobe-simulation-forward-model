@@ -172,10 +172,10 @@ def main(indices, args):
         # the perturbations of the fiducial cosmology are treated differently
         if args.simset == "grid" or (args.simset == "fiducial" and "cosmo_fiducial" in param_dir_in):
             is_perturbation = False
-            LOGGER.debug(f"This is not a perturbation")
+            LOGGER.info(f"This is not a perturbation, running all map types")
         else:
             is_perturbation = True
-            LOGGER.debug(f"This is a perturbation and expected to run faster")
+            LOGGER.info(f"This is a perturbation, intrinsic alignment and shape noise are skipped")
 
         for i_perm in LOGGER.progressbar(range(n_perms_per_param), desc="Loop over permutations\n", at_level="info"):
             LOGGER.timer.start("permutation")
@@ -220,7 +220,8 @@ def main(indices, args):
 
                 else:
                     map_type_out = None
-                    LOGGER.debug(f"Not creating a datavector for this combination of cosmology and input map type")
+                    LOGGER.info(f"This combination of cosmology and input map type is skipped")
+                    continue
 
                 if map_type_out is not None:
                     data_vectors[map_type_out] = np.zeros(dvs_shape, dtype=np.float32)
