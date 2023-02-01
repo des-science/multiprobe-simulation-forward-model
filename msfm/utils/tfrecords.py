@@ -5,9 +5,19 @@ import tensorflow as tf
 
 # https://towardsdatascience.com/a-practical-guide-to-tfrecords-584536bc786c
 # def parse_forward_maps(kg, ia, sn, dg, cosmo, sobol):
-def parse_forward_maps(kg, ia, sn, cosmo, sobol):
-    """define the dictionary -- the structure -- of a single example"""
+def parse_forward_grid(kg, ia, sn, cosmo, sobol):
+    """ The grid cosmologies contain all of the maps and labels
 
+    Args:
+        kg (np.ndarray): shape(n_pix, n_z_bins)
+        ia (np.ndarray): shape(n_pix, n_z_bins)
+        sn (np.ndarray): shape(n_pix, n_z_bins)
+        cosmo (np.ndarray): shape(n_cosmo_params)
+        sobol (int): Seed within the Sobol sequence
+
+    Returns:
+        tf.train.Example: Example containing all of these tensors
+    """
     # assert kg.shape == ia.shape == sn.shape == dg.shape
     assert kg.shape == ia.shape == sn.shape
 
@@ -32,8 +42,9 @@ def parse_forward_maps(kg, ia, sn, cosmo, sobol):
     return out
 
 
-def parse_inverse_maps(element):
+def parse_inverse_grid(element):
     """use the same structure as above"""
+
     data = {
         # tensor shapes
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
