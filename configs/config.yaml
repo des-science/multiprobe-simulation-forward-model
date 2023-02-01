@@ -60,7 +60,7 @@ analysis:
   fiducial:
     n_params: 17
     n_perms_per_param: 200
-    n_noise_per_example: 10
+    n_noise_per_example: 1
     # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
     perturbations:
       H0: 0.02

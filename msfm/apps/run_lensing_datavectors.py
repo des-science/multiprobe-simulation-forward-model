@@ -241,7 +241,7 @@ def main(indices, args):
                     LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
 
                     # don't save intrinsic alignment maps for the perturbations of the fiducial
-                    if (map_type_out in ["kg", "ia"]) and (map_type_out is not None): 
+                    if (map_type_out in ["kg", "ia"]) and (map_type_out is not None):
                         kappa_full = map_full
 
                         # remove mean
@@ -309,7 +309,7 @@ def main(indices, args):
                             counts_patch = counts_full[patch_pix]
                             n_gals_patch = np.sum(counts_patch)
 
-                            # TODO Could be done like https://www.tensorflow.org/guide/function#accumulating_values_in_a_loop
+                            # TODO Could like https://www.tensorflow.org/guide/function#accumulating_values_in_a_loop
                             # and could probably include most of what's underneath in one large tf.function
 
                             # indices to sum over all of the galaxies in the individual pixels
