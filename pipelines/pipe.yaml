@@ -11,4 +11,4 @@
 # .tfrecord
 - name: fiducial_tfr
   dep: lensing_fiducial_dv
-  cmd: esub msfm/apps/run_fiducial_tfrecords.py --n_files=16 --dir_in=/cluster/scratch/athomsen/CosmoGrid/DESY3/fiducial --dir_out=/cluster/scratch/athomsen/CosmoGrid/DESY3/v1/fiducial --repo_dir=/cluster/home/athomsen/des/repos/multiprobe-simulation-forward-model --config=configs/config.yaml --mode=jobarray --function=all --n_jobs=16 --tasks="0>16" --job_name=tfr_fid --system=slurm
+  cmd: esub msfm/apps/run_fiducial_tfrecords.py --n_files=16 --dir_in=/cluster/scratch/athomsen/CosmoGrid/v1/fiducial --dir_out=/cluster/scratch/athomsen/CosmoGrid/v1/fiducial --repo_dir=/cluster/home/athomsen/des/repos/multiprobe-simulation-forward-model --config=configs/config.yaml --mode=jobarray --function=all --n_jobs=16 --tasks="0>16" --job_name=tfr_fid --system=slurm
