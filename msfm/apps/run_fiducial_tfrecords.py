@@ -33,7 +33,7 @@ LOGGER = logging.get_logger(__file__)
 
 
 def resources(args):
-    return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=1)
+    return dict(main_memory=8192, main_time=4, main_scratch=0, main_n_cores=1)
 
 
 def setup(args):
