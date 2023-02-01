@@ -91,7 +91,10 @@ def main(indices, args):
 
     LOGGER.timer.start("main")
     LOGGER.info(f"Got index set of size {len(indices)}")
-    LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
+    try:
+        LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
+    except AttributeError:
+        pass
 
     conf_file = os.path.join(args.repo_dir, args.config)
     conf = input_output.read_yaml(conf_file)
@@ -104,6 +107,7 @@ def main(indices, args):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_param = conf["analysis"]["fiducial"]["n_perms_per_param"]
     n_examples_per_param = n_patches * n_perms_per_param
+    delta_Aia = conf["analysis"]["fiducial"]["perturbations"]["Aia"]
 
     # set up the paths
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
@@ -137,16 +141,16 @@ def main(indices, args):
     for index in indices:
         LOGGER.timer.start("index")
 
-        file_tfrecord = get_filename_tfrecords(
+        tfr_file = get_filename_tfrecords(
             args.dir_out, tag=conf["survey"]["name"], index=index, simset="fiducial"
         )
-        LOGGER.info(f"Index {index} is writing to {file_tfrecord}")
+        LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
         js = index * n_examples_per_file
         je = (index + 1) * n_examples_per_file
 
         n_done = 0
-        with tf.io.TFRecordWriter(file_tfrecord) as file_writer:
+        with tf.io.TFRecordWriter(tfr_file) as tfr_writer:
 
             for j in LOGGER.progressbar(range(js, je), at_level="info", desc="Storing DES patches\n", total=je-js):
                 if args.debug:
@@ -158,31 +162,47 @@ def main(indices, args):
                 i_example = i_examples[j]
                 LOGGER.info(f"j = {j} in range({js},{je}): i_example = {i_example}")
 
-                # maps, loop over the perturbations in the right order
-                kg_perts, ia_perts, sn_perts = [], [], []
+                # loop over the perturbations in the right order
+                kg_perts = []
                 for param_dir_in in params_dir_in:
+                    ic(param_dir_in)
+
                     file_param = get_filename_data_vectors(param_dir_in, with_bary=args.with_bary)
                     kg, ia, sn = load_datavectors(file_param, i_example)
+                    ic(kg.shape)
+                    ic(ia.shape)
+                    ic(sn.shape)
 
                     kg_perts.append(kg)
-                    ia_perts.append(ia)
-                    sn_perts.append(sn)
+
+                    if "cosmo_fiducial" in param_dir_in:
+                        # intrinsic alignment only for the fiducial
+                        kg_perts.append(kg - delta_Aia * ia)
+                        kg_perts.append(kg + delta_Aia * ia)
+
+                        # noise only for the fiducial
+                        sn_reals = sn
 
                 # shape (2 * n_params + 1, n_pix, n_z_bins) for the delta loss
                 kg_perts = np.stack(kg_perts, axis=0)
-                ia_perts = np.stack(ia_perts, axis=0)
-                sn_perts = np.stack(sn_perts, axis=0)
+                ic(kg_perts.shape)
+                ic(sn_reals)
 
-                serialized = tfrecords.parse_forward_fiducial(kg_perts, ia_perts, sn_perts).SerializeToString()
 
-                # check correctness
-                inv_kg, inv_ia, inv_sn = tfrecords.parse_inverse_fiducial(serialized)
 
-                assert np.allclose(inv_kg, kg_perts)
-                assert np.allclose(inv_ia, ia_perts)
-                assert np.allclose(inv_sn, sn_perts)
+                # ia_perts = np.stack(ia_perts, axis=0)
+                # sn_perts = np.stack(sn_perts, axis=0)
 
-                file_writer.write(serialized)
+                # serialized = tfrecords.parse_forward_fiducial(kg_perts, ia_perts, sn_perts).SerializeToString()
+
+                # # check correctness
+                # inv_kg, inv_ia, inv_sn = tfrecords.parse_inverse_fiducial(serialized)
+
+                # assert np.allclose(inv_kg, kg_perts)
+                # assert np.allclose(inv_ia, ia_perts)
+                # assert np.allclose(inv_sn, sn_perts)
+
+                # file_writer.write(serialized)
 
                 n_done += 1
 
