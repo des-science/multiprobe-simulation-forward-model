@@ -70,31 +70,31 @@ def parse_inverse_maps(element):
     # return kg, ia, sn, dg, cosmo, sobol
     return kg, ia, sn, cosmo, sobol
 
-def parse_forward_fiducial(kg, ia, sn):
+def parse_forward_fiducial(kg_perts, ia, sn_realz):
     """ The fiducials don't need a label and contain the perturbation for the delta loss with
     n_perts = 2 * n_params + 1
 
     Args:
         kg_perts (np.ndarray): shape(n_perts, n_pix, n_z_bins)
-        ia_perts (_type_): shape(n_perts, n_pix, n_z_bins)
-        sn_perts (_type_): shape(n_perts, n_pix, n_z_bins)
+        ia (np.ndarray): shape(n_pix, n_z_bins)
+        sn (np.ndarray): shape(n_noise, n_pix, n_z_bins)
 
     Returns:
-        _type_: _description_
+        tf.train.Example: Example containing all of these tensors
     """
-    # assert kg.shape == ia.shape == sn.shape == dg.shape
-    assert kg.shape == ia.shape == sn.shape
+    assert kg_perts.shape[1] == ia.shape[0] == sn_realz.shape[1]
 
     # define the structure of a single example
     data = {
         # tensor shapes
-        "n_perts": _int64_feature(kg.shape[0]),
-        "n_pix": _int64_feature(kg.shape[1]),
-        "n_z_bins": _int64_feature(kg.shape[2]),
+        "n_perts": _int64_feature(kg_perts.shape[0]),
+        "n_noise": _int64_feature(sn_realz.shape[0]),
+        "n_pix": _int64_feature(kg_perts.shape[1]),
+        "n_z_bins": _int64_feature(kg_perts.shape[2]),
         # lensing, metacal
-        "kg": _bytes_feature(tf.io.serialize_tensor(kg)),
+        "kg": _bytes_feature(tf.io.serialize_tensor(kg_perts)),
         "ia": _bytes_feature(tf.io.serialize_tensor(ia)),
-        "sn": _bytes_feature(tf.io.serialize_tensor(sn)),
+        "sn": _bytes_feature(tf.io.serialize_tensor(sn_realz)),
         # clustering, maglim TODO
         # "dg": _bytes_feature(tf.io.serialize_tensor(dg)),
     }
@@ -109,6 +109,7 @@ def parse_inverse_fiducial(element):
     data = {
         # tensor shapes
         "n_perts": tf.io.FixedLenFeature([], tf.int64),
+        "n_noise": tf.io.FixedLenFeature([], tf.int64),
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
         "n_z_bins": tf.io.FixedLenFeature([], tf.int64),
         # lensing, metacal
@@ -127,11 +128,10 @@ def parse_inverse_fiducial(element):
     # dg = tf.io.parse_tensor(content["dg"], out_type=tf.float32)
 
     kg = tf.reshape(kg, shape=(content["n_perts"], content["n_pix"], content["n_z_bins"]))
-    ia = tf.reshape(ia, shape=(content["n_perts"], content["n_pix"], content["n_z_bins"]))
-    sn = tf.reshape(sn, shape=(content["n_perts"], content["n_pix"], content["n_z_bins"]))
+    ia = tf.reshape(ia, shape=(content["n_pix"], content["n_z_bins"]))
+    sn = tf.reshape(sn, shape=(content["n_noise"], content["n_pix"], content["n_z_bins"]))
     # dg = tf.reshape(dg, shape=(content["n_pix"], content["n_z_bins"]))
 
-    # return kg, ia, sn, dg, cosmo, sobol
     return kg, ia, sn
 
 # features ############################################################################################################
