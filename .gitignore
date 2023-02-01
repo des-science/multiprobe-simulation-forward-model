@@ -3,6 +3,9 @@
 *.npz
 *.h5
 *.hdf5
+*.png
+*.jpg
+*.pdf
 # except in the data directory
 !data/*.npy
 !data/*.npz
