@@ -120,10 +120,15 @@ def get_train_dset(
     # TODO add biases like https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/input_pipeline.py#L203
 
     # add the noise by expanding it along the dimension of the perturbations
-    add_noise = lambda kg_perts, sn, index: (kg_perts + tf.expand_dims(sn, axis=1), index)
-    dset = dset.map(add_noise)
+    dset_add_noise = lambda kg_perts, sn, index: (kg_perts + tf.expand_dims(sn, axis=1), index)
+    dset = dset.map(dset_add_noise)
 
     # TODO mask like here? https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/input_pipeline.py#L259
+
+    # concatenate the perturbations into the batch dimension like in
+    # https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/losses.py#L122 
+    dset_concat_perts = lambda kg_perts, index: (tf.concat(tf.unstack(kg_perts, axis=0), axis=0), index)
+    dset = dset.map(dset_concat_perts)
 
     dset = dset.prefetch(n_prefetch)
 
