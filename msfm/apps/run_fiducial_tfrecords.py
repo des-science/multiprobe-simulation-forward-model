@@ -133,7 +133,6 @@ def main(indices, args):
     # shuffle the indices
     rng = default_rng(seed=args.np_seed)
     i_examples = rng.permutation(n_examples_per_param)
-    # i_examples = np.arange(800)
 
     LOGGER.debug(f"n_examples_per_file = {n_examples_per_file}")
 
@@ -208,7 +207,7 @@ def main(indices, args):
 
 def load_kg(filename, ind_example):
     with h5py.File(filename, "r") as f:
-        # shape (n_examples_per_param, n_pix, n_z_bins)
+        # shape (n_examples_per_param, n_pix, n_z_bins) before the indexing
         kg = f["kg"][ind_example, ...]
 
     LOGGER.debug(f"Successfully loaded kg")
@@ -217,9 +216,9 @@ def load_kg(filename, ind_example):
 
 def load_ia_and_sn(filename, ind_example):
     with h5py.File(filename, "r") as f:
-        # shape (n_examples_per_param, n_pix, n_z_bins)
+        # shape (n_examples_per_param, n_pix, n_z_bins) before the indexing
         ia = f["ia"][ind_example, ...]
-        # shape (n_examples_per_param, n_noise, n_pix, n_z_bins)
+        # shape (n_examples_per_param, n_noise, n_pix, n_z_bins) before the indexing
         sn = f["sn"][ind_example, ...]
 
     LOGGER.debug(f"Successfully loaded ia and sn")

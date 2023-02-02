@@ -103,7 +103,7 @@ def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
     data = {
         # tensor shapes
         "n_pix": _int64_feature(kg_perts.shape[1]),
-        "n_z_bins": _int64_feature(kg_perts.shape[2]),        
+        "n_z_bins": _int64_feature(kg_perts.shape[2]),
         # label
         "index": _int64_feature(index),
     }
@@ -119,10 +119,12 @@ def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
     # TODO dg
 
     # create an Example, wrapping the single features
-    out = tf.train.Example(features=tf.train.Features(feature=data))
-    return out
+    example = tf.train.Example(features=tf.train.Features(feature=data))
+    return example
 
-def parse_inverse_fiducial(element, pert_labels, i_noise=0):
+
+# TODO make this i_noise some tf.variable like Janis suggests?
+def parse_inverse_fiducial(example, pert_labels, i_noise=0):
     """use the same structure as above"""
 
     data = {
@@ -136,12 +138,11 @@ def parse_inverse_fiducial(element, pert_labels, i_noise=0):
     # kappa perturbations
     for label in pert_labels:
         data[f"kg_{label}"] = tf.io.FixedLenFeature([], tf.string)
-        ic(label)
 
     # single noise realization
     data[f"sn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
 
-    content = tf.io.parse_single_example(element, data)
+    content = tf.io.parse_single_example(example, data)
 
     # parse the features
     kg_perts = []

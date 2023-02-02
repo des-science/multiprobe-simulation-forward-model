@@ -63,13 +63,31 @@ analysis:
     n_noise_per_example: 1
     # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
     perturbations:
+      Aia: 0.1
       H0: 0.02
       Ob: 0.001
       Om: 0.01
       ns: 0.02
       s8: 0.015
       w0: 0.05
-      Aia: 0.1
+      labels:
+        [
+          "fiducial",
+          "delta_Aia_m",
+          "delta_Aia_p",
+          "delta_H0_m",
+          "delta_H0_p",
+          "delta_Ob_m",
+          "delta_Ob_p",
+          "delta_Om_m",
+          "delta_Om_p",
+          "delta_ns_m",
+          "delta_ns_p",
+          "delta_s8_m",
+          "delta_s8_p",
+          "delta_w0_m",
+          "delta_w0_p",
+        ]
 
 model:
   name: "GCNN"
