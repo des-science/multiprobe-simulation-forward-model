@@ -137,20 +137,23 @@ def main(indices, args):
 
     LOGGER.debug(f"n_examples_per_file = {n_examples_per_file}")
 
+    pert_labels = [label.split("cosmo_")[1].replace("/", "") for label in params_dir_in]
+    # manually add intrinsic alignment after the fiducial
+    pert_labels = [pert_labels[0]] + ["delta_Aia_m", "delta_Aia_p"] + pert_labels[1:]
+    LOGGER.debug(f"labels = {pert_labels}")
+
     # index corresponds to a .tfrecord file ###########################################################################
     for index in indices:
         LOGGER.timer.start("index")
 
-        tfr_file_perts = get_filename_tfrecords(
-            args.dir_out, tag=conf["survey"]["name"], index=index, simset="fiducial"
-        )
-        LOGGER.info(f"Index {index} is writing to {tfr_file_perts}")
+        tfr_file = get_filename_tfrecords(args.dir_out, tag=conf["survey"]["name"], index=index, simset="fiducial")
+        LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
         js = index * n_examples_per_file
         je = (index + 1) * n_examples_per_file
 
         n_done = 0
-        with tf.io.TFRecordWriter(tfr_file_perts) as file_writer_perts:
+        with tf.io.TFRecordWriter(tfr_file) as file_writer_perts:
             for j in LOGGER.progressbar(range(js, je), at_level="info", desc="Storing DES examples\n", total=je - js):
                 if args.debug:
                     if n_done > 5:
@@ -180,40 +183,22 @@ def main(indices, args):
                 # shape (2 * n_params + 1, n_pix, n_z_bins) for the delta loss
                 kg_perts = np.stack(kg_perts, axis=0)
                 LOGGER.debug(f"The tensor of kappa perturbations has shape {kg_perts.shape}")
+                LOGGER.debug(f"The tensor of noise realizations has shape {sn_realz.shape}")
 
-                serialized = tfrecords.parse_forward_fiducial_perts(kg_perts, i_example).SerializeToString()
+                serialized = tfrecords.parse_forward_fiducial(
+                    kg_perts, pert_labels, sn_realz, i_example
+                ).SerializeToString()
 
                 # check correctness
-                inv_kg, inv_index = tfrecords.parse_inverse_fiducial_perts(serialized)
+                inv_kg, inv_sn, inv_index = tfrecords.parse_inverse_fiducial(serialized, pert_labels, i_noise=0)
 
                 assert np.allclose(inv_kg, kg_perts)
+                assert np.allclose(inv_sn, sn_realz[0])
                 assert np.allclose(inv_index, i_example)
 
+                LOGGER.debug("decoded successfully")
+
                 file_writer_perts.write(serialized)
-
-                # save the noise realizations
-                for k, sn in enumerate(sn_realz):
-                    tfr_file_noise = get_filename_tfrecords(
-                        args.dir_out,
-                        tag=conf["survey"]["name"],
-                        index=index,
-                        simset="fiducial",
-                        noise=True,
-                        noise_index=k,
-                    )
-                    LOGGER.debug(f"Writing noise to {tfr_file_perts}")
-
-                    with tf.io.TFRecordWriter(tfr_file_noise) as file_writer_noise:
-                        serialized = tfrecords.parse_forward_fiducial_noise(sn, i_example).SerializeToString()
-
-                        # check correctness
-                        inv_sn, inv_index = tfrecords.parse_inverse_fiducial_noise(serialized)
-
-                        assert np.allclose(inv_sn, sn)
-                        assert np.allclose(inv_index, i_example)
-
-                        file_writer_noise.write(serialized)
-
 
                 n_done += 1
 
