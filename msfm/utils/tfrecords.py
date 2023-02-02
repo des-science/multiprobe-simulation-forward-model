@@ -81,64 +81,136 @@ def parse_inverse_grid(element):
     # return kg, ia, sn, dg, cosmo, sobol
     return kg, ia, sn, cosmo, sobol
 
-def parse_forward_fiducial(kg_perts, sn_realz):
+def parse_forward_fiducial(kg_perts, sn_realz, index):
     """ The fiducials don't need a label and contain the perturbation for the delta loss with
     n_perts = 2 * n_params + 1
 
     Args:
         kg_perts (np.ndarray): shape(n_perts, n_pix, n_z_bins)
-        sn (np.ndarray): shape(n_noise, n_pix, n_z_bins)
 
     Returns:
         tf.train.Example: Example containing all of these tensors
     """
-    assert kg_perts.shape[1:] == sn_realz.shape[1:]
-
     # define the structure of a single example
     data = {
         # tensor shapes
         "n_perts": _int64_feature(kg_perts.shape[0]),
-        "n_noise": _int64_feature(sn_realz.shape[0]),
         "n_pix": _int64_feature(kg_perts.shape[1]),
         "n_z_bins": _int64_feature(kg_perts.shape[2]),
         # lensing, metacal
         "kg_perts": _bytes_feature(tf.io.serialize_tensor(kg_perts)),
-        "sn_realz": _bytes_feature(tf.io.serialize_tensor(sn_realz)),
         # clustering, maglim TODO
         # "dg": _bytes_feature(tf.io.serialize_tensor(dg)),
+        # label
+        "index": _int64_feature(index),
     }
 
     # create an Example, wrapping the single features
     out = tf.train.Example(features=tf.train.Features(feature=data))
     return out
 
-def parse_inverse_fiducial(element):
+def parse_forward_fiducial_perts(kg_perts, index):
+    """ The fiducials don't need a label and contain the perturbation for the delta loss with
+    n_perts = 2 * n_params + 1
+
+    Args:
+        kg_perts (np.ndarray): shape(n_perts, n_pix, n_z_bins)
+
+    Returns:
+        tf.train.Example: Example containing all of these tensors
+    """
+    # define the structure of a single example
+    data = {
+        # tensor shapes
+        "n_perts": _int64_feature(kg_perts.shape[0]),
+        "n_pix": _int64_feature(kg_perts.shape[1]),
+        "n_z_bins": _int64_feature(kg_perts.shape[2]),
+        # lensing, metacal
+        "kg_perts": _bytes_feature(tf.io.serialize_tensor(kg_perts)),
+        # clustering, maglim TODO
+        # "dg": _bytes_feature(tf.io.serialize_tensor(dg)),
+        # label
+        "index": _int64_feature(index),
+    }
+
+    # create an Example, wrapping the single features
+    out = tf.train.Example(features=tf.train.Features(feature=data))
+    return out
+
+def parse_inverse_fiducial_perts(element):
     """use the same structure as above"""
 
     data = {
         # tensor shapes
         "n_perts": tf.io.FixedLenFeature([], tf.int64),
-        "n_noise": tf.io.FixedLenFeature([], tf.int64),
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
         "n_z_bins": tf.io.FixedLenFeature([], tf.int64),
         # lensing, metacal
         "kg_perts": tf.io.FixedLenFeature([], tf.string),
-        "sn_realz": tf.io.FixedLenFeature([], tf.string),
         # clustering, maglim TODO
         # "dg": tf.io.FixedLenFeature([], tf.string),
+        "index": tf.io.FixedLenFeature([], tf.int64),
     }
 
     content = tf.io.parse_single_example(element, data)
 
     kg_perts = tf.io.parse_tensor(content["kg_perts"], out_type=tf.float32)
-    sn_realz = tf.io.parse_tensor(content["sn_realz"], out_type=tf.float32)
     # dg = tf.io.parse_tensor(content["dg"], out_type=tf.float32)
 
     kg_perts = tf.reshape(kg_perts, shape=(content["n_perts"], content["n_pix"], content["n_z_bins"]))
-    sn_realz = tf.reshape(sn_realz, shape=(content["n_noise"], content["n_pix"], content["n_z_bins"]))
     # dg = tf.reshape(dg, shape=(content["n_pix"], content["n_z_bins"]))
 
-    return kg_perts, sn_realz
+    index = content["index"]
+
+    return kg_perts, index
+
+def parse_forward_fiducial_noise(sn, index):
+    """ The fiducials don't need a label and contain the perturbation for the delta loss with
+    n_perts = 2 * n_params + 1
+
+    Args:
+        kg_perts (np.ndarray): shape(n_perts, n_pix, n_z_bins)
+
+    Returns:
+        tf.train.Example: Example containing all of these tensors
+    """
+    # define the structure of a single example
+    data = {
+        # tensor shapes
+        "n_pix": _int64_feature(sn.shape[0]),
+        "n_z_bins": _int64_feature(sn.shape[1]),
+        # lensing, metacal
+        "sn": _bytes_feature(tf.io.serialize_tensor(sn)),
+        # label
+        "index": _int64_feature(index),
+    }
+
+    # create an Example, wrapping the single features
+    out = tf.train.Example(features=tf.train.Features(feature=data))
+    return out
+
+def parse_inverse_fiducial_noise(element):
+    """use the same structure as above"""
+
+    data = {
+        # tensor shapes
+        "n_pix": tf.io.FixedLenFeature([], tf.int64),
+        "n_z_bins": tf.io.FixedLenFeature([], tf.int64),
+        # lensing, metacal
+        "sn": tf.io.FixedLenFeature([], tf.string),
+        # clustering, maglim TODO
+        # "dg": tf.io.FixedLenFeature([], tf.string),
+        "index": tf.io.FixedLenFeature([], tf.int64),
+    }
+
+    content = tf.io.parse_single_example(element, data)
+
+    sn = tf.io.parse_tensor(content["sn"], out_type=tf.float32)
+    sn = tf.reshape(sn, shape=(content["n_pix"], content["n_z_bins"]))
+
+    index = content["index"]
+
+    return sn, index
 
 # features ############################################################################################################
 

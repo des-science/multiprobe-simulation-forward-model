@@ -141,17 +141,16 @@ def main(indices, args):
     for index in indices:
         LOGGER.timer.start("index")
 
-        file_tfrecord = get_filename_tfrecords(
+        tfr_file_perts = get_filename_tfrecords(
             args.dir_out, tag=conf["survey"]["name"], index=index, simset="fiducial"
         )
-        LOGGER.info(f"Index {index} is writing to {file_tfrecord}")
+        LOGGER.info(f"Index {index} is writing to {tfr_file_perts}")
 
         js = index * n_examples_per_file
         je = (index + 1) * n_examples_per_file
 
         n_done = 0
-        with tf.io.TFRecordWriter(file_tfrecord) as file_writer:
-
+        with tf.io.TFRecordWriter(tfr_file_perts) as file_writer_perts:
             for j in LOGGER.progressbar(range(js, je), at_level="info", desc="Storing DES examples\n", total=je - js):
                 if args.debug:
                     if n_done > 5:
@@ -182,15 +181,39 @@ def main(indices, args):
                 kg_perts = np.stack(kg_perts, axis=0)
                 LOGGER.debug(f"The tensor of kappa perturbations has shape {kg_perts.shape}")
 
-                serialized = tfrecords.parse_forward_fiducial(kg_perts, sn_realz).SerializeToString()
+                serialized = tfrecords.parse_forward_fiducial_perts(kg_perts, i_example).SerializeToString()
 
                 # check correctness
-                inv_kg, inv_sn = tfrecords.parse_inverse_fiducial(serialized)
+                inv_kg, inv_index = tfrecords.parse_inverse_fiducial_perts(serialized)
 
                 assert np.allclose(inv_kg, kg_perts)
-                assert np.allclose(inv_sn, sn_realz)
+                assert np.allclose(inv_index, i_example)
 
-                file_writer.write(serialized)
+                file_writer_perts.write(serialized)
+
+                # save the noise realizations
+                for k, sn in enumerate(sn_realz):
+                    tfr_file_noise = get_filename_tfrecords(
+                        args.dir_out,
+                        tag=conf["survey"]["name"],
+                        index=index,
+                        simset="fiducial",
+                        noise=True,
+                        noise_index=k,
+                    )
+                    LOGGER.debug(f"Writing noise to {tfr_file_perts}")
+
+                    with tf.io.TFRecordWriter(tfr_file_noise) as file_writer_noise:
+                        serialized = tfrecords.parse_forward_fiducial_noise(sn, i_example).SerializeToString()
+
+                        # check correctness
+                        inv_sn, inv_index = tfrecords.parse_inverse_fiducial_noise(serialized)
+
+                        assert np.allclose(inv_sn, sn)
+                        assert np.allclose(inv_index, i_example)
+
+                        file_writer_noise.write(serialized)
+
 
                 n_done += 1
 
