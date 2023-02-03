@@ -124,8 +124,11 @@ def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
 
 
 # TODO make this i_noise some tf.variable like Janis suggests?
-def parse_inverse_fiducial(example, pert_labels, i_noise=0):
-    """use the same structure as above"""
+def parse_inverse_fiducial(example, pert_labels, i_noise=0, n_pix=None, n_z_bins=None):
+    """use the same structure as above
+    FIXME n_pix and n_z_bins have to be passed as arguments since tf.ensure_shape doesn't like content["n_pix"] because
+    it's a tensor (0 dimensional)
+    """
 
     data = {
         # tensor shapes
@@ -148,12 +151,17 @@ def parse_inverse_fiducial(example, pert_labels, i_noise=0):
     kg_perts = []
     for label in pert_labels:
         kg_pert = tf.io.parse_tensor(content[f"kg_{label}"], out_type=tf.float32)
-        kg_pert = tf.reshape(kg_pert, shape=(content["n_pix"], content["n_z_bins"]))
+        # kg_pert = tf.reshape(kg_pert, shape=(content["n_pix"], content["n_z_bins"]))
+        # FIXME takes n_pix and not content["n_pix"]
+        kg_pert = tf.ensure_shape(kg_pert, shape=(n_pix, n_z_bins))
         kg_perts.append(kg_pert)
 
     kg_perts = tf.stack(kg_perts, axis=0)
 
     sn = tf.io.parse_tensor(content[f"sn_{i_noise}"], out_type=tf.float32)
+    # sn = tf.reshape(sn, shape=(content["n_pix"], content["n_z_bins"]))
+    # FIXME takes n_pix and not content["n_pix"]
+    sn = tf.ensure_shape(sn, shape=(n_pix, n_z_bins))
 
     # TODO dg
 

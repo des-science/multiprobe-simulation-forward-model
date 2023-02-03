@@ -25,6 +25,17 @@ LOGGER = logging.get_logger(__file__)
 
 
 def dset_remove_mean(kg_perts, sn, index, corr_fact=1):
+    """Consider the padding
+
+    Args:
+        kg_perts (tf.tensor): shape (n_perts, n_pix, n_z_bins)
+        sn (tf.tensor): shape (n_pix, n_z_bins)
+        index (tf.tensor): Just passed through
+        corr_fact (int, optional): Correction factor because of the padding. Defaults to 1.
+
+    Returns:
+        tuple: kg_perts, sn, index of same shape as input
+    """
     # take the mean over the axis of size n_pix, weight has the dimension of the last axis (tomo) and is broadcast
     kg_perts -= tf.reduce_mean(kg_perts, axis=1, keepdims=True) * corr_fact
     sn -= tf.reduce_mean(sn, axis=0, keepdims=True) * corr_fact
@@ -79,9 +90,9 @@ def get_train_dset(
     """
     # load the pixel file to calculate the non padded mean
     data_vec_pix, _, _, tomo_patches_pix, _ = survey.load_pixel_file(conf, repo_dir)
-    data_vec_len = len(data_vec_pix)
-    tomo_patch_len = [len(patches_pix) for patches_pix in tomo_patches_pix]
-    mean_correction = data_vec_len / np.array(tomo_patch_len)
+    n_data_vec_pix = len(data_vec_pix)
+    tomo_n_patch_pix = [len(patches_pix[0]) for patches_pix in tomo_patches_pix]
+    mean_corr_fac = n_data_vec_pix / np.array(tomo_n_patch_pix)
 
     if is_eval:
         tf.random.set_seed(eval_seed)
@@ -115,7 +126,7 @@ def get_train_dset(
     dset = dset.batch(batch_size)
 
     # remove the mean
-    dset = dset.map(lambda kg_perts, sn, index: dset_remove_mean(kg_perts, sn, index, mean_correction))
+    dset = dset.map(lambda kg_perts, sn, index: dset_remove_mean(kg_perts, sn, index, mean_corr_fac))
 
     # TODO add biases like https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/input_pipeline.py#L203
 
@@ -127,9 +138,10 @@ def get_train_dset(
 
     # concatenate the perturbations into the batch dimension like in
     # https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/losses.py#L122 
-    dset_concat_perts = lambda kg_perts, index: (tf.concat(tf.unstack(kg_perts, axis=0), axis=0), index)
-    dset = dset.map(dset_concat_perts)
+    # dset_concat_perts = lambda kg_perts, index: (tf.concat(tf.unstack(kg_perts, axis=0), axis=0), index)
+    # dset_reshape_perts = lambda kg_perts, index: (tf.reshape(kg_perts, (-1, kg_perts.shape[-2], kg_perts.shape[-1])), index)
+    # dset = dset.map(dset_concat_perts)
 
-    dset = dset.prefetch(n_prefetch)
+    # dset = dset.prefetch(n_prefetch)
 
     return dset
