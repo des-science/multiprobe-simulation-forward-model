@@ -100,7 +100,7 @@ def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
     assert kg_perts.shape[0] == len(pert_labels)
 
     # define the structure of a single example
-    data = {
+    features = {
         # tensor shapes
         "n_pix": _int64_feature(kg_perts.shape[1]),
         "n_z_bins": _int64_feature(kg_perts.shape[2]),
@@ -110,27 +110,27 @@ def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
 
     # kappa perturbations
     for label, kg_pert in zip(pert_labels, kg_perts):
-        data[f"kg_{label}"] = _bytes_feature(tf.io.serialize_tensor(kg_pert))
+        features[f"kg_{label}"] = _bytes_feature(tf.io.serialize_tensor(kg_pert))
 
     # noise realizations
     for i, sn in enumerate(sn_realz):
-        data[f"sn_{i}"] = _bytes_feature(tf.io.serialize_tensor(sn))
+        features[f"sn_{i}"] = _bytes_feature(tf.io.serialize_tensor(sn))
 
     # TODO dg
 
     # create an Example, wrapping the single features
-    example = tf.train.Example(features=tf.train.Features(feature=data))
-    return example
+    serialized_example = tf.train.Example(features=tf.train.Features(feature=features))
+    return serialized_example
 
 
 # TODO make this i_noise some tf.variable like Janis suggests?
-def parse_inverse_fiducial(example, pert_labels, i_noise=0, n_pix=None, n_z_bins=None):
+def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=None, n_z_bins=None):
     """use the same structure as above
     FIXME n_pix and n_z_bins have to be passed as arguments since tf.ensure_shape doesn't like content["n_pix"] because
     it's a tensor (0 dimensional)
     """
 
-    data = {
+    features = {
         # tensor shapes
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
         "n_z_bins": tf.io.FixedLenFeature([], tf.int64),
@@ -140,34 +140,52 @@ def parse_inverse_fiducial(example, pert_labels, i_noise=0, n_pix=None, n_z_bins
 
     # kappa perturbations
     for label in pert_labels:
-        data[f"kg_{label}"] = tf.io.FixedLenFeature([], tf.string)
+        features[f"kg_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
     # single noise realization
-    data[f"sn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
+    features[f"sn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
 
-    content = tf.io.parse_single_example(example, data)
+    data = tf.io.parse_single_example(serialized_example, features)
+    data_vectors = {}
 
-    # parse the features
-    kg_perts = []
+    # parse the perturbations
     for label in pert_labels:
-        kg_pert = tf.io.parse_tensor(content[f"kg_{label}"], out_type=tf.float32)
-        # kg_pert = tf.reshape(kg_pert, shape=(content["n_pix"], content["n_z_bins"]))
-        # FIXME takes n_pix and not content["n_pix"]
+        key = f"kg_{label}"
+        kg_pert = tf.io.parse_tensor(data[key], out_type=tf.float32)
         kg_pert = tf.ensure_shape(kg_pert, shape=(n_pix, n_z_bins))
-        kg_perts.append(kg_pert)
+        data_vectors[key] = kg_pert
 
-    kg_perts = tf.stack(kg_perts, axis=0)
-
-    sn = tf.io.parse_tensor(content[f"sn_{i_noise}"], out_type=tf.float32)
-    # sn = tf.reshape(sn, shape=(content["n_pix"], content["n_z_bins"]))
-    # FIXME takes n_pix and not content["n_pix"]
+    sn = tf.io.parse_tensor(data[f"sn_{i_noise}"], out_type=tf.float32)
     sn = tf.ensure_shape(sn, shape=(n_pix, n_z_bins))
+    data_vectors[f"sn"] = sn
 
     # TODO dg
 
-    index = content["index"]
+    index = data["index"]
 
-    return kg_perts, sn, index
+    return data_vectors, index
+
+
+    # kg_perts = []
+    # for label in pert_labels:
+    #     kg_pert = tf.io.parse_tensor(content[f"kg_{label}"], out_type=tf.float32)
+    #     # kg_pert = tf.reshape(kg_pert, shape=(content["n_pix"], content["n_z_bins"]))
+    #     # FIXME takes n_pix and not content["n_pix"]
+    #     kg_pert = tf.ensure_shape(kg_pert, shape=(n_pix, n_z_bins))
+    #     kg_perts.append(kg_pert)
+
+    # kg_perts = tf.stack(kg_perts, axis=0)
+
+    # sn = tf.io.parse_tensor(content[f"sn_{i_noise}"], out_type=tf.float32)
+    # # sn = tf.reshape(sn, shape=(content["n_pix"], content["n_z_bins"]))
+    # # FIXME takes n_pix and not content["n_pix"]
+    # sn = tf.ensure_shape(sn, shape=(n_pix, n_z_bins))
+
+    # # TODO dg
+
+    # index = content["index"]
+
+    # return kg_perts, sn, index
 
 
 # features ############################################################################################################
