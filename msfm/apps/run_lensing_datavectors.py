@@ -35,11 +35,13 @@ except AttributeError:
 os.environ["OMP_NUM_THREADS"] = str(n_cpus)
 
 import healpy as hp
+
 hp_LOGGER = logging.getLogger("healpy")
 hp_LOGGER.setLevel(logging.WARNING)
 
 # warnings.filterwarnings("once", module="healpy")
 # hp.disable_warnings()
+
 
 def resources(args):
     return dict(main_memory=1000, main_time=4, main_scratch=0, main_n_cores=8)
@@ -97,6 +99,8 @@ def setup(args):
     args, _ = parser.parse_known_args(args)
 
     logger.set_all_loggers_level(args.verbosity)
+
+    args.repo_dir = os.path.abspath(args.repo_dir)
 
     return args
 
@@ -298,6 +302,7 @@ def main(indices, args):
                         bias = tomo_bias[i_z]
                         gamma_cat = tomo_gamma_cat[i_z]
                         n_gals_cat = gamma_cat.shape[0]
+                        gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
 
                         # normalize to number density contrast
                         delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
@@ -308,7 +313,7 @@ def main(indices, args):
                         counts_full = np.random.poisson(counts_full)
 
                         for i_patch, patch_pix in enumerate(patches_pix):
-                            LOGGER.info(f"Starting with patch index {i_patch}")
+                            LOGGER.debug(f"Starting with patch index {i_patch}")
                             LOGGER.timer.start("noise_patch")
 
                             # not a full healpy map, just the patch with no zeros
@@ -327,12 +332,11 @@ def main(indices, args):
                             seg_ids = tf.constant(seg_ids, dtype=tf.int32)
 
                             for i_noise in range(n_noise_per_example):
-                                LOGGER.info(f"Starting with noise realization {i_noise}")
+                                LOGGER.debug(f"Starting with noise realization {i_noise}")
                                 LOGGER.timer.start("noise_realization")
 
                                 # randomize TODO set random seed on operator level?
                                 phase = tf.random.uniform(shape=(n_gals_cat,), minval=0, maxval=2 * np.pi)
-                                gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
                                 gamma1 = tf.math.cos(phase) * gamma_abs
                                 gamma2 = tf.math.sin(phase) * gamma_abs
 
@@ -345,10 +349,6 @@ def main(indices, args):
                                 samples = emp_dist.sample(sample_shape=n_gals_patch)
 
                                 gamma1, gamma2 = tf_noise_gen(samples, seg_ids)
-                                LOGGER.debug(
-                                    f"Noise generation done after {LOGGER.timer.elapsed('noise_realization')}"
-                                )
-                                LOGGER.timer.start("mode_removal")
 
                                 gamma1_patch = np.zeros(n_pix, dtype=np.float32)
                                 gamma1_patch[base_patch_pix] = gamma1
@@ -359,7 +359,6 @@ def main(indices, args):
                                 kappa_patch = mode_removal(
                                     gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
                                 )
-                                # LOGGER.debug(f"Mode removal done after {LOGGER.timer.elapsed('mode_removal')}")
 
                                 # cut out padded data vector
                                 kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
