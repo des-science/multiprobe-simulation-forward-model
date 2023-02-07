@@ -82,6 +82,8 @@ def setup(args):
     if not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
 
+    args.repo_dir = os.path.abspath(args.repo_dir)
+
     logger.set_all_loggers_level(args.verbosity)
 
     return args
@@ -134,12 +136,12 @@ def main(indices, args):
     rng = default_rng(seed=args.np_seed)
     i_examples = rng.permutation(n_examples_per_param)
 
-    LOGGER.debug(f"n_examples_per_file = {n_examples_per_file}")
+    LOGGER.info(f"n_examples_per_file = {n_examples_per_file}")
 
     pert_labels = [label.split("cosmo_")[1].replace("/", "") for label in params_dir_in]
     # manually add intrinsic alignment after the fiducial
     pert_labels = [pert_labels[0]] + ["delta_Aia_m", "delta_Aia_p"] + pert_labels[1:]
-    LOGGER.debug(f"labels = {pert_labels}")
+    LOGGER.info(f"{len(pert_labels)} labels = {pert_labels}")
 
     # index corresponds to a .tfrecord file ###########################################################################
     for index in indices:
@@ -189,9 +191,11 @@ def main(indices, args):
                 ).SerializeToString()
 
                 # check correctness
-                inv_kg, inv_sn, inv_index = tfrecords.parse_inverse_fiducial(serialized, pert_labels, i_noise=0)
+                inv_data_vectors, inv_index = tfrecords.parse_inverse_fiducial(serialized, pert_labels, i_noise=0)
+                inv_kg_perts = tf.stack([inv_data_vectors[f"kg_{pert_label}"] for pert_label in pert_labels], axis=0)
+                inv_sn = inv_data_vectors["sn"]
 
-                assert np.allclose(inv_kg, kg_perts)
+                assert np.allclose(inv_kg_perts, kg_perts)
                 assert np.allclose(inv_sn, sn_realz[0])
                 assert np.allclose(inv_index, i_example)
 

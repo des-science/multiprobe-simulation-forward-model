@@ -166,28 +166,6 @@ def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=Non
     return data_vectors, index
 
 
-    # kg_perts = []
-    # for label in pert_labels:
-    #     kg_pert = tf.io.parse_tensor(content[f"kg_{label}"], out_type=tf.float32)
-    #     # kg_pert = tf.reshape(kg_pert, shape=(content["n_pix"], content["n_z_bins"]))
-    #     # FIXME takes n_pix and not content["n_pix"]
-    #     kg_pert = tf.ensure_shape(kg_pert, shape=(n_pix, n_z_bins))
-    #     kg_perts.append(kg_pert)
-
-    # kg_perts = tf.stack(kg_perts, axis=0)
-
-    # sn = tf.io.parse_tensor(content[f"sn_{i_noise}"], out_type=tf.float32)
-    # # sn = tf.reshape(sn, shape=(content["n_pix"], content["n_z_bins"]))
-    # # FIXME takes n_pix and not content["n_pix"]
-    # sn = tf.ensure_shape(sn, shape=(n_pix, n_z_bins))
-
-    # # TODO dg
-
-    # index = content["index"]
-
-    # return kg_perts, sn, index
-
-
 # features ############################################################################################################
 
 # https://www.tensorflow.org/tutorials/load_data/tfrecord#data_types_for_tftrainexample
