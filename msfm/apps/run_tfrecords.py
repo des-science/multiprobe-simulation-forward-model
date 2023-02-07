@@ -20,13 +20,13 @@ from numpy.random import default_rng
 from numba import njit
 from icecream import ic
 
-from msfm.utils import logging, input_output, cosmogrid, tfrecords
+from msfm.utils import logger, input_output, cosmogrid, tfrecords
 from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
-LOGGER = logging.get_logger(__file__)
+LOGGER = logger.get_logger(__file__)
 
 
 def resources(args):
@@ -78,7 +78,7 @@ def setup(args):
 
     args, _ = parser.parse_known_args(args)
 
-    logging.set_all_loggers_level(args.verbosity)
+    logger.set_all_loggers_level(args.verbosity)
 
     return args
 

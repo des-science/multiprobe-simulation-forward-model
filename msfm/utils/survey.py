@@ -1,11 +1,11 @@
 import os, h5py, warnings
 
-from msfm.utils import logging, input_output
+from msfm.utils import logger, input_output
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
-LOGGER = logging.get_logger(__file__)
+LOGGER = logger.get_logger(__file__)
 
 
 def load_pixel_file(conf, repo_dir):

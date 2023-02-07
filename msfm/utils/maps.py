@@ -1,9 +1,9 @@
 import numpy as np
 from numba import njit
 
-from . import logging
+from . import logger
 
-LOGGER = logging.get_logger(__file__)
+LOGGER = logger.get_logger(__file__)
 
 @njit
 def make_normallized_maps(gal_pix, e1, e2, w, n_pix):

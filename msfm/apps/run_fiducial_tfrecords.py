@@ -23,13 +23,13 @@ import os, argparse, warnings, h5py
 from numpy.random import default_rng
 from icecream import ic
 
-from msfm.utils import logging, input_output, cosmogrid, tfrecords
+from msfm.utils import logger, input_output, cosmogrid, tfrecords
 from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
-LOGGER = logging.get_logger(__file__)
+LOGGER = logger.get_logger(__file__)
 
 
 def resources(args):
@@ -82,7 +82,7 @@ def setup(args):
     if not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
 
-    logging.set_all_loggers_level(args.verbosity)
+    logger.set_all_loggers_level(args.verbosity)
 
     return args
 

@@ -1,7 +1,7 @@
 import yaml, os, subprocess, shlex
-from . import logging
+from . import logger
 
-LOGGER = logging.get_logger(__file__)
+LOGGER = logger.get_logger(__file__)
 
 
 def read_yaml(filename):

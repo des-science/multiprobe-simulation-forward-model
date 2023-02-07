@@ -13,18 +13,18 @@ Meant for Euler (CPU nodes, local scratch)
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-import os, argparse, warnings, h5py, time
+import os, argparse, warnings, h5py, time, logging
 
 from numba import njit
 from icecream import ic
 
-from msfm.utils import logging, input_output, shear, cosmogrid, survey
+from msfm.utils import logger, input_output, shear, cosmogrid, survey
 from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
-LOGGER = logging.get_logger(__file__)
+LOGGER = logger.get_logger(__file__)
 
 # set the environmental variable OMP_NUM_THREADS to the number of logical processors for healpy parallelixation
 try:
@@ -35,7 +35,11 @@ except AttributeError:
 os.environ["OMP_NUM_THREADS"] = str(n_cpus)
 
 import healpy as hp
+hp_LOGGER = logging.getLogger("healpy")
+hp_LOGGER.setLevel(logging.WARNING)
 
+# warnings.filterwarnings("once", module="healpy")
+# hp.disable_warnings()
 
 def resources(args):
     return dict(main_memory=1000, main_time=4, main_scratch=0, main_n_cores=8)
@@ -92,7 +96,7 @@ def setup(args):
 
     args, _ = parser.parse_known_args(args)
 
-    logging.set_all_loggers_level(args.verbosity)
+    logger.set_all_loggers_level(args.verbosity)
 
     return args
 
@@ -125,6 +129,8 @@ def main(indices, args):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_param = conf["analysis"][args.simset]["n_perms_per_param"]
     n_noise_per_example = conf["analysis"][args.simset]["n_noise_per_example"]
+    LOGGER.info(f"Looping through {n_perms_per_param} permutations per cosmological parameter")
+    LOGGER.info(f"Generating {n_noise_per_example} noise realizations per example")
 
     lmax = 3 * n_side - 1
     l = hp.Alm.getlm(lmax)[0]
@@ -302,7 +308,7 @@ def main(indices, args):
                         counts_full = np.random.poisson(counts_full)
 
                         for i_patch, patch_pix in enumerate(patches_pix):
-                            LOGGER.debug(f"Starting with patch index {i_patch}")
+                            LOGGER.info(f"Starting with patch index {i_patch}")
                             LOGGER.timer.start("noise_patch")
 
                             # not a full healpy map, just the patch with no zeros
@@ -321,7 +327,7 @@ def main(indices, args):
                             seg_ids = tf.constant(seg_ids, dtype=tf.int32)
 
                             for i_noise in range(n_noise_per_example):
-                                LOGGER.debug(f"Starting with noise realization {i_noise}")
+                                LOGGER.info(f"Starting with noise realization {i_noise}")
                                 LOGGER.timer.start("noise_realization")
 
                                 # randomize TODO set random seed on operator level?
@@ -353,7 +359,7 @@ def main(indices, args):
                                 kappa_patch = mode_removal(
                                     gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
                                 )
-                                LOGGER.debug(f"Mode removal done after {LOGGER.timer.elapsed('mode_removal')}")
+                                # LOGGER.debug(f"Mode removal done after {LOGGER.timer.elapsed('mode_removal')}")
 
                                 # cut out padded data vector
                                 kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
