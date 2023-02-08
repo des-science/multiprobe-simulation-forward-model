@@ -27,6 +27,10 @@ survey:
     z_bins: ["desy3metacal1", "desy3metacal2", "desy3metacal3", "desy3metacal4"]
     # FIXME these are only placeholder values that were roughly estimated from histograms
     bias: [0.7, 1.2, 1.8, 3]
+    # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf
+    z_errors:
+      mu: [0, 0, 0, 0]
+      sigma: [0.018, 0.015, 0.011, 0.017]
   maglim:
     # from Table 2 in https://arxiv.org/pdf/2011.03411.pdf
     z_lims:
@@ -53,6 +57,11 @@ analysis:
   n_side: 512
   n_pix: 3145728
   n_patches: 4
+  # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf
+  shear_bias:
+    multiplicative: 
+      mu: [-0.0063, -0.0198, -0.0241, -0.0369]
+      sigma: [0.0091, 0.0078, 0.0076, 0.0076]
   grid:
     n_params: 2500
     n_perms_per_param: 4
@@ -60,7 +69,7 @@ analysis:
   fiducial:
     n_params: 17
     n_perms_per_param: 200
-    n_noise_per_example: 1
+    n_noise_per_example: 3
     # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
     perturbations:
       Aia: 0.1

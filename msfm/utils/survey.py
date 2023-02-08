@@ -1,4 +1,5 @@
 import os, h5py, warnings
+import numpy as np
 
 from msfm.utils import logger, input_output
 
@@ -50,6 +51,29 @@ def load_pixel_file(conf, repo_dir):
 
     return data_vec_pix, patches_pix, gamma2_signs, tomo_patches_pix, tomo_corresponding_pix
 
+
+def get_tomo_masks(conf, repo_dir):
+    """Masks the data vectors for the different tomographic bins.
+
+    Args:
+        conf (yaml): yaml dictionary setting the configuration parameters, contains relative paths
+        repo_dir (str): absolute path to the repository
+
+    Returns:
+        np.ndarray: Mask array of shape (n_pix, n_z_bins) that is zero for the padding and one for the data
+    """
+    data_vec_pix, _, _, _, tomo_corresponding_pix = load_pixel_file(conf, repo_dir)
+
+    masks = []
+    # loop over the tomographic bins
+    for pix in tomo_corresponding_pix:
+        mask = np.zeros(len(data_vec_pix), dtype=np.float32)
+        # loop over individual pixels
+        for p in pix:
+            mask[p] = 1.0
+        masks.append(mask)
+
+    return np.array(masks).T
 
 def load_noise_file(conf, repo_dir):
     """Loads the .h5 file that contains the noise information of the survey. That

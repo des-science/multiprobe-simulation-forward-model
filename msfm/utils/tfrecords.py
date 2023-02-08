@@ -1,10 +1,28 @@
-""" adapted from https://github.com/tomaszkacprzak/CosmoPointNet/blob/main/CosmoPointNet/utils_tfrecords.py 
-by Tomasz Kacprzak"""
+# Copyright (C) 2022 ETH Zurich, Institute for Particle Physics and Astrophysics
 
+""" 
+Created February 2023
+Author: Arne Thomsen
+
+This file is based off 
+https://github.com/tomaszkacprzak/CosmoPointNet/blob/main/CosmoPointNet/utils_tfrecords.py 
+by Tomasz Kacprzak and
+https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/data.py
+by Janis Fluri and see
+https://towardsdatascience.com/a-practical-guide-to-tfrecords-584536bc786c
+"""
+
+import warnings
 import tensorflow as tf
 from icecream import ic
 
-# https://towardsdatascience.com/a-practical-guide-to-tfrecords-584536bc786c
+from msfm.utils import logger
+
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("once", category=UserWarning)
+LOGGER = logger.get_logger(__file__)
+
 # def parse_forward_maps(kg, ia, sn, dg, cosmo, sobol):
 def parse_forward_grid(kg, ia, sn, cosmo, sobol):
     """The grid cosmologies contain all of the maps and labels
@@ -125,13 +143,24 @@ def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
 
 # TODO make this i_noise some tf.variable like Janis suggests?
 def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=None, n_z_bins=None):
-    """use the same structure as above
-    FIXME n_pix and n_z_bins have to be passed as arguments since tf.ensure_shape doesn't like content["n_pix"] because
-    it's a tensor (0 dimensional)
+    """Use the same structure as in in the forward pass above. Note that n_pix and n_z_bins have to be passed as 
+    arguments to ensure that the function can be converted to a graph
+
+
+    Args:
+        serialized_example (tf.train.Example.SerializeToString()): The data
+        pert_labels (list): List of strings that contain the labels defining the keys
+        i_noise (int, optional): Index to choose the noise realization to return. Defaults to 0.
+        n_pix (int, optional): Fixes the size of the tensors. Defaults to None.
+        n_z_bins (int, optional): Fixes the size of the tensors. Defaults to None.
+
+    Returns:
+        dict, int: Dictionary of datavectors (fiducial, perturbations and shape noise) and the patch index
     """
+    LOGGER.warning(f"Tracing parse_inverse_fiducial")
 
     features = {
-        # tensor shapes
+        # tensor shapes, these aren't used because reshaping with respect to them leads to a None shape in tf.function
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
         "n_z_bins": tf.io.FixedLenFeature([], tf.int64),
         # label
