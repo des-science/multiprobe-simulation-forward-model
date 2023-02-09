@@ -177,7 +177,6 @@ def get_fiducial_dset(
 
     # get the file names, shuffle and dataset them
     dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=False)
-    # TODO shard the dataset?
     if not is_eval:
         dset = dset.repeat()
         dset = dset.shuffle(file_name_shuffle_buffer, seed=file_name_shuffle_seed)
@@ -227,7 +226,7 @@ def get_fiducial_dset(
 
     dset = dset.prefetch(n_prefetch)
 
-    LOGGER.info(f"Successfully generated the fiducial training set for i_noise = {i_noise}")
+    LOGGER.info(f"Successfully generated the fiducial training set with element_spec\n{dset.element_spec}\nfor i_noise = {i_noise}")
     return dset
 
 
@@ -291,6 +290,5 @@ def get_fiducial_multi_noise_dset(
     )
 
     dset = dset.prefetch(n_prefetch)
-
-    LOGGER.info(f"Successfully generated the fiducial training set for i_noise in [0, {n_noise}]")
+    LOGGER.info(f"Successfully generated the fiducial training set with element_spec\n{dset.element_spec}\nfor i_noise in [0, {n_noise}]")
     return dset

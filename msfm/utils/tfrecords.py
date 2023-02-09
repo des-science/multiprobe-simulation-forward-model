@@ -9,6 +9,7 @@ https://github.com/tomaszkacprzak/CosmoPointNet/blob/main/CosmoPointNet/utils_tf
 by Tomasz Kacprzak and
 https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/data.py
 by Janis Fluri and see
+https://www.tensorflow.org/tutorials/load_data/tfrecord
 https://towardsdatascience.com/a-practical-guide-to-tfrecords-584536bc786c
 """
 
@@ -137,8 +138,8 @@ def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
     # TODO dg
 
     # create an Example, wrapping the single features
-    serialized_example = tf.train.Example(features=tf.train.Features(feature=features))
-    return serialized_example
+    example = tf.train.Example(features=tf.train.Features(feature=features))
+    return example
 
 
 # TODO make this i_noise some tf.variable like Janis suggests?
