@@ -18,6 +18,11 @@ notebooks/temp
 data/DESY3_noise.h5
 .vscode
 
+# training
+checkpoint/
+base_checkpoint/
+summary/
+
 # Mac specific
 .DS_Store
 
