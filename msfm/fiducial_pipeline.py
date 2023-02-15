@@ -24,29 +24,6 @@ warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
 
-# def dset_remove_mean(data_vectors, index, pert_labels, corr_fact=1):
-#     """
-#     Args:
-#         data_vectors (dict): has keys "kg_{pert_label}" and "sn", which contain tensors of shape (n_pix, n_z_bins)
-#         index (tf.tensor): Integer that is just passed through
-#         pert_labels (list): The labels of the perturbations to loop through. These are needed explicitly for the
-#             function to be converted by autograph.
-#         corr_fact (int, optional): Correction factor because of the padding. Defaults to 1.
-
-#     Returns:
-#         tuple: (data_vectors, index) of the same shape as at the input
-#     """
-#     LOGGER.warning(f"Tracing dset_remove_mean")
-
-#     for label in pert_labels:
-#         # take the mean over the axis of size n_pix, weight has the dimension of the last axis (n_z) and is broadcast
-#         data_vectors[f"kg_{label}"] -= tf.reduce_mean(data_vectors[f"kg_{label}"], axis=0, keepdims=True) * corr_fact
-
-#     data_vectors["sn"] -= tf.reduce_mean(data_vectors["sn"], axis=0, keepdims=True) * corr_fact
-
-#     return data_vectors, index
-
-
 def dset_add_bias(data_vectors, index, pert_labels, m_bias_dist=None):
     """Adds a random multiplicative shear bias (the additive one is negligible)
 
@@ -198,9 +175,6 @@ def get_fiducial_dset(
     )
     dset = dset.map(dset_parse_inverse, num_parallel_calls=tf.data.AUTOTUNE)
 
-    # remove the mean FIXME taken care of in run_grid_tfrecords
-    # dset = dset.map(lambda data_vectors, index: dset_remove_mean(data_vectors, index, pert_labels, mean_corr_fac))
-
     # add shear bias
     m_bias_dist = tfp.distributions.MultivariateNormalDiag(
         loc=conf["analysis"]["shear_bias"]["multiplicative"]["mu"],
@@ -226,7 +200,9 @@ def get_fiducial_dset(
 
     dset = dset.prefetch(n_prefetch)
 
-    LOGGER.info(f"Successfully generated the fiducial training set with element_spec\n{dset.element_spec}\nfor i_noise = {i_noise}")
+    LOGGER.info(
+        f"Successfully generated the fiducial training set with element_spec\n{dset.element_spec}\nfor i_noise = {i_noise}"
+    )
     return dset
 
 
@@ -290,5 +266,7 @@ def get_fiducial_multi_noise_dset(
     )
 
     dset = dset.prefetch(n_prefetch)
-    LOGGER.info(f"Successfully generated the fiducial training set with element_spec\n{dset.element_spec}\nfor i_noise in [0, {n_noise}]")
+    LOGGER.info(
+        f"Successfully generated the fiducial training set with element_spec\n{dset.element_spec}\nfor i_noise in [0, {n_noise}]"
+    )
     return dset
