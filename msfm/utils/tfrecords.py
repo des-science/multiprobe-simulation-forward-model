@@ -37,6 +37,8 @@ def parse_forward_grid(kg, sn_realz, cosmo, i_sobol):
     Returns:
         tf.train.Example: Example containing all of these tensors
     """
+    # LOGGER.warning(f"Tracing parse_forward_grid")
+
     # assert kg.shape == sn.shape == dg.shape
     assert kg.shape == sn_realz.shape[1:]
 
@@ -62,7 +64,6 @@ def parse_forward_grid(kg, sn_realz, cosmo, i_sobol):
     example = tf.train.Example(features=tf.train.Features(feature=features))
     return example
 
-
 def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_bins=None, n_params=None):
     """Use the same structure as in in the forward pass above. Note that n_pix, n_z_bins and n_params have to be passed 
     as function arguments to ensure that the function can be converted to a graph.
@@ -76,7 +77,7 @@ def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_bins=None,
     Returns:
         tf.tensors, int: Tensors containing the different fields, the cosmological parameters and an sobol index label
     """
-    LOGGER.warning(f"Tracing parse_inverse_grid")
+    # LOGGER.warning(f"Tracing parse_inverse_grid")
 
     features = {
         # tensor shapes
@@ -85,7 +86,7 @@ def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_bins=None,
         "n_params": tf.io.FixedLenFeature([], tf.int64),
         # lensing, metacal
         "kg": tf.io.FixedLenFeature([], tf.string),
-        "sn": tf.io.FixedLenFeature([], tf.string),
+        f"sn_{i_noise}": tf.io.FixedLenFeature([], tf.string),
         # clustering, maglim TODO
         # "dg": tf.io.FixedLenFeature([], tf.string),
         # labels
