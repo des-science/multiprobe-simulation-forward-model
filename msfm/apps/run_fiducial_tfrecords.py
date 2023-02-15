@@ -48,18 +48,18 @@ def setup(args):
         choices=("critical", "error", "warning", "info", "debug"),
         help="logging level",
     )
-    parser.add_argument("--with_bary", action="store_true", help="activate debug mode")
+    parser.add_argument("--with_bary", action="store_true", help="include baryons")
     parser.add_argument("--n_files", type=int, default=100, help="number of .tfrecord files to produce")
     parser.add_argument(
         "--dir_in",
         type=str,
-        default=b"/global/cfs/cdirs/des/cosmogrid/DESY3/grid",
+        default=b"/global/cfs/cdirs/des/cosmogrid/DESY3/fiducial",
         help="input root dir of the simulations",
     )
     parser.add_argument(
         "--dir_out",
         type=str,
-        default="/pscratch/sd/a/athomsen/DESY3/grid",
+        default="/pscratch/sd/a/athomsen/DESY3/fiducial",
         help="output root dir of the .tfrecords",
     )
     parser.add_argument(
@@ -111,7 +111,6 @@ def main(indices, args):
 
     # set up the paths
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
-    params_info = cosmogrid.get_parameter_info(meta_info_file, "fiducial")
     params_dir = [param_dir.decode("utf-8") for param_dir in params_info["path_par"]]
 
     # remove baryon perturbations for the fiducial set
@@ -154,7 +153,7 @@ def main(indices, args):
         je = (index + 1) * n_examples_per_file
 
         n_done = 0
-        with tf.io.TFRecordWriter(tfr_file) as file_writer_perts:
+        with tf.io.TFRecordWriter(tfr_file) as file_writer:
             for j in LOGGER.progressbar(range(js, je), at_level="info", desc="Storing DES examples\n", total=je - js):
                 if args.debug:
                     if n_done > 5:
@@ -201,7 +200,7 @@ def main(indices, args):
 
                 LOGGER.debug("decoded successfully")
 
-                file_writer_perts.write(serialized)
+                file_writer.write(serialized)
 
                 n_done += 1
 

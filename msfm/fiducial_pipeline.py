@@ -4,7 +4,7 @@
 Created February 2023
 Author: Arne Thomsen
 
-This file is based off 
+This file is loosely based off 
 https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/input_pipeline.py
 by Janis Fluri
 """
@@ -17,7 +17,6 @@ import warnings
 from icecream import ic
 
 from msfm.utils import logger, tfrecords, survey
-from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -25,27 +24,27 @@ warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
 
-def dset_remove_mean(data_vectors, index, pert_labels, corr_fact=1):
-    """
-    Args:
-        data_vectors (dict): has keys "kg_{pert_label}" and "sn", which contain tensors of shape (n_pix, n_z_bins)
-        index (tf.tensor): Integer that is just passed through
-        pert_labels (list): The labels of the perturbations to loop through. These are needed explicitly for the
-            function to be converted by autograph.
-        corr_fact (int, optional): Correction factor because of the padding. Defaults to 1.
+# def dset_remove_mean(data_vectors, index, pert_labels, corr_fact=1):
+#     """
+#     Args:
+#         data_vectors (dict): has keys "kg_{pert_label}" and "sn", which contain tensors of shape (n_pix, n_z_bins)
+#         index (tf.tensor): Integer that is just passed through
+#         pert_labels (list): The labels of the perturbations to loop through. These are needed explicitly for the
+#             function to be converted by autograph.
+#         corr_fact (int, optional): Correction factor because of the padding. Defaults to 1.
 
-    Returns:
-        tuple: (data_vectors, index) of the same shape as at the input
-    """
-    LOGGER.warning(f"Tracing dset_remove_mean")
+#     Returns:
+#         tuple: (data_vectors, index) of the same shape as at the input
+#     """
+#     LOGGER.warning(f"Tracing dset_remove_mean")
 
-    for label in pert_labels:
-        # take the mean over the axis of size n_pix, weight has the dimension of the last axis (n_z) and is broadcast
-        data_vectors[f"kg_{label}"] -= tf.reduce_mean(data_vectors[f"kg_{label}"], axis=0, keepdims=True) * corr_fact
+#     for label in pert_labels:
+#         # take the mean over the axis of size n_pix, weight has the dimension of the last axis (n_z) and is broadcast
+#         data_vectors[f"kg_{label}"] -= tf.reduce_mean(data_vectors[f"kg_{label}"], axis=0, keepdims=True) * corr_fact
 
-    data_vectors["sn"] -= tf.reduce_mean(data_vectors["sn"], axis=0, keepdims=True) * corr_fact
+#     data_vectors["sn"] -= tf.reduce_mean(data_vectors["sn"], axis=0, keepdims=True) * corr_fact
 
-    return data_vectors, index
+#     return data_vectors, index
 
 
 def dset_add_bias(data_vectors, index, pert_labels, m_bias_dist=None):
@@ -66,7 +65,7 @@ def dset_add_bias(data_vectors, index, pert_labels, m_bias_dist=None):
     LOGGER.warning(f"Tracing dset_add_bias")
 
     if m_bias_dist is None:
-        LOGGER.warning(f"The multiplicative shear bias is set to one")
+        LOGGER.warning(f"No multiplicative shear bias is applied")
 
     elif isinstance(m_bias_dist, tfp.distributions.Distribution):
         m_bias = m_bias_dist.sample()
@@ -118,7 +117,6 @@ def dset_concat_perts(data_vectors, index, pert_labels):
     return data_vectors, index
 
 
-# TODO make this compatible with multi node training
 def get_fiducial_dset(
     conf: dict,
     repo_dir: str,
@@ -126,7 +124,7 @@ def get_fiducial_dset(
     pert_labels: list,
     batch_size: int,
     i_noise: int = 0,
-    noise_scale: float = 1,
+    noise_scale: float = 1.0,
     file_name_shuffle_buffer: int = 128,
     file_name_shuffle_seed: int = 17,
     examples_shuffle_buffer: int = 128,
@@ -147,12 +145,14 @@ def get_fiducial_dset(
         batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
         i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
             other tensor (like randomly sampled).
+        noise_scale (float): Factor by which to multiply the shape noise. This could also be a tf.Variable to change
+            it according to a schedule during training
         file_name_shuffle_buffer (int, optional): Defaults to 128.
         file_name_shuffle_seed (int, optional): Defaults to 17.
         examples_shuffle_buffer (int, optional): Defaults to 128.
         examples_shuffle_seed (int, optional): Defaults to 67.
         n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
-            concurrently. Defaults to 8.
+            concurrently. This should be roughly less than a tenth of the number of files. Defaults to 8.
         n_prefetch (int, optional): Number of dataset elements to prefetch.
         is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can go
             through it deterministically exactly once. Defaults to False.
@@ -198,8 +198,8 @@ def get_fiducial_dset(
     )
     dset = dset.map(dset_parse_inverse, num_parallel_calls=tf.data.AUTOTUNE)
 
-    # remove the mean
-    dset = dset.map(lambda data_vectors, index: dset_remove_mean(data_vectors, index, pert_labels, mean_corr_fac))
+    # remove the mean FIXME taken care of in run_grid_tfrecords
+    # dset = dset.map(lambda data_vectors, index: dset_remove_mean(data_vectors, index, pert_labels, mean_corr_fac))
 
     # add shear bias
     m_bias_dist = tfp.distributions.MultivariateNormalDiag(
