@@ -12,3 +12,7 @@
 - name: fiducial_tfr
   dep: lensing_fiducial_dv
   cmd: esub msfm/apps/run_fiducial_tfrecords.py --n_files=16 --dir_in=/cluster/scratch/athomsen/CosmoGrid/v2/fiducial --dir_out=/cluster/scratch/athomsen/CosmoGrid/v2/fiducial --repo_dir=. --config=configs/config.yaml --mode=jobarray --function=all --n_jobs=16 --tasks="0>16" --job_name=tfr_fid --system=slurm
+
+- name: grid_tfr
+  dep: lensing_grid_dv
+  cmd: esub msfm/apps/run_grid_tfrecords.py --n_files=250 --dir_in=/cluster/work/refregier/athomsen/CosmoGrid/DESY3/v2/grid --dir_out=/cluster/work/refregier/athomsen/CosmoGrid/DESY3/v2 --repo_dir=. --config=configs/config.yaml --mode=run --function=main --n_jobs=250 --tasks="0>250" --job_name=tfr_grid --system=slurm
