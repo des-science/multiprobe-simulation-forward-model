@@ -101,38 +101,37 @@ def main(indices, args):
     LOGGER.info(f"Loaded configuration file")
 
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
-    params_info = cosmogrid.get_parameter_info(meta_info_file, "grid")
+    cosmo_params_info = cosmogrid.get_cosmo_params_info(meta_info_file, "grid")
     LOGGER.info(f"Loaded meta information")
 
     # constants
-    target_cosmo_params = conf["analysis"]["cosmo"]
-    n_cosmo_params = len(target_cosmo_params)
+    target_params = conf["analysis"]["params"]["cosmo"]
+    n_params = len(target_params)
 
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
-    n_perms_per_param = conf["analysis"]["grid"]["n_perms_per_param"]
-    n_examples_per_param = n_patches * n_perms_per_param
+    n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
+    n_examples_per_cosmo = n_patches * n_perms_per_cosmo
 
     # set up the paths
-    meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
-    params_dir = [param_dir.decode("utf-8") for param_dir in params_info["path_par"]]
+    cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
 
-    params_dir_in = [os.path.join(args.dir_in, param_dir) for param_dir in params_dir]
-    n_params = len(params_dir_in)
-    LOGGER.info(f"Got simulation set grid of size {n_params} with base path {args.dir_in}")
+    cosmo_dirs_in = [os.path.join(args.dir_in, cosmo_dir) for cosmo_dir in cosmo_dirs]
+    n_cosmos = len(cosmo_dirs_in)
+    LOGGER.info(f"Got simulation set grid of size {n_cosmos} with base path {args.dir_in}")
 
     # configure file structure
-    if n_params % args.n_files == 0:
-        n_params_per_file = n_params // args.n_files
-        LOGGER.info(f"The number of files implies {n_params_per_file} cosmological parameters per file")
+    if n_cosmos % args.n_files == 0:
+        n_cosmos_per_file = n_cosmos // args.n_files
+        LOGGER.info(f"The number of files implies {n_cosmos_per_file} cosmological parameters per file")
     else:
         raise ValueError(
-            f"The total number of parameters {n_params} has to be divisible by the number of files {args.n_files}"
+            f"The total number of cosmologies {n_cosmos} has to be divisible by the number of files {args.n_files}"
         )
-    n_examples_per_file = n_examples_per_param * n_params_per_file
+    n_examples_per_file = n_examples_per_cosmo * n_cosmos_per_file
 
     LOGGER.info(
-        f"In total, there are n_examples_per_param * n_params_per_file = {n_examples_per_param} * {n_params_per_file}"
+        f"In total, there are n_examples_per_cosmo * n_cosmos_per_file = {n_examples_per_cosmo} * {n_cosmos_per_file}"
         f" = {n_examples_per_file} examples per file"
     )
 
@@ -144,15 +143,15 @@ def main(indices, args):
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
         # index for the cosmological parameters
-        js = index * n_params_per_file
-        je = (index + 1) * n_params_per_file
-        LOGGER.info(f"And includes {params_dir[js : je]}")
+        js = index * n_cosmos_per_file
+        je = (index + 1) * n_cosmos_per_file
+        LOGGER.info(f"And includes {cosmo_dirs[js : je]}")
 
         n_done = 0
         with tf.io.TFRecordWriter(tfr_file) as file_writer:
             # loop over the cosmological parameters
-            for i_param, param_dir_in in LOGGER.progressbar(
-                zip(range(js, je), params_dir_in[js:je]),
+            for i_cosmo, cosmo_dir_in in LOGGER.progressbar(
+                zip(range(js, je), cosmo_dirs_in[js:je]),
                 at_level="info",
                 desc="Looping through cosmological parameters",
                 total=je - js,
@@ -161,40 +160,43 @@ def main(indices, args):
                     LOGGER.warning("Debug mode, aborting after 5 subindices")
                     break
 
-                LOGGER.debug(f"Taking inputs from {param_dir_in}")
-                file_param = get_filename_data_vectors(param_dir_in, with_bary=args.with_bary)
-                kg_examples, ia_examples, sn_examples = load_data_vectors(file_param)
+                LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
+                file_cosmo = get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
+                # kg_examples, ia_examples, sn_examples = load_data_vectors(file_cosmo)
 
                 # select the relevant cosmological parameters
-                cosmo = [params_info[cosmo_param][i_param] for cosmo_param in conf["analysis"]["cosmo"]]
-                cosmo = np.array(cosmo, dtype=np.float32)
+                cosmo_params = [cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in conf["analysis"]["params"]["cosmo"]]
+                cosmo_params = np.array(cosmo_params, dtype=np.float32)
 
-                i_sobol = params_info["sobol_index"][i_param]
+                i_sobol = cosmo_params_info["sobol_index"][i_cosmo]
 
-                # loop over the n_examples_per_param
-                for kg, ia, sn_realz in LOGGER.progressbar(
-                    zip(kg_examples, ia_examples, sn_examples),
-                    at_level="debug",
-                    desc="Looping through the examples",
-                    total=n_examples_per_param,
-                ):
-                    serialized = tfrecords.parse_forward_grid(kg, ia, sn_realz, cosmo, i_sobol).SerializeToString()
+                ic(cosmo_params)
+                ic(i_sobol)
 
-                    # check correctness
-                    i_noise = 0
-                    inv_kg, inv_ia, inv_sn, inv_cosmo, inv_i_sobol = tfrecords.parse_inverse_grid(serialized, i_noise)
+                # # loop over the n_examples_per_cosmo
+                # for kg, ia, sn_realz in LOGGER.progressbar(
+                #     zip(kg_examples, ia_examples, sn_examples),
+                #     at_level="debug",
+                #     desc="Looping through the examples",
+                #     total=n_examples_per_cosmo,
+                # ):
+                #     serialized = tfrecords.parse_forward_grid(kg, ia, sn_realz, cosmo, i_sobol).SerializeToString()
 
-                    assert np.allclose(inv_kg, kg)
-                    assert np.allclose(inv_ia, ia)
-                    assert np.allclose(inv_sn, sn_realz[i_noise])
-                    assert np.allclose(inv_cosmo, cosmo)
-                    assert np.allclose(inv_i_sobol, i_sobol)
+                #     # check correctness
+                #     i_noise = 0
+                #     inv_kg, inv_ia, inv_sn, inv_cosmo, inv_i_sobol = tfrecords.parse_inverse_grid(serialized, i_noise)
 
-                    LOGGER.debug("decoded successfully")
+                #     assert np.allclose(inv_kg, kg)
+                #     assert np.allclose(inv_ia, ia)
+                #     assert np.allclose(inv_sn, sn_realz[i_noise])
+                #     assert np.allclose(inv_cosmo, cosmo)
+                #     assert np.allclose(inv_i_sobol, i_sobol)
 
-                    file_writer.write(serialized)
+                #     LOGGER.debug("decoded successfully")
 
-                    n_done += 1
+                #     file_writer.write(serialized)
+
+                    # n_done += 1
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
@@ -204,7 +206,7 @@ def load_data_vectors(
     filename,
 ):
     with h5py.File(filename, "r") as f:
-        # shape (n_examples_per_param, n_pix, n_z_bins) before the indexing
+        # shape (n_examples_per_cosmo, n_pix, n_z_bins) before the indexing
         kg = f["kg"][:]
         ia = f["ia"][:]
         sn_realz = f["sn"][:]

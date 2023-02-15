@@ -131,9 +131,9 @@ def main(indices, args):
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
     n_patches = conf["analysis"]["n_patches"]
-    n_perms_per_param = conf["analysis"][args.simset]["n_perms_per_param"]
+    n_perms_per_cosmo = conf["analysis"][args.simset]["n_perms_per_cosmo"]
     n_noise_per_example = conf["analysis"][args.simset]["n_noise_per_example"]
-    LOGGER.info(f"Looping through {n_perms_per_param} permutations per cosmological parameter")
+    LOGGER.info(f"Looping through {n_perms_per_cosmo} permutations per cosmological parameter set")
     LOGGER.info(f"Generating {n_noise_per_example} noise realizations per example")
 
     lmax = 3 * n_side - 1
@@ -153,18 +153,18 @@ def main(indices, args):
 
     # set up the directories
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
-    params_info = cosmogrid.get_parameter_info(meta_info_file, args.simset)
-    params_dir = [param_dir.decode("utf-8") for param_dir in params_info["path_par"]]
+    cosmo_params_info = cosmogrid.get_cosmo_params_info(meta_info_file, args.simset)
+    cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
 
     # remove baryon perturbations for the fiducial set
     if args.simset == "fiducial" and not args.with_bary:
-        params_dir = [param_dir for param_dir in params_dir if not "bary" in param_dir]
+        cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs if not "bary" in cosmo_dir]
 
-    params_dir_in = [os.path.join(args.dir_in, param) for param in params_dir]
-    params_dir_out = [os.path.join(args.dir_out, param) for param in params_dir]
+    cosmo_dirs_in = [os.path.join(args.dir_in, cosmo_dir) for cosmo_dir in cosmo_dirs]
+    cosmo_dirs_out = [os.path.join(args.dir_out, cosmo_dir) for cosmo_dir in cosmo_dirs]
 
-    n_params = len(params_dir_in)
-    LOGGER.info(f"Got simulation set {args.simset} of size {n_params} with base path {args.dir_in}")
+    n_cosmos = len(cosmo_dirs_in)
+    LOGGER.info(f"Got simulation set {args.simset} of size {n_cosmos} with base path {args.dir_in}")
 
     # other directories
     hp_datapath = os.path.join(args.repo_dir, conf["files"]["healpy_data"])
@@ -173,26 +173,26 @@ def main(indices, args):
     for index in indices:
         LOGGER.timer.start("index")
 
-        param_dir_in = params_dir_in[index]
-        param_dir_out = params_dir_out[index]
-        if not os.path.isdir(param_dir_out):
-            input_output.robust_makedirs(param_dir_out)
-        LOGGER.info(f"Index {index} takes input from {param_dir_in}")
+        cosmo_dir_in = cosmo_dirs_in[index]
+        cosmo_dir_out = cosmo_dirs_out[index]
+        if not os.path.isdir(cosmo_dir_out):
+            input_output.robust_makedirs(cosmo_dir_out)
+        LOGGER.info(f"Index {index} takes input from {cosmo_dir_in}")
 
         # the perturbations of the fiducial cosmology are treated differently
-        if args.simset == "grid" or (args.simset == "fiducial" and "cosmo_fiducial" in param_dir_in):
+        if args.simset == "grid" or (args.simset == "fiducial" and "cosmo_fiducial" in cosmo_dir_in):
             is_perturbation = False
             LOGGER.info(f"This is not a perturbation, running all map types")
         else:
             is_perturbation = True
             LOGGER.info(f"This is a perturbation, intrinsic alignment and shape noise are skipped")
 
-        for i_perm in LOGGER.progressbar(range(n_perms_per_param), desc="Loop over permutations\n", at_level="info"):
+        for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Loop over permutations\n", at_level="info"):
             LOGGER.timer.start("permutation")
             LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
             # TODO copy the file to local scratch first?
-            perm_dir_in = os.path.join(param_dir_in, f"perm_{i_perm:04d}")
+            perm_dir_in = os.path.join(cosmo_dir_in, f"perm_{i_perm:04d}")
             full_maps_file = get_filename_full_maps(perm_dir_in, with_bary=args.with_bary)
 
             # output containers, one for each permutation, in NEST ordering with padding
@@ -412,13 +412,13 @@ def main(indices, args):
                 LOGGER.info(f"Done with map type {map_type_out} after {LOGGER.timer.elapsed('map_type')}")
 
             # save the results
-            data_vec_file = get_filename_data_vectors(param_dir_out, args.with_bary)
+            data_vec_file = get_filename_data_vectors(cosmo_dir_out, args.with_bary)
             save_output_container(
                 "datavectors",
                 data_vec_file,
                 data_vectors,
                 i_perm,
-                n_perms_per_param,
+                n_perms_per_cosmo,
                 n_patches,
                 n_noise_per_example,
                 data_vec_len,
@@ -513,7 +513,7 @@ def tf_noise_gen(samples, seg_ids):
 
 
 def save_output_container(
-    label, filename, output_container, i_perm, n_perms_per_param, n_patches, n_noise_per_example, output_len, n_z_bins
+    label, filename, output_container, i_perm, n_perms_per_cosmo, n_patches, n_noise_per_example, output_len, n_z_bins
 ):
     """Saves an .h5 file collecting all results on the level of the cosmological parameters (so for different
     permutations/runs and patches)
@@ -523,7 +523,7 @@ def save_output_container(
         filename (str): path to the output .h5 file
         output_container (dict): Dictionary of arrays of shape (n_patches, output_len, n_z_bins)
         i_perm (int): Index of the permutation
-        n_perms_per_param (int):
+        n_perms_per_cosmo (int):
         n_patches (int):
         output_len (int):
         n_z_bins (int):
@@ -531,9 +531,9 @@ def save_output_container(
     with h5py.File(filename, "a") as f:
         for map_type in output_container.keys():
             if map_type == "sn":
-                out_shape = (n_perms_per_param * n_patches, n_noise_per_example, output_len, n_z_bins)
+                out_shape = (n_perms_per_cosmo * n_patches, n_noise_per_example, output_len, n_z_bins)
             else:
-                out_shape = (n_perms_per_param * n_patches, output_len, n_z_bins)
+                out_shape = (n_perms_per_cosmo * n_patches, output_len, n_z_bins)
 
             try:
                 # create dataset for every parameter level directory, collecting the permutation levels

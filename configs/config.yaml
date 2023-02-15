@@ -53,8 +53,9 @@ survey:
       ]
 
 analysis:
-  cosmo: ["H0", "Ob", "Om", "ns", "s8", "w0"]
-  astro: ["Aia"]
+  params:
+    cosmo: ["H0", "Ob", "Om", "ns", "s8", "w0"]
+    astro: ["Aia"]
   n_side: 512
   n_pix: 3145728
   n_patches: 4
@@ -66,13 +67,13 @@ analysis:
       sigma: [0.0091, 0.0078, 0.0076, 0.0076]
   grid:
     # CosmoGrid
-    n_params: 2500
-    n_perms_per_param: 4
+    n_cosmos: 2500
+    n_perms_per_cosmo: 4
     n_noise_per_example: 1
   fiducial:
     # CosmoGrid
-    n_params: 17 # 1 + 2 * n_perts
-    n_perms_per_param: 200
+    n_cosmos: 17 # 1 + 2 * n_perts
+    n_perms_per_cosmo: 200
     n_noise_per_example: 3
     # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
     Aia: 0.0

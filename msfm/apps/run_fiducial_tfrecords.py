@@ -101,43 +101,42 @@ def main(indices, args):
     LOGGER.info(f"Loaded configuration file")
 
     meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
-    params_info = cosmogrid.get_parameter_info(meta_info_file, "fiducial")
+    cosmo_params_info = cosmogrid.get_cosmo_params_info(meta_info_file, "fiducial")
 
     # constants
     n_patches = conf["analysis"]["n_patches"]
-    n_perms_per_param = conf["analysis"]["fiducial"]["n_perms_per_param"]
-    n_examples_per_param = n_patches * n_perms_per_param
+    n_perms_per_cosmo = conf["analysis"]["fiducial"]["n_perms_per_cosmo"]
+    n_examples_per_cosmo = n_patches * n_perms_per_cosmo
     delta_Aia = conf["analysis"]["fiducial"]["perturbations"]["Aia"]
 
     # set up the paths
-    meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
-    params_dir = [param_dir.decode("utf-8") for param_dir in params_info["path_par"]]
+    cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
 
     # remove baryon perturbations for the fiducial set
     if not args.with_bary:
-        params_dir = [param_dir for param_dir in params_dir if not "bary" in param_dir]
+        cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs if not "bary" in cosmo_dir]
 
-    params_dir_in = [os.path.join(args.dir_in, param_dir) for param_dir in params_dir]
-    LOGGER.debug(params_dir_in)
+    cosmo_dirs_in = [os.path.join(args.dir_in, cosmo_dir) for cosmo_dir in cosmo_dirs]
+    LOGGER.debug(cosmo_dirs_in)
 
-    n_params = len(params_dir_in)
-    LOGGER.info(f"Got simulation set fiducial of size {n_params} with base path {args.dir_in}")
+    n_cosmos = len(cosmo_dirs_in)
+    LOGGER.info(f"Got simulation set fiducial of size {n_cosmos} with base path {args.dir_in}")
 
-    if n_examples_per_param % args.n_files == 0:
-        n_examples_per_file = n_examples_per_param // args.n_files
+    if n_examples_per_cosmo % args.n_files == 0:
+        n_examples_per_file = n_examples_per_cosmo // args.n_files
     else:
         raise ValueError(
-            f"The total number of examples per parameter {n_examples_per_param} "
-            f"has to be divisible by the number of files {args.n_files}"
+            f"The total number of examples per cosmology {n_examples_per_cosmo}"
+            f" has to be divisible by the number of files {args.n_files}"
         )
 
     # shuffle the indices
     rng = default_rng(seed=args.np_seed)
-    i_examples = rng.permutation(n_examples_per_param)
+    i_examples = rng.permutation(n_examples_per_cosmo)
 
     LOGGER.info(f"n_examples_per_file = {n_examples_per_file}")
 
-    pert_labels = [label.split("cosmo_")[1].replace("/", "") for label in params_dir_in]
+    pert_labels = [label.split("cosmo_")[1].replace("/", "") for label in cosmo_dirs_in]
     # manually add intrinsic alignment after the fiducial
     pert_labels = [pert_labels[0]] + ["delta_Aia_m", "delta_Aia_p"] + pert_labels[1:]
     LOGGER.info(f"{len(pert_labels)} labels = {pert_labels}")
@@ -166,21 +165,21 @@ def main(indices, args):
 
                 # loop over the perturbations in the right order
                 kg_perts = []
-                for param_dir_in in params_dir_in:
-                    file_param = get_filename_data_vectors(param_dir_in, with_bary=args.with_bary)
-                    LOGGER.debug(f"Taking inputs from {param_dir_in}")
+                for cosmo_dir_in in cosmo_dirs_in:
+                    file_cosmo = get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
+                    LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
 
-                    kg = load_kg(file_param, i_example)
+                    kg = load_kg(file_cosmo, i_example)
                     kg_perts.append(kg)
 
-                    if "cosmo_fiducial" in param_dir_in:
-                        ia, sn_realz = load_ia_and_sn(file_param, i_example)
+                    if "cosmo_fiducial" in cosmo_dir_in:
+                        ia, sn_realz = load_ia_and_sn(file_cosmo, i_example)
 
                         LOGGER.debug(f"Adding intrinsic alignment as a perturbation to the fiducial")
                         kg_perts.append(kg - delta_Aia * ia)
                         kg_perts.append(kg + delta_Aia * ia)
 
-                # shape (2 * n_params + 1, n_pix, n_z_bins) for the delta loss
+                # shape (2 * n_cosmos + 1, n_pix, n_z_bins) for the delta loss
                 kg_perts = np.stack(kg_perts, axis=0)
                 LOGGER.debug(f"The tensor of kappa perturbations has shape {kg_perts.shape}")
                 LOGGER.debug(f"The tensor of noise realizations has shape {sn_realz.shape}")
@@ -210,7 +209,7 @@ def main(indices, args):
 
 def load_kg(filename, ind_example):
     with h5py.File(filename, "r") as f:
-        # shape (n_examples_per_param, n_pix, n_z_bins) before the indexing
+        # shape (n_examples_per_cosmo, n_pix, n_z_bins) before the indexing
         kg = f["kg"][ind_example, ...]
 
     LOGGER.debug(f"Successfully loaded kg")
@@ -219,9 +218,9 @@ def load_kg(filename, ind_example):
 
 def load_ia_and_sn(filename, ind_example):
     with h5py.File(filename, "r") as f:
-        # shape (n_examples_per_param, n_pix, n_z_bins) before the indexing
+        # shape (n_examples_per_cosmo, n_pix, n_z_bins) before the indexing
         ia = f["ia"][ind_example, ...]
-        # shape (n_examples_per_param, n_noise, n_pix, n_z_bins) before the indexing
+        # shape (n_examples_per_cosmo, n_noise, n_pix, n_z_bins) before the indexing
         sn = f["sn"][ind_example, ...]
 
     LOGGER.debug(f"Successfully loaded ia and sn")

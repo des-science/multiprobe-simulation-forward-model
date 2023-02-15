@@ -1,7 +1,7 @@
 import numpy as np
 import os, h5py
 
-def get_parameter_info(meta_info_file, simset='grid'):
+def get_cosmo_params_info(meta_info_file, simset='grid'):
     """Returns directories on the level of cosmo_000001 and cosmo_delta_H0_p and so on
 
     Args:
