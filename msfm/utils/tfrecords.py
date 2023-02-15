@@ -24,22 +24,21 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
-# def parse_forward_maps(kg, ia, sn, dg, cosmo, i_sobol):
-def parse_forward_grid(kg, ia, sn_realz, cosmo, i_sobol):
+# def parse_forward_maps(kg, sn_realz, dg, cosmo, i_sobol):
+def parse_forward_grid(kg, sn_realz, cosmo, i_sobol):
     """The grid cosmologies contain all of the maps and labels
 
     Args:
-        kg (np.ndarray): shape(n_pix, n_z_bins)
-        ia (np.ndarray): shape(n_pix, n_z_bins)
-        sn_realz (np.ndarray): shape(n_noise, n_pix, n_z_bins)
+        kg (np.ndarray): shape(n_pix, n_z_bins), includes the sum of an original kg and ia map
+        sn_realz (np.ndarray): shape(n_noise, n_pix, n_z_bins), consistent with the kg map
         cosmo (np.ndarray): shape(n_params)
         i_sobol (int): Seed within the Sobol sequence
 
     Returns:
         tf.train.Example: Example containing all of these tensors
     """
-    # assert kg.shape == ia.shape == sn.shape == dg.shape
-    assert kg.shape == ia.shape == sn_realz.shape[1:]
+    # assert kg.shape == sn.shape == dg.shape
+    assert kg.shape == sn_realz.shape[1:]
 
     features = {
         # tensor shapes
@@ -48,7 +47,6 @@ def parse_forward_grid(kg, ia, sn_realz, cosmo, i_sobol):
         "n_params": _int64_feature(cosmo.shape[0]),
         # lensing, metacal
         "kg": _bytes_feature(tf.io.serialize_tensor(kg)),
-        "ia": _bytes_feature(tf.io.serialize_tensor(ia)),
         # clustering, maglim TODO
         # "dg": _bytes_feature(tf.io.serialize_tensor(dg)),
         # labels
@@ -87,7 +85,6 @@ def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_bins=None,
         "n_params": tf.io.FixedLenFeature([], tf.int64),
         # lensing, metacal
         "kg": tf.io.FixedLenFeature([], tf.string),
-        "ia": tf.io.FixedLenFeature([], tf.string),
         "sn": tf.io.FixedLenFeature([], tf.string),
         # clustering, maglim TODO
         # "dg": tf.io.FixedLenFeature([], tf.string),
@@ -99,7 +96,6 @@ def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_bins=None,
     data = tf.io.parse_single_example(serialized_example, features)
 
     kg = tf.io.parse_tensor(data["kg"], out_type=tf.float32)
-    ia = tf.io.parse_tensor(data["ia"], out_type=tf.float32)
     sn = tf.io.parse_tensor(data[f"sn_{i_noise}"], out_type=tf.float32)
 
     # dg = tf.io.parse_tensor(content["dg"], out_type=tf.float32)
@@ -116,22 +112,20 @@ def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_bins=None,
 
         # only reshape even works with None shapes
         kg = tf.reshape(kg, shape=(n_pix, n_z_bins))
-        ia = tf.reshape(ia, shape=(n_pix, n_z_bins))
         sn = tf.reshape(sn, shape=(n_pix, n_z_bins))
         # dg = tf.reshape(dg, shape=(content["n_pix"], content["n_z_bins"]))
         cosmo = tf.reshape(cosmo, shape=(n_params,))
 
     # tf.ensure_shape fixes the shape inside the graph
     kg = tf.ensure_shape(kg, shape=(n_pix, n_z_bins))
-    ia = tf.ensure_shape(ia, shape=(n_pix, n_z_bins))
     sn = tf.ensure_shape(sn, shape=(n_pix, n_z_bins))
     # dg = tf.ensure_shape(dg, shape=(n_pix, n_z_bins))
     cosmo = tf.ensure_shape(cosmo, shape=(n_params,))
 
     i_sobol = data["i_sobol"]
 
-    # return kg, ia, sn, dg, cosmo, i_sobol
-    return kg, ia, sn, cosmo, i_sobol
+    # return kg, sn, dg, cosmo, i_sobol
+    return kg, sn, cosmo, i_sobol
 
 
 def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):

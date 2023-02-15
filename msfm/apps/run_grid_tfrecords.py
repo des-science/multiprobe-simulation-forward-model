@@ -20,7 +20,7 @@ import numpy as np
 import tensorflow as tf
 import os, argparse, warnings, h5py
 
-from numpy.random import default_rng
+from sobol_seq import i4_sobol
 from icecream import ic
 
 from msfm.utils import logger, input_output, cosmogrid, tfrecords
@@ -107,6 +107,7 @@ def main(indices, args):
     # constants
     target_params = conf["analysis"]["params"]["cosmo"]
     n_params = len(target_params)
+    sobol_priors = np.array(conf["analysis"]["grid"]["prior"]["sobol"])
 
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
@@ -156,47 +157,65 @@ def main(indices, args):
                 desc="Looping through cosmological parameters",
                 total=je - js,
             ):
+                LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
                 if args.debug and n_done > 5:
                     LOGGER.warning("Debug mode, aborting after 5 subindices")
                     break
 
-                LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
-                file_cosmo = get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
-                # kg_examples, ia_examples, sn_examples = load_data_vectors(file_cosmo)
-
                 # select the relevant cosmological parameters
-                cosmo_params = [cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in conf["analysis"]["params"]["cosmo"]]
-                cosmo_params = np.array(cosmo_params, dtype=np.float32)
+                cosmo = [
+                    cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in conf["analysis"]["params"]["cosmo"]
+                ]
+                cosmo = np.array(cosmo, dtype=np.float32)
 
                 i_sobol = cosmo_params_info["sobol_index"][i_cosmo]
 
-                ic(cosmo_params)
-                ic(i_sobol)
+                # extend the Sobol sequence by astrophysical parameters
+                sobol_point, _ = i4_sobol(sobol_priors.shape[0], i_sobol)
+                sobol_params = sobol_point * np.squeeze(np.diff(sobol_priors)) + sobol_priors[:, 0]
+                sobol_params = sobol_params.astype(np.float32)
+                Aia = sobol_params[-1]
 
-                # # loop over the n_examples_per_cosmo
-                # for kg, ia, sn_realz in LOGGER.progressbar(
-                #     zip(kg_examples, ia_examples, sn_examples),
-                #     at_level="debug",
-                #     desc="Looping through the examples",
-                #     total=n_examples_per_cosmo,
-                # ):
-                #     serialized = tfrecords.parse_forward_grid(kg, ia, sn_realz, cosmo, i_sobol).SerializeToString()
+                # verify that the Sobol sequences are identical (the parameters are ordered differently)
+                # FIXME Why does the Hubble parameter h/H0 differ in the check below?
+                # NOTE Ob differs because of bugs in Concept
+                assert np.allclose(sobol_params[0], cosmo[2], rtol=1e-3, atol=1e-5)  # Om
+                assert np.allclose(sobol_params[1], cosmo[4], rtol=1e-3, atol=1e-5)  # s8
+                # assert np.allclose(sobol_params[2], cosmo_params[0], rtol=1e-3, atol=1e-5)  # H0
+                # assert np.allclose(sobol_params[3], cosmo_params[1], rtol=1e-3, atol=1e-5)  # Ob
+                assert np.allclose(sobol_params[4], cosmo[3], rtol=1e-3, atol=1e-5)  # ns
+                assert np.allclose(sobol_params[5], cosmo[5], rtol=1e-3, atol=1e-5)  # w0
 
-                #     # check correctness
-                #     i_noise = 0
-                #     inv_kg, inv_ia, inv_sn, inv_cosmo, inv_i_sobol = tfrecords.parse_inverse_grid(serialized, i_noise)
+                # load the .h5 files
+                file_cosmo = get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
+                kg_examples, ia_examples, sn_examples = load_data_vectors(file_cosmo)
 
-                #     assert np.allclose(inv_kg, kg)
-                #     assert np.allclose(inv_ia, ia)
-                #     assert np.allclose(inv_sn, sn_realz[i_noise])
-                #     assert np.allclose(inv_cosmo, cosmo)
-                #     assert np.allclose(inv_i_sobol, i_sobol)
+                # loop over the n_examples_per_cosmo
+                for kg, ia, sn_realz in LOGGER.progressbar(
+                    zip(kg_examples, ia_examples, sn_examples),
+                    at_level="debug",
+                    desc="Looping through the examples of one cosmology",
+                    total=n_examples_per_cosmo,
+                ):
+                    # add the intrinsic alignment (on kappa level)
+                    kg += Aia * ia
 
-                #     LOGGER.debug("decoded successfully")
+                    serialized = tfrecords.parse_forward_grid(kg, sn_realz, cosmo, i_sobol).SerializeToString()
 
-                #     file_writer.write(serialized)
+                    # check correctness
+                    i_noise = 0
+                    inv_kg, inv_sn, inv_cosmo, inv_i_sobol = tfrecords.parse_inverse_grid(serialized, i_noise)
 
-                    # n_done += 1
+                    assert np.allclose(inv_kg, kg)
+                    assert np.allclose(inv_sn, sn_realz[i_noise])
+                    assert np.allclose(inv_cosmo, cosmo)
+                    assert np.allclose(inv_i_sobol, i_sobol)
+
+                    LOGGER.debug("decoded successfully")
+
+                    file_writer.write(serialized)
+
+                n_done += 1
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
