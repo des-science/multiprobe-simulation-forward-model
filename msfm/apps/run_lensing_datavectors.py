@@ -37,8 +37,8 @@ os.environ["OMP_NUM_THREADS"] = str(n_cpus)
 import healpy as hp
 
 hp_LOGGER = logging.getLogger("healpy")
-hp_LOGGER.setLevel(logging.WARNING)
-
+hp_LOGGER.disabled = True
+# hp_LOGGER.setLevel(logging.ERROR)
 # warnings.filterwarnings("once", module="healpy")
 # hp.disable_warnings()
 
