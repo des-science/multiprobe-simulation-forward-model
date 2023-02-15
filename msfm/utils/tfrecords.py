@@ -24,24 +24,24 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
-# def parse_forward_maps(kg, ia, sn, dg, cosmo, sobol):
-def parse_forward_grid(kg, ia, sn, cosmo, sobol):
+# def parse_forward_maps(kg, ia, sn, dg, cosmo, i_sobol):
+def parse_forward_grid(kg, ia, sn_realz, cosmo, i_sobol):
     """The grid cosmologies contain all of the maps and labels
 
     Args:
         kg (np.ndarray): shape(n_pix, n_z_bins)
         ia (np.ndarray): shape(n_pix, n_z_bins)
-        sn (np.ndarray): shape(n_pix, n_z_bins)
-        cosmo (np.ndarray): shape(n_cosmo_params)
-        sobol (int): Seed within the Sobol sequence
+        sn_realz (np.ndarray): shape(n_noise, n_pix, n_z_bins)
+        cosmo (np.ndarray): shape(n_params)
+        i_sobol (int): Seed within the Sobol sequence
 
     Returns:
         tf.train.Example: Example containing all of these tensors
     """
     # assert kg.shape == ia.shape == sn.shape == dg.shape
-    assert kg.shape == ia.shape == sn.shape
+    assert kg.shape == ia.shape == sn_realz.shape[1:]
 
-    data = {
+    features = {
         # tensor shapes
         "n_pix": _int64_feature(kg.shape[0]),
         "n_z_bins": _int64_feature(kg.shape[1]),
@@ -49,23 +49,38 @@ def parse_forward_grid(kg, ia, sn, cosmo, sobol):
         # lensing, metacal
         "kg": _bytes_feature(tf.io.serialize_tensor(kg)),
         "ia": _bytes_feature(tf.io.serialize_tensor(ia)),
-        "sn": _bytes_feature(tf.io.serialize_tensor(sn)),
         # clustering, maglim TODO
         # "dg": _bytes_feature(tf.io.serialize_tensor(dg)),
         # labels
         "cosmo": _bytes_feature(tf.io.serialize_tensor(cosmo)),
-        "sobol": _int64_feature(sobol),
+        "i_sobol": _int64_feature(i_sobol),
     }
 
+    # shape noise realizations
+    for i, sn in enumerate(sn_realz):
+        features[f"sn_{i}"] = _bytes_feature(tf.io.serialize_tensor(sn))
+
     # create an Example, wrapping the single features
-    out = tf.train.Example(features=tf.train.Features(feature=data))
-    return out
+    example = tf.train.Example(features=tf.train.Features(feature=features))
+    return example
 
 
-def parse_inverse_grid(element):
-    """use the same structure as above"""
+def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_bins=None, n_params=None):
+    """Use the same structure as in in the forward pass above. Note that n_pix, n_z_bins and n_params have to be passed 
+    as function arguments to ensure that the function can be converted to a graph.
 
-    data = {
+    Args:
+        serialized_example (tf.train.Example.SerializeToString()): The data
+        n_pix (int, optional): Fixes the size of the tensors. Defaults to None.
+        n_z_bins (int, optional): Fixes the size of the tensors. Defaults to None.
+        n_params (int, optional): Fixes the size of the tensors. Defaults to None.
+
+    Returns:
+        tf.tensors, int: Tensors containing the different fields, the cosmological parameters and an sobol index label
+    """
+    LOGGER.warning(f"Tracing parse_inverse_grid")
+
+    features = {
         # tensor shapes
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
         "n_z_bins": tf.io.FixedLenFeature([], tf.int64),
@@ -78,28 +93,45 @@ def parse_inverse_grid(element):
         # "dg": tf.io.FixedLenFeature([], tf.string),
         # labels
         "cosmo": tf.io.FixedLenFeature([], tf.string),
-        "sobol": tf.io.FixedLenFeature([], tf.int64),
+        "i_sobol": tf.io.FixedLenFeature([], tf.int64),
     }
 
-    content = tf.io.parse_single_example(element, data)
+    data = tf.io.parse_single_example(serialized_example, features)
 
-    kg = tf.io.parse_tensor(content["kg"], out_type=tf.float32)
-    ia = tf.io.parse_tensor(content["ia"], out_type=tf.float32)
-    sn = tf.io.parse_tensor(content["sn"], out_type=tf.float32)
+    kg = tf.io.parse_tensor(data["kg"], out_type=tf.float32)
+    ia = tf.io.parse_tensor(data["ia"], out_type=tf.float32)
+    sn = tf.io.parse_tensor(data[f"sn_{i_noise}"], out_type=tf.float32)
+
     # dg = tf.io.parse_tensor(content["dg"], out_type=tf.float32)
+    cosmo = tf.io.parse_tensor(data["cosmo"], out_type=tf.float32)
 
-    kg = tf.reshape(kg, shape=(content["n_pix"], content["n_z_bins"]))
-    ia = tf.reshape(ia, shape=(content["n_pix"], content["n_z_bins"]))
-    sn = tf.reshape(sn, shape=(content["n_pix"], content["n_z_bins"]))
-    # dg = tf.reshape(dg, shape=(content["n_pix"], content["n_z_bins"]))
+    # defining the shapes like this works too, but is slower than when they are passed as function arguments
+    if n_pix is None or n_z_bins is None or n_params is None:
+        if n_pix is None:
+            n_pix = data["n_pix"]
+        if n_z_bins is None:
+            n_z_bins = data["n_z_bins"]
+        if n_params is None:
+            n_params = data["n_params"]
 
-    cosmo = tf.io.parse_tensor(content["cosmo"], out_type=tf.float32)
-    cosmo = tf.reshape(cosmo, shape=(content["n_params"],))
+        # only reshape even works with None shapes
+        kg = tf.reshape(kg, shape=(n_pix, n_z_bins))
+        ia = tf.reshape(ia, shape=(n_pix, n_z_bins))
+        sn = tf.reshape(sn, shape=(n_pix, n_z_bins))
+        # dg = tf.reshape(dg, shape=(content["n_pix"], content["n_z_bins"]))
+        cosmo = tf.reshape(cosmo, shape=(n_params,))
 
-    sobol = content["sobol"]
+    # tf.ensure_shape fixes the shape inside the graph
+    kg = tf.ensure_shape(kg, shape=(n_pix, n_z_bins))
+    ia = tf.ensure_shape(ia, shape=(n_pix, n_z_bins))
+    sn = tf.ensure_shape(sn, shape=(n_pix, n_z_bins))
+    # dg = tf.ensure_shape(dg, shape=(n_pix, n_z_bins))
+    cosmo = tf.ensure_shape(cosmo, shape=(n_params,))
 
-    # return kg, ia, sn, dg, cosmo, sobol
-    return kg, ia, sn, cosmo, sobol
+    i_sobol = data["i_sobol"]
+
+    # return kg, ia, sn, dg, cosmo, i_sobol
+    return kg, ia, sn, cosmo, i_sobol
 
 
 def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
@@ -107,13 +139,13 @@ def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
     n_perts = 2 * n_params + 1
 
     Args:
-        kg_perts (np.ndarray): kappa perturbations of shape(n_perts, n_pix, n_z_bins)
-        pert_labels (list): list of strings, defines the dictionary keys
-        sn_realz (np.ndarray): shape noise realizations of shape(n_noise, n_pix, n_z_bins)
-        index: example index (comes from simulation run and the patch)
+        kg_perts (np.ndarray): kappa perturbations of shape(n_perts, n_pix, n_z_bins).
+        pert_labels (list): list of strings, defines the dictionary keys.
+        sn_realz (np.ndarray): shape noise realizations of shape(n_noise, n_pix, n_z_bins).
+        index: example index (comes from simulation run and the patch).
 
     Returns:
-        tf.train.Example: Example containing all of these tensors
+        tf.train.Example: Example containing all of these tensors.
     """
     assert kg_perts.shape[1:] == sn_realz.shape[1:]
     assert kg_perts.shape[0] == len(pert_labels)
@@ -131,7 +163,7 @@ def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
     for label, kg_pert in zip(pert_labels, kg_perts):
         features[f"kg_{label}"] = _bytes_feature(tf.io.serialize_tensor(kg_pert))
 
-    # noise realizations
+    # shape noise realizations
     for i, sn in enumerate(sn_realz):
         features[f"sn_{i}"] = _bytes_feature(tf.io.serialize_tensor(sn))
 
@@ -142,21 +174,20 @@ def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
     return example
 
 
-# TODO make this i_noise some tf.variable like Janis suggests?
 def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=None, n_z_bins=None):
-    """Use the same structure as in in the forward pass above. Note that n_pix and n_z_bins have to be passed as 
-    arguments to ensure that the function can be converted to a graph
+    """Use the same structure as in in the forward pass above. Note that n_pix and n_z_bins have to be passed as
+    arguments to ensure that the function can be converted to a graph.
 
 
     Args:
-        serialized_example (tf.train.Example.SerializeToString()): The data
-        pert_labels (list): List of strings that contain the labels defining the keys
+        serialized_example (tf.train.Example.SerializeToString()): The data.
+        pert_labels (list): List of strings that contain the labels defining the keys.
         i_noise (int, optional): Index to choose the noise realization to return. Defaults to 0.
         n_pix (int, optional): Fixes the size of the tensors. Defaults to None.
         n_z_bins (int, optional): Fixes the size of the tensors. Defaults to None.
 
     Returns:
-        dict, int: Dictionary of datavectors (fiducial, perturbations and shape noise) and the patch index
+        dict, int: Dictionary of datavectors (fiducial, perturbations and shape noise) and the patch index.
     """
     LOGGER.warning(f"Tracing parse_inverse_fiducial")
 
