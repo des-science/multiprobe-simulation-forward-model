@@ -254,9 +254,6 @@ def main(indices, args):
                     if (map_type_out in ["kg", "ia"]) and (map_type_out is not None):
                         kappa_full = map_full
 
-                        # remove mean
-                        kappa_full -= np.mean(kappa_full)
-
                         # kappa -> gamma (full sky)
                         kappa_alm = hp.map2alm(kappa_full, lmax=lmax, use_pixel_weights=True, datapath=hp_datapath)
                         gamma_alm = kappa_alm * kappa2gamma_fac
@@ -284,9 +281,13 @@ def main(indices, args):
                             # fix the sign
                             gamma2_patch *= gamma2_sign
 
+                            # kappa patch is a full sky map, but only the patch is occupied
                             kappa_patch = mode_removal(
                                 gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
                             )
+
+                            # remove mean within the patch (not over the full sky)
+                            kappa_patch -= np.mean(kappa_patch[base_patch_pix])
 
                             # cut out padded data vector
                             kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
@@ -359,6 +360,9 @@ def main(indices, args):
                                 kappa_patch = mode_removal(
                                     gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
                                 )
+
+                                # remove mean within the patch (not over the full sky)
+                                kappa_patch -= np.mean(kappa_patch[base_patch_pix])
 
                                 # cut out padded data vector
                                 kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
@@ -470,7 +474,7 @@ def get_data_vec(m, data_vec_len, corresponding_pix, cutout_pix):
     Returns:
         ndarray: the data vec
     """
-    data_vec = np.zeros(data_vec_len)
+    data_vec = np.zeros(data_vec_len, dtype=np.float32)
     n_pix = corresponding_pix.shape[0]
 
     assert corresponding_pix.shape[0] == cutout_pix.shape[0]
