@@ -107,7 +107,7 @@ def main(indices, args):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["fiducial"]["n_perms_per_cosmo"]
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo
-    delta_Aia = conf["analysis"]["fiducial"]["perturbations"]["Aia"]
+    delta_Aia = conf["analysis"]["fiducial"]["perturbations"]["astro"][0]
 
     # set up the paths
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
