@@ -354,11 +354,16 @@ def main(indices, args):
                                 # The condition means that the final pixel contains zero galaxies. Then, its index is 
                                 # not included in the seg_ids (multiplication with zero) and because it's the last, 
                                 # tensorflow has no way of knowing that it should still take the segmented_sum over 
-                                # this index, which evaluates to zero.
-                                if counts_patch[-1] == 0:
-                                    # There is no galaxy in the final pixel, so the shape noise there is equal to zero
-                                    gamma1 = np.concatenate((gamma1, np.array([0])))
-                                    gamma2 = np.concatenate((gamma2, np.array([0])))
+                                # this index, which evaluates to zero. The while loop allows more than one of the last
+                                # pixels to be zero.
+                                n_zero_pix = 0
+                                while counts_patch[-(n_zero_pix+1)] == 0:
+                                    n_zero_pix += 1
+
+                                if n_zero_pix > 0:
+                                    # There is no galaxy in the final pixels, so the shape noise there is equal to zero
+                                    gamma1 = np.concatenate((gamma1, np.zeros(n_zero_pix)))
+                                    gamma2 = np.concatenate((gamma2, np.zeros(n_zero_pix)))
 
                                 gamma1_patch = np.zeros(n_pix, dtype=np.float32)
                                 gamma1_patch[base_patch_pix] = gamma1
