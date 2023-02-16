@@ -351,6 +351,15 @@ def main(indices, args):
 
                                 gamma1, gamma2 = tf_noise_gen(samples, seg_ids)
 
+                                # The condition means that the final pixel contains zero galaxies. Then, its index is 
+                                # not included in the seg_ids (multiplication with zero) and because it's the last, 
+                                # tensorflow has no way of knowing that it should still take the segmented_sum over 
+                                # this index, which evaluates to zero.
+                                if counts_patch[-1] == 0:
+                                    # There is no galaxy in the final pixel, so the shape noise there is equal to zero
+                                    gamma1 = np.concatenate((gamma1, np.array([0])))
+                                    gamma2 = np.concatenate((gamma2, np.array([0])))
+
                                 gamma1_patch = np.zeros(n_pix, dtype=np.float32)
                                 gamma1_patch[base_patch_pix] = gamma1
 
@@ -504,6 +513,8 @@ def tf_noise_gen(samples, seg_ids):
     # apply weights
     samples = tf.concat([e_samples * w_samples, w_samples], axis=1)
 
+    # same shape as base_patch_pix and counts_patch, unless the final pixel of the patch doesn't contain a galaxy.
+    # Then, it's one element smaller
     sum_per_pix = tf.math.segment_sum(samples, seg_ids)
 
     # normalize with weights, set 0/0 equal to 0 instead of nan
