@@ -4,6 +4,7 @@ Author: Arne Thomsen
 """
 
 import numpy as np
+import tensorflow_probability as tfp
 
 
 def get_kaiser_squires_factors(l):
@@ -31,3 +32,12 @@ def get_l_mask(l):
     l = hp.Alm.getlm(lmax)[0]
     """
     return np.where(np.logical_and(l != 1, l != 0), 1.0, 0.0)
+
+
+def get_m_bias_distribution(conf):
+    m_bias_dist = tfp.distributions.MultivariateNormalDiag(
+        loc=conf["analysis"]["shear_bias"]["multiplicative"]["mu"],
+        scale_diag=conf["analysis"]["shear_bias"]["multiplicative"]["sigma"],
+    )
+
+    return m_bias_dist

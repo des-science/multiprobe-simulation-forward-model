@@ -16,7 +16,7 @@ import warnings
 
 from icecream import ic
 
-from msfm.utils import logger, tfrecords, survey
+from msfm.utils import logger, tfrecords, survey, shear
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -141,13 +141,11 @@ def get_fiducial_dset(
     """
     LOGGER.info(f"Starting to generate the fiducial training set for i_noise = {i_noise}")
 
-    # load the pixel file to calculate the non padded mean
-    data_vec_pix, _, _, tomo_patches_pix, _ = survey.load_pixel_file(conf, repo_dir)
+    # load the pixel file to get the size of the data vector
+    data_vec_pix, _, _, _, _ = survey.load_pixel_file(conf, repo_dir)
     n_pix = len(data_vec_pix)
-    tomo_n_patch_pix = [len(patches_pix[0]) for patches_pix in tomo_patches_pix]
-    mean_corr_fac = n_pix / np.array(tomo_n_patch_pix)
-    n_z_bins = len(mean_corr_fac)
     masks = tf.constant(survey.get_tomo_masks(conf, repo_dir))
+    n_z_bins = masks.shape[1]
 
     if is_eval:
         tf.random.set_seed(eval_seed)
@@ -173,18 +171,15 @@ def get_fiducial_dset(
     dset_parse_inverse = lambda serialized_example: tfrecords.parse_inverse_fiducial(
         serialized_example, pert_labels, i_noise, n_pix, n_z_bins
     )
+    # output signature (data_vectors, (i_example, i_noise))
     dset = dset.map(dset_parse_inverse, num_parallel_calls=tf.data.AUTOTUNE)
 
     # add shear bias
-    m_bias_dist = tfp.distributions.MultivariateNormalDiag(
-        loc=conf["analysis"]["shear_bias"]["multiplicative"]["mu"],
-        scale_diag=conf["analysis"]["shear_bias"]["multiplicative"]["sigma"],
-    )
+    m_bias_dist = shear.get_m_bias_distribution(conf)
     dset = dset.map(lambda data_vectors, index: dset_add_bias(data_vectors, index, pert_labels, m_bias_dist))
 
-    # add noise and a label denoting i_noise
+    # add noise
     dset = dset.map(lambda data_vectors, index: dset_add_noise(data_vectors, index, pert_labels, noise_scale))
-    dset = dset.map(lambda data_vectors, index: (data_vectors, (index, i_noise)))
 
     # shuffle and batch
     if not is_eval:
@@ -195,13 +190,14 @@ def get_fiducial_dset(
     # https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/losses.py#L122
     dset = dset.map(lambda data_vectors, index: dset_concat_perts(data_vectors, index, pert_labels))
 
-    # mask to restore the padding after the mean correction. the masks tensor is broadcast
+    # mask to ensure the padding (relevant if there's additive shift somewhere). the masks tensor is broadcast
     dset = dset.map(lambda data_vectors, index: (tf.multiply(data_vectors, masks), index))
 
     dset = dset.prefetch(n_prefetch)
 
     LOGGER.info(
-        f"Successfully generated the fiducial training set with element_spec\n{dset.element_spec}\nfor i_noise = {i_noise}"
+        f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for"
+        f" i_noise = {i_noise}"
     )
     return dset
 
@@ -267,6 +263,7 @@ def get_fiducial_multi_noise_dset(
 
     dset = dset.prefetch(n_prefetch)
     LOGGER.info(
-        f"Successfully generated the fiducial training set with element_spec\n{dset.element_spec}\nfor i_noise in [0, {n_noise}]"
+        f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for i_noise in"
+        f" [0, {n_noise}]"
     )
     return dset
