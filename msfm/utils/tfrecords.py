@@ -76,6 +76,7 @@ def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_bins=None,
 
     Returns:
         tf.tensors, int: Tensors containing the different fields, the cosmological parameters and an sobol index label
+            (i_sobol, i_noise)
     """
     # LOGGER.warning(f"Tracing parse_inverse_grid")
 
@@ -123,13 +124,13 @@ def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_bins=None,
     # dg = tf.ensure_shape(dg, shape=(n_pix, n_z_bins))
     cosmo = tf.ensure_shape(cosmo, shape=(n_params,))
 
-    i_sobol = data["i_sobol"]
+    index = (data["i_sobol"], i_noise)
 
     # return kg, sn, dg, cosmo, i_sobol
-    return kg, sn, cosmo, i_sobol
+    return kg, sn, cosmo, index
 
 
-def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
+def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, i_example):
     """The fiducials don't need a label and contain the perturbation for the delta loss with
     n_perts = 2 * n_params + 1
 
@@ -137,7 +138,7 @@ def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
         kg_perts (np.ndarray): kappa perturbations of shape(n_perts, n_pix, n_z_bins).
         pert_labels (list): list of strings, defines the dictionary keys.
         sn_realz (np.ndarray): shape noise realizations of shape(n_noise, n_pix, n_z_bins).
-        index: example index (comes from simulation run and the patch).
+        i_example: example index (comes from simulation run and the patch), there are n_perms_per_cosmo * n_patches.
 
     Returns:
         tf.train.Example: Example containing all of these tensors.
@@ -151,7 +152,7 @@ def parse_forward_fiducial(kg_perts, pert_labels, sn_realz, index):
         "n_pix": _int64_feature(kg_perts.shape[1]),
         "n_z_bins": _int64_feature(kg_perts.shape[2]),
         # label
-        "index": _int64_feature(index),
+        "i_example": _int64_feature(i_example),
     }
 
     # kappa perturbations
@@ -182,7 +183,8 @@ def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=Non
         n_z_bins (int, optional): Fixes the size of the tensors. Defaults to None.
 
     Returns:
-        dict, int: Dictionary of datavectors (fiducial, perturbations and shape noise) and the patch index.
+        dict, int: Dictionary of datavectors (fiducial, perturbations and shape noise) and the patch index, consisting
+            of (i_example, i_noise).
     """
     LOGGER.warning(f"Tracing parse_inverse_fiducial")
 
@@ -191,7 +193,7 @@ def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=Non
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
         "n_z_bins": tf.io.FixedLenFeature([], tf.int64),
         # label
-        "index": tf.io.FixedLenFeature([], tf.int64),
+        "i_example": tf.io.FixedLenFeature([], tf.int64),
     }
 
     # kappa perturbations
@@ -217,7 +219,7 @@ def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=Non
 
     # TODO dg
 
-    index = data["index"]
+    index = (data["i_example"], i_noise)
 
     return data_vectors, index
 
