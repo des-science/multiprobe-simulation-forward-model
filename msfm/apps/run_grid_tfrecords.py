@@ -174,7 +174,10 @@ def main(indices, args):
                 sobol_point, _ = i4_sobol(sobol_priors.shape[0], i_sobol)
                 sobol_params = sobol_point * np.squeeze(np.diff(sobol_priors)) + sobol_priors[:, 0]
                 sobol_params = sobol_params.astype(np.float32)
+                
+                # add these to the label
                 Aia = sobol_params[-1]
+                cosmo = np.concatenate((cosmo, np.array([Aia])))
 
                 # verify that the Sobol sequences are identical (the parameters are ordered differently)
                 # FIXME Why does the Hubble parameter h/H0 differ in the check below?
@@ -204,12 +207,13 @@ def main(indices, args):
 
                     # check correctness
                     i_noise = 0
-                    inv_kg, inv_sn, inv_cosmo, inv_i_sobol = tfrecords.parse_inverse_grid(serialized, i_noise)
+                    inv_kg, inv_sn, inv_cosmo, inv_index = tfrecords.parse_inverse_grid(serialized, i_noise)
 
                     assert np.allclose(inv_kg, kg)
                     assert np.allclose(inv_sn, sn_realz[i_noise])
                     assert np.allclose(inv_cosmo, cosmo)
-                    assert np.allclose(inv_i_sobol, i_sobol)
+                    assert np.allclose(inv_index[0], i_sobol)
+                    assert np.allclose(inv_index[1], i_noise)
 
                     LOGGER.debug("decoded successfully")
 
