@@ -5,6 +5,7 @@ from . import logger
 
 LOGGER = logger.get_logger(__file__)
 
+
 @njit
 def make_normallized_maps(gal_pix, e1, e2, w, n_pix):
     """
@@ -29,21 +30,22 @@ def make_normallized_maps(gal_pix, e1, e2, w, n_pix):
 
     # loop over the whole catalog
     for pix_id, gamma1, gamma2, weight in zip(gal_pix, e1, e2, w):
-        e1_map[pix_id] += gamma1*weight
-        e2_map[pix_id] += gamma2*weight
-        abs_map[pix_id] += weight*np.abs(gamma1 + gamma2*1j)
+        e1_map[pix_id] += gamma1 * weight
+        e2_map[pix_id] += gamma2 * weight
+        abs_map[pix_id] += weight * np.abs(gamma1 + gamma2 * 1j)
         w_map[pix_id] += weight
         n_map[pix_id] += 1
 
     # avoid division by zero
     w_mask = w_map != 0
-    
+
     # normalize
     e1_map[w_mask] /= w_map[w_mask]
     e2_map[w_mask] /= w_map[w_mask]
     abs_map[w_mask] /= w_map[w_mask]
 
     return e1_map, e2_map, abs_map, w_map, n_map
+
 
 @njit
 def numba_assign(full_sky, data, indices):
@@ -61,6 +63,7 @@ def numba_assign(full_sky, data, indices):
     for i in range(n_indices):
         full_sky[indices[i]] = data[i]
     return full_sky
+
 
 @njit
 def numba_transfer_map(full_sky, old_pix, new_pix):
@@ -84,3 +87,55 @@ def numba_transfer_map(full_sky, old_pix, new_pix):
         m[new_pix[i]] = full_sky[old_pix[i]]
 
     return m
+
+
+@njit
+def map_to_data_vec(hp_map, data_vec_len, corresponding_pix, cutout_pix):
+    """
+    This function makes cutouts from full sky maps to a nice data vector that can be fed into a DeepSphere network
+
+    Args:
+        hp_map (np.ndarray): The full sky healpy map one should make a cutout from
+        data_vec_len (int): length of the full data vec (including padding)
+        corresponding_pix (np.ndarray): pixels inside the data vec that should be populated (excludes padding)
+        cutout_pix (np.ndarray): pixels that should be cut out from the map (excludes padding)
+
+    Returns:
+        np.ndarray: the data vec
+    """
+    data_vec = np.zeros(data_vec_len, dtype=np.float32)
+    n_indices = corresponding_pix.shape[0]
+
+    assert corresponding_pix.shape == cutout_pix.shape
+
+    # assign
+    for i in range(n_indices):
+        data_vec[corresponding_pix[i]] = hp_map[cutout_pix[i]]
+
+    return data_vec
+
+
+@njit
+def data_vec_to_map(data_vec, n_pix, corresponding_pix, cutout_pix):
+    """
+    This function makes cutouts from full sky maps to a nice data vector that can be fed into a DeepSphere network
+
+    Args:
+        hp_map (np.ndarray): The full sky healpy map one should make a cutout from
+        data_vec_len (int): length of the full data vec (including padding)
+        corresponding_pix (np.ndarray): pixels inside the data vec that should be populated (excludes padding)
+        cutout_pix (np.ndarray): pixels that should be cut out from the map (excludes padding)
+
+    Returns:
+        np.ndarray: the data vec
+    """
+    hp_map = np.zeros(n_pix, dtype=np.float32)
+    n_indices = corresponding_pix.shape[0]
+
+    assert corresponding_pix.shape == cutout_pix.shape
+
+    # assign
+    for i in range(n_indices):
+        hp_map[cutout_pix[i]] = data_vec[corresponding_pix[i]]
+
+    return hp_map

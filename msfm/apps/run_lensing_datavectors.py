@@ -18,7 +18,7 @@ import os, argparse, warnings, h5py, time, logging
 from numba import njit
 from icecream import ic
 
-from msfm.utils import logger, input_output, shear, cosmogrid, survey
+from msfm.utils import logger, input_output, maps, shear, cosmogrid, survey
 from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -290,7 +290,9 @@ def main(indices, args):
                             kappa_patch -= np.mean(kappa_patch[base_patch_pix])
 
                             # cut out padded data vector
-                            kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
+                            kappa_dv = maps.map_to_data_vec(
+                                kappa_patch, data_vec_len, corresponding_pix, base_patch_pix
+                            )
 
                             data_vectors[map_type_out][i_patch, :, i_z] = kappa_dv
 
@@ -351,13 +353,13 @@ def main(indices, args):
 
                                 gamma1, gamma2 = tf_noise_gen(samples, seg_ids)
 
-                                # The condition means that the final pixel contains zero galaxies. Then, its index is 
-                                # not included in the seg_ids (multiplication with zero) and because it's the last, 
-                                # tensorflow has no way of knowing that it should still take the segmented_sum over 
+                                # The condition means that the final pixel contains zero galaxies. Then, its index is
+                                # not included in the seg_ids (multiplication with zero) and because it's the last,
+                                # tensorflow has no way of knowing that it should still take the segmented_sum over
                                 # this index, which evaluates to zero. The while loop allows more than one of the last
                                 # pixels to be zero.
                                 n_zero_pix = 0
-                                while counts_patch[-(n_zero_pix+1)] == 0:
+                                while counts_patch[-(n_zero_pix + 1)] == 0:
                                     n_zero_pix += 1
 
                                 if n_zero_pix > 0:
@@ -379,19 +381,22 @@ def main(indices, args):
                                 kappa_patch -= np.mean(kappa_patch[base_patch_pix])
 
                                 # cut out padded data vector
-                                kappa_dv = get_data_vec(kappa_patch, data_vec_len, corresponding_pix, base_patch_pix)
+                                kappa_dv = maps.map_to_data_vec(
+                                    kappa_patch, data_vec_len, corresponding_pix, base_patch_pix
+                                )
 
                                 data_vectors[map_type_out][i_patch, i_noise, :, i_z] = kappa_dv
 
                                 LOGGER.debug(
-                                    f"Done with noise realization {i_noise} after {LOGGER.timer.elapsed('noise_realization')}"
+                                    f"Done with noise realization {i_noise} after"
+                                    f" {LOGGER.timer.elapsed('noise_realization')}"
                                 )
 
                             if args.store_counts:
                                 # correct cut out procedure involves a full sky map
                                 counts_patch_map = np.zeros(n_pix, dtype=np.float32)
                                 counts_patch_map[base_patch_pix] = counts_patch
-                                counts_dv = get_data_vec(
+                                counts_dv = maps.map_to_data_vec(
                                     counts_patch_map, data_vec_len, corresponding_pix, base_patch_pix
                                 )
                                 data_vectors["ct"][i_patch, :, i_z] = counts_dv
@@ -472,32 +477,6 @@ def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side
     kappa_patch = hp.alm2map(kappa_alm, nside=n_side)
 
     return kappa_patch
-
-
-@njit
-def get_data_vec(m, data_vec_len, corresponding_pix, cutout_pix):
-    """
-    This function makes cutouts from full sky maps to a nice data vector that can be fed into a DeepSphere network
-
-    Args:
-        m (ndarray): The map one should make a cutout from
-        data_vec_len (int): length of the full data vec (including padding)
-        corresponding_pix (ndarray): pixel inside the data vec that should be populated (excludes padding)
-        cutout_pix (ndarray): pixel that should be cut out from the map (excludes padding)
-
-    Returns:
-        ndarray: the data vec
-    """
-    data_vec = np.zeros(data_vec_len, dtype=np.float32)
-    n_pix = corresponding_pix.shape[0]
-
-    assert corresponding_pix.shape[0] == cutout_pix.shape[0]
-
-    # assign
-    for i in range(n_pix):
-        data_vec[corresponding_pix[i]] = m[cutout_pix[i]]
-
-    return data_vec
 
 
 # the input tensors have variable length because of the varying number of galaxies in the count map
