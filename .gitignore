@@ -11,6 +11,8 @@
 !data/*.npz
 !data/*.h5
 !data/*.hdf5
+!documentation/*.png
+!documentation/*.jpg
 
 # repository specific
 esub_logs
