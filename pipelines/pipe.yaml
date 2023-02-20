@@ -15,4 +15,4 @@
 
 - name: grid_tfr
   dep: lensing_grid_dv
-  cmd: esub msfm/apps/run_grid_tfrecords.py --n_files=250 --dir_in=/cluster/work/refregier/athomsen/CosmoGrid/DESY3/v2/grid --dir_out=/cluster/work/refregier/athomsen/CosmoGrid/DESY3/v2 --repo_dir=. --config=configs/config.yaml --mode=run --function=main --n_jobs=250 --tasks="0>250" --job_name=tfr_grid --system=slurm
+  cmd: esub msfm/apps/run_grid_tfrecords.py --n_files=250 --dir_in=/cluster/work/refregier/athomsen/CosmoGrid/DESY3/v2/grid --dir_out=/cluster/work/refregier/athomsen/CosmoGrid/DESY3/v2 --repo_dir=. --config=configs/config.yaml --mode=jobarray --function=main --n_jobs=250 --tasks="0>250" --job_name=tfr_grid --system=slurm
