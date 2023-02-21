@@ -113,7 +113,8 @@ def get_grid_dset(
     n_pix = len(data_vec_pix)
     masks = tf.constant(survey.get_tomo_masks(conf, repo_dir))
     n_z_bins = masks.shape[1]
-    n_params = len(conf["analysis"]["params"]["cosmo"]) + len(conf["analysis"]["params"]["astro"])
+    # n_params = len(conf["analysis"]["params"]["cosmo"]) + len(conf["analysis"]["params"]["astro"])
+    n_params = len(conf["analysis"]["params"])
 
     # for determinism TODO double check whether this actually fixes everything
     tf.random.set_seed(tf_seed)
@@ -152,8 +153,7 @@ def get_grid_dset(
     dset = dset.prefetch(n_prefetch)
 
     LOGGER.info(
-        f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for"
-        f" i_noise = {i_noise}"
+        f"Successfully generated the grid set with element_spec {dset.element_spec} for i_noise = {i_noise}"
     )
     return dset
 
@@ -203,7 +203,6 @@ def get_grid_multi_noise_dset(
 
     dset = dset.prefetch(n_prefetch)
     LOGGER.info(
-        f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for i_noise in"
-        f" [0, {n_noise}]"
+        f"Successfully generated the grid set with element_spec {dset.element_spec} for i_noise in [0, {n_noise}]"
     )
     return dset

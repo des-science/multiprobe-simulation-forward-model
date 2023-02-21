@@ -54,8 +54,7 @@ survey:
 
 analysis:
   params:
-    cosmo: ["H0", "Ob", "Om", "ns", "s8", "w0"]
-    astro: ["Aia"]
+    ["Om", "s8", "H0", "Ob", "ns", "w0", "Aia"]
   n_side: 512
   n_pix: 3145728
   n_patches: 4
@@ -71,15 +70,13 @@ analysis:
     n_perms_per_cosmo: 4
     n_noise_per_example: 1
     prior:
-      cosmo: [
+      standard: [
+          [0.1, 0.5], # Om
+          [0.4, 1.4], # s8
           [64, 82], # H0
           [0.03, 0.06], # Ob
-          [0.1, 0.5], # Om
           [0.87, 1.07], # ns
-          [0.4, 1.4], # s8
           [-2.0, -0.333], # w0
-        ]
-      astro: [
           [-3.0, 3.0], # Aia
         ]
       # parameter ordering and ranges used in the CosmoGrid
@@ -120,10 +117,8 @@ analysis:
           0.0, # Aia
         ]
     perturbations:
-      # H0, Ob, Om, ns, s8, w0
-      cosmo: [2.0, 0.001, 0.01, 0.02, 0.015, 0.05]
-      # Aia
-      astro: [0.1]
+      # Om, s8, H0, Ob, ns, w0, Aia like above
+      standard: [0.01, 0.015, 2.0, 0.001, 0.02, 0.05, 0.1]
       labels:
         [
           "fiducial",

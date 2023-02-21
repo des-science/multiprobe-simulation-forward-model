@@ -105,7 +105,8 @@ def main(indices, args):
     LOGGER.info(f"Loaded meta information")
 
     # constants
-    target_params = conf["analysis"]["params"]["cosmo"]
+    # target_params = conf["analysis"]["params"]["cosmo"]
+    target_params = conf["analysis"]["params"]
     n_params = len(target_params)
     sobol_priors = np.array(conf["analysis"]["grid"]["prior"]["sobol"])
 
@@ -164,7 +165,7 @@ def main(indices, args):
 
                 # select the relevant cosmological parameters
                 cosmo = [
-                    cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in conf["analysis"]["params"]["cosmo"]
+                    cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in conf["analysis"]["params"]
                 ]
                 cosmo = np.array(cosmo, dtype=np.float32)
 
@@ -180,11 +181,11 @@ def main(indices, args):
                 cosmo = np.concatenate((cosmo, np.array([Aia])))
 
                 # verify that the Sobol sequences are identical (the parameters are ordered differently)
-                assert np.allclose(sobol_params[0], cosmo[2], rtol=1e-3, atol=1e-5)  # Om
-                assert np.allclose(sobol_params[1], cosmo[4], rtol=1e-3, atol=1e-5)  # s8
-                assert np.allclose(sobol_params[2], cosmo[1], rtol=1e-3, atol=1e-5)  # Ob
-                assert np.allclose(sobol_params[3], cosmo[0], rtol=1e-3, atol=1e-5)  # H0
-                assert np.allclose(sobol_params[4], cosmo[3], rtol=1e-3, atol=1e-5)  # ns
+                assert np.allclose(sobol_params[0], cosmo[0], rtol=1e-3, atol=1e-5)  # Om
+                assert np.allclose(sobol_params[1], cosmo[1], rtol=1e-3, atol=1e-5)  # s8
+                assert np.allclose(sobol_params[2], cosmo[3], rtol=1e-3, atol=1e-5)  # Ob
+                assert np.allclose(sobol_params[3], cosmo[2], rtol=1e-3, atol=1e-5)  # H0
+                assert np.allclose(sobol_params[4], cosmo[4], rtol=1e-3, atol=1e-5)  # ns
                 assert np.allclose(sobol_params[5], cosmo[5], rtol=1e-3, atol=1e-5)  # w0
 
                 # load the .h5 files
