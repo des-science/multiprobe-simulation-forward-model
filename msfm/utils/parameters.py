@@ -75,7 +75,7 @@ def get_fiducial_perturbations(params=None, conf=None):
     if params is None:
         params = conf["analysis"]["params"]
 
-    perts = np.array([conf["analysis"]["fiducial"]["perturbation"][param] for param in params])
+    perts = np.array([conf["analysis"]["fiducial"]["perturbations"][param] for param in params])
 
     return perts
 
