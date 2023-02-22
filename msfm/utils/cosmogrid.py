@@ -1,7 +1,16 @@
-import numpy as np
-import os, h5py
+# Copyright (C) 2023 ETH Zurich, Institute for Particle Physics and Astrophysics
 
-def get_cosmo_params_info(meta_info_file, simset='grid'):
+"""
+Created February 2023
+Author: Arne Thomsen
+
+Functions specific to the cosmogrid
+"""
+
+import h5py
+
+
+def get_cosmo_params_info(meta_info_file, simset="grid"):
     """Returns directories on the level of cosmo_000001 and cosmo_delta_H0_p and so on
 
     Args:
@@ -11,7 +20,7 @@ def get_cosmo_params_info(meta_info_file, simset='grid'):
     Returns:
         ndarray: List containing the metainfo for all the unique cosmological parameters
     """
-    with h5py.File(meta_info_file, "r") as f: 
+    with h5py.File(meta_info_file, "r") as f:
         params_info = f[f"parameters/{simset}"][:]
 
     return params_info

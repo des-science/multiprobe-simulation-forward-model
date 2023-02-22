@@ -13,15 +13,16 @@ import numpy as np
 from scipy.spatial import Delaunay
 from scipy.optimize import fsolve
 
-from msfm.utils.input_output import read_yaml
+from msfm.utils import parameters, analysis
 
 
-def grid_prior(cosmos, conf=None):
-    """Calculates the CosmoGridV1 prior in the ordering specified in the config on a set of given params
+def in_grid_prior(cosmos, conf=None):
+    """Determines whether the elements of the given array of cosmological parameters are contained within the analysis
+    prior. This is needed to build a vectorized log posterior.
 
     Args:
-        cosmos (np.ndarray): A 2D array of cosmological parameterss with shape (n_cosmos, n_params), where n_params
-            has to be in the right ordering and n_theta corresponds to n_cosmos.
+        cosmos (np.ndarray): A 2D array of cosmological parameters with shape (n_cosmos, n_params), where n_params
+            has to be in the right ordering (as defined in the config) and n_theta corresponds to n_cosmos.
         conf (str, dict, optional): Config to use, can be either a string to the config.yaml file, the dictionary
             obtained by reading such a file or None, where the default config within the repo is used. Defaults to
             None.
@@ -33,14 +34,7 @@ def grid_prior(cosmos, conf=None):
         in_prior: A 2D boolean array of the same shape as params that specifies whether the values in params are
         contained within the prior.
     """
-    if conf is None:
-        conf = read_yaml(os.path.abspath("../../configs/config.yaml"))
-    elif isinstance(conf, str):
-        conf = read_yaml(conf)
-    elif isinstance(conf, dict):
-        pass
-    else:
-        raise ValueError(f"conf {conf} must be None, a str specifying the path to the .yaml file, or a dict.")
+    conf = analysis.load_config(conf)
 
     # make the params 2d
     cosmos = np.atleast_2d(cosmos)
@@ -48,13 +42,16 @@ def grid_prior(cosmos, conf=None):
     # get the number of params
     n_params = cosmos.shape[1]
 
-    prior = np.array(conf["analysis"]["grid"]["prior"]["standard"])
+    params = conf["analysis"]["params"][:n_params]
+
+    priors = parameters.get_priors(params)
+    # priors = np.array(conf["analysis"]["grid"]["prior"]["standard"])
 
     # check if we are in the prior
-    in_prior = np.all(np.logical_and(prior[:n_params, 0] <= cosmos, cosmos <= prior[:n_params, 1]), axis=1)
+    in_prior = np.all(np.logical_and(priors[:, 0] <= cosmos, cosmos <= priors[:, 1]), axis=1)
 
     # hull of the border points
-    hull = Delaunay(conf["analysis"]["grid"]["prior"]["Om_s8_border_points"])
+    hull = Delaunay(conf["analysis"]["grid"]["priors"]["Om_s8_border_points"])
 
     # check if we are in the hull
     in_prior[in_prior] = hull.find_simplex(cosmos[in_prior, :2]) >= 0
@@ -64,6 +61,28 @@ def grid_prior(cosmos, conf=None):
     in_prior[in_prior] = 1.0 / (cosmos[in_prior, 0] - 1.0) + 0.01 <= cosmos[in_prior, 5]
 
     return in_prior[:, np.newaxis]
+
+
+def log_posterior(cosmos, log_probs, conf=None):
+    """Vectorized version of the log posterior to be used in the MCMC runs, for example with emcee.
+
+    Args:
+        cosmos (np.ndarray): A 2D array of cosmological parameterss with shape (n_cosmos, n_params), where n_params
+            has to be in the right ordering (as defined in the config) and n_theta corresponds to n_cosmos.
+        log_probs (np.ndarray): Log probabilities associated with the parameters. These for example come out of the
+            Gaussian Process emulator.
+        conf (str, dict, optional): Config to use, can be either a string to the config.yaml file, the dictionary
+            obtained by reading such a file or None, where the default config within the repo is used. Defaults to
+            None.
+
+    Returns:
+        np.ndarray: The log posterior values obtained by restricting the emulator's predictions to the prior range.
+    """
+    # make the params 2d
+    cosmos = np.atleast_2d(cosmos)
+
+    # - infinity if outside the pior range, given input probability otherwise
+    return np.where(np.squeeze(in_grid_prior(cosmos, conf)), log_probs, -np.inf)
 
 
 def get_min_w0(Om, margin=0.01):

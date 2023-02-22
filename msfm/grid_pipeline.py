@@ -16,7 +16,7 @@ import warnings
 
 from icecream import ic
 
-from msfm.utils import logger, tfrecords, survey, shear
+from msfm.utils import analysis, logger, tfrecords, shear
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -109,9 +109,9 @@ def get_grid_dset(
     LOGGER.info(f"Starting to generate the grid data set for i_noise = {i_noise}")
 
     # load the pixel file to get the size of the data vector
-    data_vec_pix, _, _, _, _ = survey.load_pixel_file(conf, repo_dir)
+    data_vec_pix, _, _, _, _ = analysis.load_pixel_file(conf, repo_dir)
     n_pix = len(data_vec_pix)
-    masks = tf.constant(survey.get_tomo_masks(conf, repo_dir))
+    masks = tf.constant(analysis.get_tomo_masks(conf, repo_dir))
     n_z_bins = masks.shape[1]
     # n_params = len(conf["analysis"]["params"]["cosmo"]) + len(conf["analysis"]["params"]["astro"])
     n_params = len(conf["analysis"]["params"])

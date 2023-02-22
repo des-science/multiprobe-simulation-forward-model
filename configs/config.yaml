@@ -1,3 +1,4 @@
+# contains the configuration parameters of the forward model pipeline
 dirs:
   # absolute path at NERSC
   CosmoGrid:
@@ -53,8 +54,7 @@ survey:
       ]
 
 analysis:
-  params:
-    ["Om", "s8", "H0", "Ob", "ns", "w0", "Aia"]
+  params: ["Om", "s8", "H0", "Ob", "ns", "w0", "Aia"]
   n_side: 512
   n_pix: 3145728
   n_patches: 4
@@ -69,26 +69,17 @@ analysis:
     n_cosmos: 2500
     n_perms_per_cosmo: 4
     n_noise_per_example: 1
-    prior:
-      standard: [
-          [0.1, 0.5], # Om
-          [0.4, 1.4], # s8
-          [64, 82], # H0
-          [0.03, 0.06], # Ob
-          [0.87, 1.07], # ns
-          [-2.0, -0.333], # w0
-          [-3.0, 3.0], # Aia
-        ]
-      # parameter ordering and ranges used in the CosmoGrid
-      sobol: [
-          [0.1, 0.5], # Om
-          [0.4, 1.4], # s8
-          [0.03, 0.06], # Ob
-          [64, 82], # H0
-          [0.87, 1.07], # ns
-          [-2.0, -0.333], # w0
-          [-3.0, 3.0], # Aias
-        ]
+    # different parameter ordering
+    params_sobol: ["Om", "s8", "Ob", "H0", "ns", "w0", Aia]
+    priors:
+      # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
+      Om: [0.1, 0.5]
+      s8: [0.4, 1.4]
+      H0: [64, 82]
+      Ob: [0.03, 0.06]
+      ns: [0.87, 1.07]
+      w0: [-2.0, -0.333]
+      Aia: [-3.0, 3.0]
       Om_s8_border_points:
         [
           [0.1, 0.9],
@@ -104,36 +95,18 @@ analysis:
     n_perms_per_cosmo: 200
     n_noise_per_example: 3
     # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
-    values:
-      cosmo: [
-          67.36, # H0
-          0.0493, # Ob
-          0.26, # Om
-          0.9649, # ns
-          0.84, # s8
-          -1.0, # w0
-        ]
-      astro: [
-          0.0, # Aia
-        ]
+    Om: 0.26
+    s8: 0.84
+    H0: 67.36
+    Ob: 0.0493
+    ns: 0.9649
+    w0: -1.0
+    Aia: 0.0
     perturbations:
-      # Om, s8, H0, Ob, ns, w0, Aia like above
-      standard: [0.01, 0.015, 2.0, 0.001, 0.02, 0.05, 0.1]
-      labels:
-        [
-          "fiducial",
-          "delta_Aia_m",
-          "delta_Aia_p",
-          "delta_H0_m",
-          "delta_H0_p",
-          "delta_Ob_m",
-          "delta_Ob_p",
-          "delta_Om_m",
-          "delta_Om_p",
-          "delta_ns_m",
-          "delta_ns_p",
-          "delta_s8_m",
-          "delta_s8_p",
-          "delta_w0_m",
-          "delta_w0_p",
-        ]
+      Om: 0.01
+      s8: 0.015
+      H0: 2.0
+      Ob: 0.001
+      ns: 0.02
+      w0: 0.05
+      Aia: 0.1

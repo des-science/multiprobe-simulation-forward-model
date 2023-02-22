@@ -16,7 +16,7 @@ import warnings
 
 from icecream import ic
 
-from msfm.utils import logger, tfrecords, survey, shear
+from msfm.utils import analysis, logger, tfrecords, shear
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -95,21 +95,25 @@ def dset_concat_perts(data_vectors, index, pert_labels):
 
 
 def get_fiducial_dset(
-    conf: dict,
-    repo_dir: str,
     tfr_pattern: str,
     pert_labels: list,
     batch_size: int,
+    # configuration
+    conf: dict = None,
+    repo_dir: str = None,
+    # shape noise settings
     i_noise: int = 0,
     noise_scale: float = 1.0,
-    file_name_shuffle_buffer: int = 128,
-    file_name_shuffle_seed: int = 17,
-    examples_shuffle_buffer: int = 128,
-    examples_shuffle_seed: int = 67,
+    # performance
     n_readers: int = 8,
     n_prefetch: int = tf.data.AUTOTUNE,
+    file_name_shuffle_buffer: int = 128,
+    examples_shuffle_buffer: int = 128,
+    # random seeds
     is_eval: bool = False,
     eval_seed: int = 32,
+    file_name_shuffle_seed: int = 17,
+    examples_shuffle_seed: int = 67,
 ) -> tf.data.Dataset:
     """Builds the training dataset from the given file name pattern
     TODO add galaxy clustering maps
@@ -142,9 +146,9 @@ def get_fiducial_dset(
     LOGGER.info(f"Starting to generate the fiducial training set for i_noise = {i_noise}")
 
     # load the pixel file to get the size of the data vector
-    data_vec_pix, _, _, _, _ = survey.load_pixel_file(conf, repo_dir)
+    data_vec_pix, _, _, _, _ = analysis.load_pixel_file(conf, repo_dir)
     n_pix = len(data_vec_pix)
-    masks = tf.constant(survey.get_tomo_masks(conf, repo_dir))
+    masks = tf.constant(analysis.get_tomo_masks(conf, repo_dir))
     n_z_bins = masks.shape[1]
 
     if is_eval:
@@ -203,6 +207,7 @@ def get_fiducial_dset(
 
 
 def get_fiducial_multi_noise_dset(
+    # TODO
     conf: dict,
     repo_dir: str,
     tfr_pattern: str,

@@ -1,5 +1,5 @@
 import yaml, os, subprocess, shlex
-from . import logger
+from msfm.utils import logger
 
 LOGGER = logger.get_logger(__file__)
 
