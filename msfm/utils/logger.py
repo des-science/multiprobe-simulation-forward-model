@@ -19,6 +19,29 @@ logging_levels = {
 }
 
 
+class CustomFormatter(logging.Formatter):
+    RED = "\033[91m"
+    VIOLET = "\033[95m"
+    YELLOW = "\033[93m"
+    BOLD = "\033[1m"
+    UNDERLINE = "\033[4m"
+    reset = "\033[0m"
+    format = "%(asctime)s %(name)10s %(levelname).3s   %(message)s "
+
+    FORMATS = {
+        logging.DEBUG: VIOLET + format + reset,
+        logging.INFO: format,
+        logging.WARNING: BOLD + YELLOW + format + reset,
+        logging.ERROR: BOLD + RED + format + reset,
+        logging.CRITICAL: BOLD + RED + format + reset,
+    }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+        formatter = logging.Formatter(log_fmt, datefmt="%y-%m-%d %H:%M:%S")
+        return formatter.format(record)
+
+
 class Timer:
     def __init__(self):
         self.time_start = {}
@@ -67,11 +90,8 @@ def get_logger(filepath, logging_level=None, progressbar_color="red"):
     logger = logging.getLogger(logger_name)
 
     if len(logger.handlers) == 0:
-        log_formatter = logging.Formatter(
-            fmt="%(asctime)s %(name)0.12s %(levelname).3s   %(message)s ", datefmt="%y-%m-%d %H:%M:%S", style="%"
-        )
         stream_handler = logging.StreamHandler(sys.stdout)
-        stream_handler.setFormatter(log_formatter)
+        stream_handler.setFormatter(CustomFormatter())
         logger.addHandler(stream_handler)
         logger.propagate = False
         set_logger_level(logger, logging_level)
