@@ -14,8 +14,6 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import warnings
 
-from icecream import ic
-
 from msfm.utils import analysis, logger, tfrecords, shear
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -74,25 +72,27 @@ def dset_add_noise(kg, sn, cosmo, index, noise_scale=1):
 
 
 def get_grid_dset(
-    conf: dict,
-    repo_dir: str,
     tfr_pattern: str,
     batch_size: int,
+    # configuration
+    conf: dict = None,
+    # shape noise settings
     i_noise: int = 0,
     noise_scale: float = 1.0,
+    # performance
     n_readers: int = 8,
     n_prefetch: int = tf.data.AUTOTUNE,
+    # random seeds
     tf_seed: int = 31,
 ) -> tf.data.Dataset:
     """Builds the training dataset from the given file name pattern
     TODO add galaxy clustering maps
 
     Args:
-        conf (dict): From configuration file in configs/config.yaml.
-        repo_dir (str): Absolute path to the msfm repo.
         tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
-        pert_labels (list): List of the perturbations to use in training, see the config for all possibilities.
         batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
+            passed through) or None (the default config is loaded). Defaults to None.
         i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
             other tensor (like randomly sampled).
         noise_scale (float): Factor by which to multiply the shape noise. This could also be a tf.Variable to change
@@ -109,11 +109,10 @@ def get_grid_dset(
     LOGGER.info(f"Starting to generate the grid data set for i_noise = {i_noise}")
 
     # load the pixel file to get the size of the data vector
-    data_vec_pix, _, _, _, _ = analysis.load_pixel_file(conf, repo_dir)
+    data_vec_pix, _, _, _, _ = analysis.load_pixel_file(conf)
     n_pix = len(data_vec_pix)
-    masks = tf.constant(analysis.get_tomo_masks(conf, repo_dir))
+    masks = tf.constant(analysis.get_tomo_masks(conf))
     n_z_bins = masks.shape[1]
-    # n_params = len(conf["analysis"]["params"]["cosmo"]) + len(conf["analysis"]["params"]["astro"])
     n_params = len(conf["analysis"]["params"])
 
     # for determinism TODO double check whether this actually fixes everything
@@ -152,21 +151,22 @@ def get_grid_dset(
 
     dset = dset.prefetch(n_prefetch)
 
-    LOGGER.info(
-        f"Successfully generated the grid set with element_spec {dset.element_spec} for i_noise = {i_noise}"
-    )
+    LOGGER.info(f"Successfully generated the grid set with element_spec {dset.element_spec} for i_noise = {i_noise}")
     return dset
 
 
 def get_grid_multi_noise_dset(
-    conf: dict,
-    repo_dir: str,
     tfr_pattern: str,
     batch_size: int,
-    n_noise: int = 1,
-    noise_scale: float = 1,
+    # configuration
+    conf: dict = None,
+    # shape noise settings
+    n_noise: int = 0,
+    noise_scale: float = 1.0,
+    # performance
     n_readers: int = 8,
     n_prefetch: int = tf.data.AUTOTUNE,
+    # random seeds
     tf_seed: int = 31,
 ) -> tf.data.Dataset:
     """A dataset made up of the above datasets, but for different i_noise (index of the shape noise realization). The
@@ -194,9 +194,7 @@ def get_grid_multi_noise_dset(
 
     dset = tf.data.Dataset.sample_from_datasets(
         [
-            get_grid_dset(
-                conf, repo_dir, tfr_pattern, batch_size, i_noise, noise_scale, n_readers, 0, tf_seed + i_noise
-            )
+            get_grid_dset(tfr_pattern, batch_size, conf, i_noise, noise_scale, n_readers, 0, tf_seed + i_noise)
             for i_noise in range(n_noise)
         ]
     )

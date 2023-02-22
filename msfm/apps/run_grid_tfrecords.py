@@ -21,9 +21,8 @@ import tensorflow as tf
 import os, argparse, warnings, h5py
 
 from sobol_seq import i4_sobol
-from icecream import ic
 
-from msfm.utils import logger, input_output, cosmogrid, tfrecords
+from msfm.utils import logger, input_output, cosmogrid, tfrecords, analysis, parameters
 from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -63,12 +62,6 @@ def setup(args):
         help="output root dir of the .tfrecords",
     )
     parser.add_argument(
-        "--repo_dir",
-        type=str,
-        default="/global/homes/a/athomsen/multiprobe-simulation-forward-model",
-        help="root dir of the msfm repo to convert relative paths to absolute ones",
-    )
-    parser.add_argument(
         "--config",
         type=str,
         default="configs/config.yaml",
@@ -82,7 +75,7 @@ def setup(args):
     if not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
 
-    args.repo_dir = os.path.abspath(args.repo_dir)
+    args.config = os.path.abspath(args.config)
 
     logger.set_all_loggers_level(args.verbosity)
 
@@ -96,19 +89,21 @@ def main(indices, args):
     LOGGER.info(f"Got index set of size {len(indices)}")
     # LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
 
-    conf_file = os.path.join(args.repo_dir, args.config)
-    conf = input_output.read_yaml(conf_file)
-    LOGGER.info(f"Loaded configuration file")
+    conf = analysis.load_config(args.config)
 
-    meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
+    # setup up directories
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    meta_info_file = os.path.join(repo_dir, conf["files"]["meta_info"])
     cosmo_params_info = cosmogrid.get_cosmo_params_info(meta_info_file, "grid")
     LOGGER.info(f"Loaded meta information")
 
     # constants
-    # target_params = conf["analysis"]["params"]["cosmo"]
     target_params = conf["analysis"]["params"]
     n_params = len(target_params)
-    sobol_priors = np.array(conf["analysis"]["grid"]["prior"]["sobol"])
+
+    # different parameter ordering
+    sobol_priors = parameters.get_priors(conf["analysis"]["grid"]["params_sobol"])
 
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
@@ -164,9 +159,7 @@ def main(indices, args):
                     break
 
                 # select the relevant cosmological parameters
-                cosmo = [
-                    cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in conf["analysis"]["params"]
-                ]
+                cosmo = [cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in conf["analysis"]["params"][:6]]
                 cosmo = np.array(cosmo, dtype=np.float32)
 
                 i_sobol = cosmo_params_info["sobol_index"][i_cosmo]
@@ -175,7 +168,7 @@ def main(indices, args):
                 sobol_point, _ = i4_sobol(sobol_priors.shape[0], i_sobol)
                 sobol_params = sobol_point * np.squeeze(np.diff(sobol_priors)) + sobol_priors[:, 0]
                 sobol_params = sobol_params.astype(np.float32)
-                
+
                 # add these to the label
                 Aia = sobol_params[-1]
                 cosmo = np.concatenate((cosmo, np.array([Aia])))

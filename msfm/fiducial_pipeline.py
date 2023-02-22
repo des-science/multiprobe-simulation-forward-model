@@ -14,8 +14,6 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import warnings
 
-from icecream import ic
-
 from msfm.utils import analysis, logger, tfrecords, shear
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -100,7 +98,6 @@ def get_fiducial_dset(
     batch_size: int,
     # configuration
     conf: dict = None,
-    repo_dir: str = None,
     # shape noise settings
     i_noise: int = 0,
     noise_scale: float = 1.0,
@@ -110,31 +107,31 @@ def get_fiducial_dset(
     file_name_shuffle_buffer: int = 128,
     examples_shuffle_buffer: int = 128,
     # random seeds
-    is_eval: bool = False,
-    eval_seed: int = 32,
     file_name_shuffle_seed: int = 17,
     examples_shuffle_seed: int = 67,
+    is_eval: bool = False,
+    eval_seed: int = 32,
 ) -> tf.data.Dataset:
     """Builds the training dataset from the given file name pattern
     TODO add galaxy clustering maps
 
     Args:
-        conf (dict): From configuration file in configs/config.yaml.
-        repo_dir (str): Absolute path to the msfm repo.
         tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
         pert_labels (list): List of the perturbations to use in training, see the config for all possibilities.
         batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
+            passed through) or None (the default config is loaded). Defaults to None.
         i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
             other tensor (like randomly sampled).
         noise_scale (float): Factor by which to multiply the shape noise. This could also be a tf.Variable to change
             it according to a schedule during training
-        file_name_shuffle_buffer (int, optional): Defaults to 128.
-        file_name_shuffle_seed (int, optional): Defaults to 17.
-        examples_shuffle_buffer (int, optional): Defaults to 128.
-        examples_shuffle_seed (int, optional): Defaults to 67.
         n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
             concurrently. This should be roughly less than a tenth of the number of files. Defaults to 8.
         n_prefetch (int, optional): Number of dataset elements to prefetch.
+        file_name_shuffle_buffer (int, optional): Defaults to 128.
+        examples_shuffle_buffer (int, optional): Defaults to 128.
+        file_name_shuffle_seed (int, optional): Defaults to 17.
+        examples_shuffle_seed (int, optional): Defaults to 67.
         is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can go
             through it deterministically exactly once. Defaults to False.
         eval_seed (int, optional): Fixed seed for evaluation. Defaults to 32.
@@ -146,9 +143,9 @@ def get_fiducial_dset(
     LOGGER.info(f"Starting to generate the fiducial training set for i_noise = {i_noise}")
 
     # load the pixel file to get the size of the data vector
-    data_vec_pix, _, _, _, _ = analysis.load_pixel_file(conf, repo_dir)
+    data_vec_pix, _, _, _, _ = analysis.load_pixel_file(conf)
     n_pix = len(data_vec_pix)
-    masks = tf.constant(analysis.get_tomo_masks(conf, repo_dir))
+    masks = tf.constant(analysis.get_tomo_masks(conf), dtype=tf.float32)
     n_z_bins = masks.shape[1]
 
     if is_eval:
@@ -207,38 +204,42 @@ def get_fiducial_dset(
 
 
 def get_fiducial_multi_noise_dset(
-    # TODO
-    conf: dict,
-    repo_dir: str,
     tfr_pattern: str,
     pert_labels: list,
     batch_size: int,
+    # configuration
+    conf: dict = None,
+    # shape noise settings
     n_noise: int = 1,
-    noise_scale: float = 1,
-    file_name_shuffle_buffer: int = 128,
-    file_name_shuffle_seed: int = 17,
-    examples_shuffle_buffer: int = 128,
-    examples_shuffle_seed: int = 67,
+    noise_scale: float = 1.0,
+    # performance
     n_readers: int = 8,
     n_prefetch: int = tf.data.AUTOTUNE,
+    file_name_shuffle_buffer: int = 128,
+    examples_shuffle_buffer: int = 128,
+    # random seeds
+    file_name_shuffle_seed: int = 17,
+    examples_shuffle_seed: int = 67,
 ) -> tf.data.Dataset:
     """A dataset made up of the above datasets, but for different i_noise (index of the shape noise realization). The
     sampling is uniform.
 
     Args:
-        conf (dict): From configuration file in configs/config.yaml.
-        repo_dir (str): Absolute path to the msfm repo.
         tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
         pert_labels (list): List of the perturbations to use in training, see the config for all possibilities.
         batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
+            passed through) or None (the default config is loaded). Defaults to None.
         n_noise (int): Number of noise indices to include.
-        file_name_shuffle_buffer (int, optional): Defaults to 128.
-        file_name_shuffle_seed (int, optional): Defaults to 17.
-        examples_shuffle_buffer (int, optional): Defaults to 128.
-        examples_shuffle_seed (int, optional): Defaults to 67.
+        noise_scale (float): Factor by which to multiply the shape noise. This could also be a tf.Variable to change
+            it according to a schedule during training
         n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
             concurrently. Defaults to 8.
         n_prefetch (int, optional): Number of dataset elements to prefetch.
+        file_name_shuffle_buffer (int, optional): Defaults to 128.
+        examples_shuffle_buffer (int, optional): Defaults to 128.
+        file_name_shuffle_seed (int, optional): Defaults to 17.
+        examples_shuffle_seed (int, optional): Defaults to 67.
 
     Returns:
         tf.data.Dataset: A dataset that returns samples with a given batchsize in the right ordering for the delta loss
@@ -248,19 +249,18 @@ def get_fiducial_multi_noise_dset(
     dset = tf.data.Dataset.sample_from_datasets(
         [
             get_fiducial_dset(
-                conf,
-                repo_dir,
                 tfr_pattern,
                 pert_labels,
                 batch_size,
+                conf,
                 i_noise,
                 noise_scale,
-                file_name_shuffle_buffer // n_noise,
-                file_name_shuffle_seed + i_noise,
-                examples_shuffle_buffer // n_noise,
-                examples_shuffle_seed + i_noise,
                 n_readers,
-                n_prefetch=0,
+                n_prefetch,
+                file_name_shuffle_buffer,
+                examples_shuffle_buffer,
+                file_name_shuffle_seed,
+                examples_shuffle_seed,
             )
             for i_noise in range(n_noise)
         ]

@@ -1,10 +1,15 @@
 """
 Created on October 2022
 Author: Arne Thomsen
+
+Tools to handle the scale cuts, kaiser-squires transformation and multiplicative and additive shear biases.
 """
 
 import numpy as np
 import tensorflow_probability as tfp
+
+
+from msfm.utils import analysis
 
 
 def get_kaiser_squires_factors(l):
@@ -34,7 +39,9 @@ def get_l_mask(l):
     return np.where(np.logical_and(l != 1, l != 0), 1.0, 0.0)
 
 
-def get_m_bias_distribution(conf):
+def get_m_bias_distribution(conf=None):
+    conf = analysis.load_config(conf)
+
     m_bias_dist = tfp.distributions.MultivariateNormalDiag(
         loc=conf["analysis"]["shear_bias"]["multiplicative"]["mu"],
         scale_diag=conf["analysis"]["shear_bias"]["multiplicative"]["sigma"],

@@ -54,9 +54,12 @@ survey:
       ]
 
 analysis:
+  # the six cosmological parameters of the CosmoGrid have to be listed first
   params: ["Om", "s8", "H0", "Ob", "ns", "w0", "Aia"]
   n_side: 512
   n_pix: 3145728
+  # verify this scale cut physically
+  l_max: 1535
   n_patches: 4
   # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf
   # TODO convert to kappa instead of gamma level

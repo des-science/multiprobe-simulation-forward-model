@@ -21,9 +21,8 @@ import tensorflow as tf
 import os, argparse, warnings, h5py
 
 from numpy.random import default_rng
-from icecream import ic
 
-from msfm.utils import logger, input_output, cosmogrid, tfrecords
+from msfm.utils import logger, input_output, cosmogrid, tfrecords, analysis
 from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -63,12 +62,6 @@ def setup(args):
         help="output root dir of the .tfrecords",
     )
     parser.add_argument(
-        "--repo_dir",
-        type=str,
-        default="/global/homes/a/athomsen/multiprobe-simulation-forward-model",
-        help="root dir of the msfm repo to convert relative paths to absolute ones",
-    )
-    parser.add_argument(
         "--config",
         type=str,
         default="configs/config.yaml",
@@ -82,7 +75,7 @@ def setup(args):
     if not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
 
-    args.repo_dir = os.path.abspath(args.repo_dir)
+    args.config = os.path.abspath(args.config)
 
     logger.set_all_loggers_level(args.verbosity)
 
@@ -96,18 +89,19 @@ def main(indices, args):
     LOGGER.info(f"Got index set of size {len(indices)}")
     LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
 
-    conf_file = os.path.join(args.repo_dir, args.config)
-    conf = input_output.read_yaml(conf_file)
-    LOGGER.info(f"Loaded configuration file")
+    conf = analysis.load_config(args.config)
 
-    meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
+    # setup up directories
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    meta_info_file = os.path.join(repo_dir, conf["files"]["meta_info"])
     cosmo_params_info = cosmogrid.get_cosmo_params_info(meta_info_file, "fiducial")
 
     # constants
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["fiducial"]["n_perms_per_cosmo"]
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo
-    delta_Aia = conf["analysis"]["fiducial"]["perturbations"]
+    delta_Aia = conf["analysis"]["fiducial"]["perturbations"]["Aia"]
 
     # set up the paths
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
@@ -180,10 +174,12 @@ def main(indices, args):
                         kg_perts.append(kg + delta_Aia * ia)
 
                 # shape (2 * n_cosmos + 1, n_pix, n_z_bins) for the delta loss
+                # TODO refactor this to not make use of the kg_perts array, but the perturbation labels
                 kg_perts = np.stack(kg_perts, axis=0)
                 LOGGER.debug(f"The tensor of kappa perturbations has shape {kg_perts.shape}")
                 LOGGER.debug(f"The tensor of noise realizations has shape {sn_realz.shape}")
 
+                # TODO refactor how kg_perts is handled
                 serialized = tfrecords.parse_forward_fiducial(
                     kg_perts, pert_labels, sn_realz, i_example
                 ).SerializeToString()

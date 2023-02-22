@@ -10,8 +10,6 @@ Functions to handle the configuration and read in the survey files on the data v
 import os, h5py, warnings
 import numpy as np
 
-from icecream import ic
-
 from msfm.utils import logger, input_output
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)

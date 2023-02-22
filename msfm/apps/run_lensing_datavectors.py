@@ -15,10 +15,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import os, argparse, warnings, h5py, time, logging
 
-from numba import njit
-from icecream import ic
-
-from msfm.utils import logger, input_output, maps, shear, cosmogrid, survey
+from msfm.utils import analysis, logger, input_output, maps, shear, cosmogrid
 from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -76,12 +73,6 @@ def setup(args):
         help="output root dir of the simulations",
     )
     parser.add_argument(
-        "--repo_dir",
-        type=str,
-        default="/global/homes/a/athomsen/multiprobe-simulation-forward-model",
-        help="root dir of the msfm repo to convert relative paths to absolute ones",
-    )
-    parser.add_argument(
         "--config",
         type=str,
         default="configs/config.yaml",
@@ -100,7 +91,7 @@ def setup(args):
 
     logger.set_all_loggers_level(args.verbosity)
 
-    args.repo_dir = os.path.abspath(args.repo_dir)
+    args.config = os.path.abspath(args.config)
 
     return args
 
@@ -123,36 +114,38 @@ def main(indices, args):
     LOGGER.info(f"Waiting for {sleep_sec:.2f}s to prevent overloading IO")
     time.sleep(sleep_sec)
 
-    conf_file = os.path.join(args.repo_dir, args.config)
-    conf = input_output.read_yaml(conf_file)
-    LOGGER.info(f"Loaded configuration file")
+    # args.config is a string to the file
+    conf = analysis.load_config(args.config)
 
     # constants
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
+    l_max = conf["analysis"]["l_max"]
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"][args.simset]["n_perms_per_cosmo"]
     n_noise_per_example = conf["analysis"][args.simset]["n_noise_per_example"]
     LOGGER.info(f"Looping through {n_perms_per_cosmo} permutations per cosmological parameter set")
     LOGGER.info(f"Generating {n_noise_per_example} noise realizations per example")
 
-    lmax = 3 * n_side - 1
-    l = hp.Alm.getlm(lmax)[0]
+    l = hp.Alm.getlm(l_max)[0]
     l[l == 1] = 0
     kappa2gamma_fac, gamma2kappa_fac = shear.get_kaiser_squires_factors(l)
     l_mask_fac = shear.get_l_mask(l)
 
     # pixel file
-    data_vec_pix, patches_pix, gamma2_signs, tomo_patches_pix, tomo_corresponding_pix = survey.load_pixel_file(
-        conf, args.repo_dir
-    )
+    data_vec_pix, patches_pix, gamma2_signs, tomo_patches_pix, tomo_corresponding_pix = analysis.load_pixel_file(conf)
     data_vec_len = len(data_vec_pix)
 
     # noise file
-    tomo_gamma_cat, tomo_n_bar = survey.load_noise_file(conf, args.repo_dir)
+    tomo_gamma_cat, tomo_n_bar = analysis.load_noise_file(conf)
 
-    # set up the directories
-    meta_info_file = os.path.join(args.repo_dir, conf["files"]["meta_info"])
+    # set up general directories
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    meta_info_file = os.path.join(repo_dir, conf["files"]["meta_info"])
+    hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
+
+    # set up CosmoGrid directories
     cosmo_params_info = cosmogrid.get_cosmo_params_info(meta_info_file, args.simset)
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
 
@@ -165,9 +158,6 @@ def main(indices, args):
 
     n_cosmos = len(cosmo_dirs_in)
     LOGGER.info(f"Got simulation set {args.simset} of size {n_cosmos} with base path {args.dir_in}")
-
-    # other directories
-    hp_datapath = os.path.join(args.repo_dir, conf["files"]["healpy_data"])
 
     # index corresponds to a cosmological parameter (either on the grid or for the fiducial perturbations) ############
     for index in indices:
@@ -255,7 +245,7 @@ def main(indices, args):
                         kappa_full = map_full
 
                         # kappa -> gamma (full sky)
-                        kappa_alm = hp.map2alm(kappa_full, lmax=lmax, use_pixel_weights=True, datapath=hp_datapath)
+                        kappa_alm = hp.map2alm(kappa_full, lmax=l_max, use_pixel_weights=True, datapath=hp_datapath)
                         gamma_alm = kappa_alm * kappa2gamma_fac
                         _, gamma1_full, gamma2_full = hp.alm2map(
                             [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
@@ -547,7 +537,6 @@ if __name__ == "__main__":
         "--simset=grid",
         "--dir_in=/Users/arne/data/CosmoGrid_example/DES/grid",
         "--dir_out=/Users/arne/data/CosmoGrid_example/DES/grid/v1",
-        "--repo_dir=/Users/arne/git/multiprobe-simulation-forward-model",
         "--config=configs/config.yaml",
         "--max_sleep=0",
         "--debug",
