@@ -18,6 +18,14 @@ logging_levels = {
     "debug": logging.DEBUG,
 }
 
+logging_levels_num = {
+    "critical": 50,
+    "error": 40,
+    "warning": 30,
+    "info": 20,
+    "debug": 10,
+}
+
 
 class CustomFormatter(logging.Formatter):
     RED = "\033[91m"
@@ -62,10 +70,8 @@ class Progressbar:
         self.logger = logger
 
     def __call__(self, collection, at_level="info", **kw):
-
-        lvls = [logging_levels[l] for l in at_level.split(",")]
+        kw.setdefault("disable", self.logger.level > logging_levels_num[at_level])
         kw.setdefault("bar_format", "{percentage:3.0f}%|{bar:28}|   {r_bar:<40} {desc}")
-        kw.setdefault("disable", self.logger.level not in lvls)
         kw.setdefault("colour", "blue")
         kw.setdefault("mininterval", 1)
         kw.setdefault("file", sys.stdout)
