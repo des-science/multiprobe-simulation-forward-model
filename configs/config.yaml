@@ -73,7 +73,7 @@ analysis:
     n_perms_per_cosmo: 4
     n_noise_per_example: 1
     # different parameter ordering
-    params_sobol: ["Om", "s8", "Ob", "H0", "ns", "w0", Aia]
+    params_sobol: ["Om", "s8", "Ob", "H0", "ns", "w0", "Aia"]
     priors:
       # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
       Om: [0.1, 0.5]

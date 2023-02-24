@@ -111,6 +111,8 @@ def get_fiducial_dset(
     examples_shuffle_seed: int = 67,
     is_eval: bool = False,
     eval_seed: int = 32,
+    # distribution
+    input_context: tf.distribute.InputContext = None,
 ) -> tf.data.Dataset:
     """Builds the training dataset from the given file name pattern
     TODO add galaxy clustering maps
@@ -135,6 +137,18 @@ def get_fiducial_dset(
         is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can go
             through it deterministically exactly once. Defaults to False.
         eval_seed (int, optional): Fixed seed for evaluation. Defaults to 32.
+        input_context (tf.distribute.InputContext, optional): For distributed training, this is passed to the 
+            dataset_fn like in https://www.tensorflow.org/tutorials/distribute/input#tfdistributestrategydistribute_datasets_from_function
+            Then, the dataset is sharded. Defaults to None for a non distributed dataset.
+
+            Example usage:
+                def dataset_fn(input_context):
+                    dset = fiducial_pipeline.get_fiducial_dset(
+                        tfr_pattern,
+                        pert_labels,
+                        batch_size,
+                        input_context=input_context,
+                    )
 
     Returns:
         tf.data.Dataset: A dataset that returns samples with a given batchsize in the right ordering for the delta loss
@@ -151,8 +165,25 @@ def get_fiducial_dset(
     if is_eval:
         tf.random.set_seed(eval_seed)
 
-    # get the file names, shuffle and dataset them
+    # get the file names
     dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=False)
+
+    # shard for distributed training
+    if input_context is not None:
+        n_replicas = input_context.num_input_pipelines
+        dset = dset.shard(n_replicas, input_context.input_pipeline_id)
+        LOGGER.info(f"Sharding the dataset over {n_replicas} replicas")
+
+        if batch_size % n_replicas == 0:
+            batch_size = batch_size // n_replicas
+            LOGGER.info(f"Using a local batch size of {batch_size} per replica")
+
+        else:
+            raise ValueError(
+                f"The global batch size {batch_size} has to be divisble by the number of synced replicas {n_replicas}"
+            )
+
+    # repeat and shuffle
     if not is_eval:
         dset = dset.repeat()
         dset = dset.shuffle(file_name_shuffle_buffer, seed=file_name_shuffle_seed)
@@ -188,7 +219,7 @@ def get_fiducial_dset(
     dset = dset.batch(batch_size, drop_remainder=True)
 
     # concatenate the perturbations into the batch dimension like in
-    # https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/losses.py#L122
+    # https://github.com/des-science/y3-deep-lss/blob/main/deep_lss/utils/delta_loss.py#L167
     dset = dset.map(lambda data_vectors, index: dset_concat_perts(data_vectors, index, pert_labels))
 
     # mask to ensure the padding (relevant if there's additive shift somewhere). the masks tensor is broadcast
@@ -220,6 +251,8 @@ def get_fiducial_multi_noise_dset(
     # random seeds
     file_name_shuffle_seed: int = 17,
     examples_shuffle_seed: int = 67,
+    # distribution
+    input_context: tf.distribute.InputContext = None,
 ) -> tf.data.Dataset:
     """A dataset made up of the above datasets, but for different i_noise (index of the shape noise realization). The
     sampling is uniform.
@@ -261,6 +294,7 @@ def get_fiducial_multi_noise_dset(
                 examples_shuffle_buffer,
                 file_name_shuffle_seed,
                 examples_shuffle_seed,
+                input_context
             )
             for i_noise in range(n_noise)
         ]
