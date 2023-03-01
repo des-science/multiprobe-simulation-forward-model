@@ -173,7 +173,9 @@ def get_fiducial_dset(
 
     # shard for distributed training
     if input_context is not None:
-        n_replicas = input_context.num_input_pipelines
+        # TODO check https://www.tensorflow.org/tutorials/distribute/input#usage_2 because there it's num_input_pipelines
+        # n_replicas = input_context.num_input_pipelines
+        n_replicas = input_context.num_replicas_in_sync
         dset = dset.shard(n_replicas, input_context.input_pipeline_id)
         LOGGER.info(f"Sharding the dataset over {n_replicas} replicas")
 
@@ -183,7 +185,7 @@ def get_fiducial_dset(
 
         else:
             raise ValueError(
-                f"The global batch size {batch_size} has to be divisble by the number of synced replicas {n_replicas}"
+                f"The global batch size {batch_size} has to be divisible by the number of synced replicas {n_replicas}"
             )
 
     # repeat and shuffle
@@ -229,6 +231,12 @@ def get_fiducial_dset(
     dset = dset.map(lambda data_vectors, index: (tf.multiply(data_vectors, masks), index))
 
     if n_batches is not None:
+        LOGGER.info(f"Taking {n_batches} batches from the dataset")
+
+        # TODO why does this seem necessary?
+        if input_context is not None:
+            n_batches *= n_replicas
+            
         dset = dset.take(n_batches)
 
     dset = dset.prefetch(n_prefetch)
