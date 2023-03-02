@@ -1,16 +1,16 @@
-## Notes to understand the script `SP_maps_MagLim.py` and actions required to be able to run it 
+## Notes to understand the script `SP_maps_MagLim.py` and actions required to run it 
 ### (this page is a work in progress as well as the script that we are understanding how to run from input to output)
 
 
-#### Goal:
+### Goal:
 
 We want to imprint the contamination inferred from the fits of the SP maps to the data to the Maglim and the Metacal galaxy density maps. We start here with MagLim, to recover the existing results.
 
 N.B: The contamination is applied to the galaxy number field, not to the density field itself, since the systematic weights are defined the number of galaxies per pixel.
 
-#### How to make the script running:
+### How to make the script running:
 
-Required packages:
+**Required packages:**
 - `lsssys`, from https://github.com/des-science/lss_sys/tree/945ebe911abb33b8cb1a5a8159084ee2f9158f3a
 - `healpix_util`
 
