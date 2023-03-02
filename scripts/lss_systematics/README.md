@@ -16,19 +16,19 @@ Required packages:
 
 
 
-Required files:
+**Required files:**
 
 -  the path to `ell.txt` needs to be changed in --> /lss_sys/mock_config/theory_dvecs/cosmosis_y3like/test_theory_maglim_y3like/galaxy_cl/
 - need to download` y3_gold_2.2.1_RING_joint_redmagic_v0.5.1_wide_maglim_v2.2_mask.fits.gz` from https://desdr-server.ncsa.illinois.edu/despublic/y3a2_files/redmagic/ . I have currently put it in `/global/cscratch1/sd/vajani/cosmo_packages/lss_sys/files_needed_to_run`
 
 
-Folders and files we need to find: 
+**Folders and files we need to find:** 
 
 - `maglim_v2.2_new_zbinning_jointmask/number_densities.txt`
 - `maglim_v2.2_new_zbinning_jointmask/jointmask/tests_post_unblind/enet_weights/w_maps/`
 
 
-Notes:
+_Notes:_
 
 I have found a folder called `/global/cfs/cdirs/des/monroy/systematics_analysis/enet_weights_tests/w_maps/` but the names of the files are different.
 
