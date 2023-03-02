@@ -11,14 +11,14 @@ N.B: The contamination is applied to the galaxy number field, not to the density
 ### How to make the script running:
 
 **Required packages:**
-- `lsssys`, from https://github.com/des-science/lss_sys/tree/945ebe911abb33b8cb1a5a8159084ee2f9158f3a
-- `healpix_util`
+- [lsssys](https://github.com/des-science/lss_sys/tree/945ebe911abb33b8cb1a5a8159084ee2f9158f3a)
+- [healpix_util](https://github.com/esheldon/healpix_util)
 
 
 
 **Required files:**
 
--  the path to `ell.txt` needs to be changed in --> /lss_sys/mock_config/theory_dvecs/cosmosis_y3like/test_theory_maglim_y3like/galaxy_cl/
+-  the path to `ell.txt` needs to be changed in --> `/lss_sys/mock_config/theory_dvecs/cosmosis_y3like/test_theory_maglim_y3like/galaxy_cl/`
 - need to download` y3_gold_2.2.1_RING_joint_redmagic_v0.5.1_wide_maglim_v2.2_mask.fits.gz` from https://desdr-server.ncsa.illinois.edu/despublic/y3a2_files/redmagic/ . I have currently put it in `/global/cscratch1/sd/vajani/cosmo_packages/lss_sys/files_needed_to_run`
 
 
