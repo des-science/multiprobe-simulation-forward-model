@@ -95,7 +95,7 @@ def dset_concat_perts(data_vectors, index, pert_labels):
 def get_fiducial_dset(
     tfr_pattern: str,
     pert_labels: list,
-    batch_size: int,
+    local_batch_size: int,
     # configuration
     conf: dict = None,
     n_batches: int = None,
@@ -140,7 +140,7 @@ def get_fiducial_dset(
         is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can go
             through it deterministically exactly once. Defaults to False.
         eval_seed (int, optional): Fixed seed for evaluation. Defaults to 32.
-        input_context (tf.distribute.InputContext, optional): For distributed training, this is passed to the 
+        input_context (tf.distribute.InputContext, optional): For distributed training, this is passed to the
             dataset_fn like in https://www.tensorflow.org/tutorials/distribute/input#tfdistributestrategydistribute_datasets_from_function
             Then, the dataset is sharded. Defaults to None for a non distributed dataset.
 
@@ -173,20 +173,11 @@ def get_fiducial_dset(
 
     # shard for distributed training
     if input_context is not None:
-        # TODO check https://www.tensorflow.org/tutorials/distribute/input#usage_2 because there it's num_input_pipelines
-        # n_replicas = input_context.num_input_pipelines
-        n_replicas = input_context.num_replicas_in_sync
-        dset = dset.shard(n_replicas, input_context.input_pipeline_id)
-        LOGGER.info(f"Sharding the dataset over {n_replicas} replicas")
-
-        if batch_size % n_replicas == 0:
-            batch_size = batch_size // n_replicas
-            LOGGER.info(f"Using a local batch size of {batch_size} per replica")
-
-        else:
-            raise ValueError(
-                f"The global batch size {batch_size} has to be divisible by the number of synced replicas {n_replicas}"
-            )
+        # NOTE Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2. This is black magic since
+        # input_context.num_input_pipelines = 1, so I don't know how the sharding happens, but it does, see
+        # distributed_sharding.ipynb
+        dset = dset.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
+        LOGGER.info(f"Sharding the dataset according to the input_context")
 
     # repeat and shuffle
     if not is_eval:
@@ -221,7 +212,8 @@ def get_fiducial_dset(
     # shuffle and batch
     if not is_eval:
         dset = dset.shuffle(examples_shuffle_buffer, seed=examples_shuffle_seed)
-    dset = dset.batch(batch_size, drop_remainder=True)
+    dset = dset.batch(local_batch_size, drop_remainder=True)
+    LOGGER.info(f"Batching into {local_batch_size} elements locally")
 
     # concatenate the perturbations into the batch dimension like in
     # https://github.com/des-science/y3-deep-lss/blob/main/deep_lss/utils/delta_loss.py#L167
@@ -233,10 +225,10 @@ def get_fiducial_dset(
     if n_batches is not None:
         LOGGER.info(f"Taking {n_batches} batches from the dataset")
 
-        # TODO why does this seem necessary?
+        # NOTE this is another instance of black magic, see distributed_sharding.ipynb
         if input_context is not None:
-            n_batches *= n_replicas
-            
+            n_batches *= input_context.num_replicas_in_sync
+
         dset = dset.take(n_batches)
 
     dset = dset.prefetch(n_prefetch)
@@ -251,7 +243,7 @@ def get_fiducial_dset(
 def get_fiducial_multi_noise_dset(
     tfr_pattern: str,
     pert_labels: list,
-    batch_size: int,
+    local_batch_size: int,
     # configuration
     conf: dict = None,
     n_batches: int = None,
@@ -301,7 +293,7 @@ def get_fiducial_multi_noise_dset(
             get_fiducial_dset(
                 tfr_pattern,
                 pert_labels,
-                batch_size,
+                local_batch_size,
                 conf,
                 n_batches // n_noise,
                 i_noise,
@@ -312,7 +304,7 @@ def get_fiducial_multi_noise_dset(
                 examples_shuffle_buffer // n_noise,
                 file_name_shuffle_seed + i_noise,
                 examples_shuffle_seed + i_noise,
-                input_context
+                input_context,
             )
             for i_noise in range(n_noise)
         ]
