@@ -73,7 +73,7 @@ def dset_add_noise(kg, sn, cosmo, index, noise_scale=1):
 
 def get_grid_dset(
     tfr_pattern: str,
-    batch_size: int,
+    local_batch_size: int,
     # configuration
     conf: dict = None,
     # shape noise settings
@@ -84,6 +84,8 @@ def get_grid_dset(
     n_prefetch: int = tf.data.AUTOTUNE,
     # random seeds
     tf_seed: int = 31,
+    # distribution
+    input_context: tf.distribute.InputContext = None,
 ) -> tf.data.Dataset:
     """Builds the training dataset from the given file name pattern
     TODO add galaxy clustering maps
@@ -102,6 +104,18 @@ def get_grid_dset(
         n_prefetch (int, optional): Number of dataset elements to prefetch.
         tf_seed (int, optional): The global tensorflow seed to make the evaluation of this function deterministic.
             TODO check whether this is actually the case.
+        input_context (tf.distribute.InputContext, optional): For distributed training, this is passed to the
+            dataset_fn like in https://www.tensorflow.org/tutorials/distribute/input#tfdistributestrategydistribute_datasets_from_function
+            Then, the dataset is sharded. Defaults to None for a non distributed dataset.
+
+            Example usage:
+                def dataset_fn(input_context):
+                    dset = fiducial_pipeline.get_fiducial_dset(
+                        tfr_pattern,
+                        pert_labels,
+                        batch_size,
+                        input_context=input_context,
+                    )
 
     Returns:
         tf.data.Dataset: A deterministic dataset that goes through the grid cosmologies in the order of the sobol seeds
@@ -120,6 +134,14 @@ def get_grid_dset(
 
     # get the file names and dataset them
     dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=False)
+
+    # shard for distributed evaluation
+    if input_context is not None:
+        # NOTE Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2. This is black magic since
+        # input_context.num_input_pipelines = 1, so I don't know how the sharding happens, but it does, see
+        # distributed_sharding.ipynb
+        dset = dset.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
+        LOGGER.info(f"Sharding the dataset according to the input_context")
 
     # interleave, block_length is the number of files every reader reads
     dset = dset.interleave(
@@ -144,7 +166,8 @@ def get_grid_dset(
     dset = dset.map(lambda kg, sn, cosmo, index: dset_add_noise(kg, sn, cosmo, index, noise_scale))
 
     # batch
-    dset = dset.batch(batch_size, drop_remainder=False)
+    dset = dset.batch(local_batch_size, drop_remainder=False)
+    LOGGER.info(f"Batching into {local_batch_size} elements locally")
 
     # mask to ensure the padding (relevant if there's additive shift somewhere). the masks tensor is broadcast
     dset = dset.map(lambda kg, cosmo, index: (tf.multiply(kg, masks), cosmo, index))
@@ -157,7 +180,7 @@ def get_grid_dset(
 
 def get_grid_multi_noise_dset(
     tfr_pattern: str,
-    batch_size: int,
+    local_batch_size: int,
     # configuration
     conf: dict = None,
     # shape noise settings
@@ -168,6 +191,8 @@ def get_grid_multi_noise_dset(
     n_prefetch: int = tf.data.AUTOTUNE,
     # random seeds
     tf_seed: int = 31,
+    # distribution
+    input_context: tf.distribute.InputContext = None,
 ) -> tf.data.Dataset:
     """A dataset made up of the above datasets, but for different i_noise (index of the shape noise realization). The
     sampling is uniform.
@@ -194,7 +219,9 @@ def get_grid_multi_noise_dset(
 
     dset = tf.data.Dataset.sample_from_datasets(
         [
-            get_grid_dset(tfr_pattern, batch_size, conf, i_noise, noise_scale, n_readers, 0, tf_seed + i_noise)
+            get_grid_dset(
+                tfr_pattern, local_batch_size, conf, i_noise, noise_scale, n_readers, 0, tf_seed + i_noise, input_context
+            )
             for i_noise in range(n_noise)
         ]
     )
