@@ -174,7 +174,7 @@ def get_fiducial_dset(
     # shard for distributed training
     if input_context is not None:
         # NOTE Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2. This is black magic since
-        # input_context.num_input_pipelines = 1, so I don't know how the sharding happens, but it does, see
+        # print(input_context.num_input_pipelines) yields 1, so I don't know how the sharding happens, but it does, see
         # distributed_sharding.ipynb
         dset = dset.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
         LOGGER.info(f"Sharding the dataset according to the input_context")
