@@ -75,6 +75,7 @@ def get_grid_dset(
     tfr_pattern: str,
     local_batch_size: int,
     # configuration
+    params: list = None,
     conf: dict = None,
     # shape noise settings
     i_noise: int = 0,
@@ -127,7 +128,10 @@ def get_grid_dset(
     n_pix = len(data_vec_pix)
     masks = tf.constant(analysis.get_tomo_masks(conf))
     n_z_bins = masks.shape[1]
-    n_params = len(conf["analysis"]["params"])
+    if params is None:
+        conf = analysis.load_config(conf)
+        params = conf["analysis"]["params"]
+    n_params = len(params)
 
     # for determinism TODO double check whether this actually fixes everything
     tf.random.set_seed(tf_seed)

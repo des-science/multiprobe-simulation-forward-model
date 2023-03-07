@@ -14,7 +14,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import warnings
 
-from msfm.utils import analysis, logger, tfrecords, shear
+from msfm.utils import analysis, logger, tfrecords, shear, parameters
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -94,11 +94,10 @@ def dset_concat_perts(data_vectors, index, pert_labels):
 
 def get_fiducial_dset(
     tfr_pattern: str,
-    pert_labels: list,
     local_batch_size: int,
     # configuration
+    params: list = None,
     conf: dict = None,
-    n_batches: int = None,
     # shape noise settings
     i_noise: int = 0,
     noise_scale: float = 1.0,
@@ -120,8 +119,10 @@ def get_fiducial_dset(
 
     Args:
         tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
-        pert_labels (list): List of the perturbations to use in training, see the config for all possibilities.
         batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
+        params (list): List of the cosmological parameters with respect to which the perturbations to be used in 
+            training are returned, see the config for all possibilities. Defaults to None, then all are included
+            according to the config.
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). Defaults to None.
         i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
@@ -146,7 +147,7 @@ def get_fiducial_dset(
                 def dataset_fn(input_context):
                     dset = fiducial_pipeline.get_fiducial_dset(
                         tfr_pattern,
-                        pert_labels,
+                        params,
                         batch_size,
                         input_context=input_context,
                     )
@@ -162,6 +163,7 @@ def get_fiducial_dset(
     n_pix = len(data_vec_pix)
     masks = tf.constant(analysis.get_tomo_masks(conf), dtype=tf.float32)
     n_z_bins = masks.shape[1]
+    pert_labels = parameters.get_fiducial_perturbation_labels(params)
 
     if is_eval:
         tf.random.set_seed(eval_seed)
@@ -231,9 +233,9 @@ def get_fiducial_dset(
 
 def get_fiducial_multi_noise_dset(
     tfr_pattern: str,
-    pert_labels: list,
     local_batch_size: int,
     # configuration
+    params: list = None,
     conf: dict = None,
     # shape noise settings
     n_noise: int = 1,
@@ -254,8 +256,10 @@ def get_fiducial_multi_noise_dset(
 
     Args:
         tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
-        pert_labels (list): List of the perturbations to use in training, see the config for all possibilities.
         batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
+        params (list): List of the cosmological parameters with respect to which the perturbations to be used in 
+            training are returned, see the config for all possibilities. Defaults to None, then all are included
+            according to the config.        
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). Defaults to None.
         n_batches (int, optional): dset.take(n_batches) elements are taken from the dataset. This is done within this
@@ -280,8 +284,8 @@ def get_fiducial_multi_noise_dset(
         [
             get_fiducial_dset(
                 tfr_pattern,
-                pert_labels,
                 local_batch_size,
+                params,
                 conf,
                 i_noise,
                 noise_scale,
