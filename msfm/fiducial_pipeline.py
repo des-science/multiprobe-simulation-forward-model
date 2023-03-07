@@ -124,8 +124,6 @@ def get_fiducial_dset(
         batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). Defaults to None.
-        n_batches (int, optional): dset.take(n_batches) elements are taken from the dataset. This is done within this
-            function because this operation can not be performed on a distributed dataset.
         i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
             other tensor (like randomly sampled).
         noise_scale (float): Factor by which to multiply the shape noise. This could also be a tf.Variable to change
@@ -222,15 +220,6 @@ def get_fiducial_dset(
     # mask to ensure the padding (relevant if there's additive shift somewhere). the masks tensor is broadcast
     dset = dset.map(lambda data_vectors, index: (tf.multiply(data_vectors, masks), index))
 
-    if n_batches is not None:
-        LOGGER.info(f"Taking {n_batches} batches from the dataset")
-
-        # NOTE this is another instance of black magic, see distributed_sharding.ipynb
-        if input_context is not None:
-            n_batches *= input_context.num_replicas_in_sync
-
-        dset = dset.take(n_batches)
-
     dset = dset.prefetch(n_prefetch)
 
     LOGGER.info(
@@ -246,7 +235,6 @@ def get_fiducial_multi_noise_dset(
     local_batch_size: int,
     # configuration
     conf: dict = None,
-    n_batches: int = None,
     # shape noise settings
     n_noise: int = 1,
     noise_scale: float = 1.0,
@@ -295,7 +283,6 @@ def get_fiducial_multi_noise_dset(
                 pert_labels,
                 local_batch_size,
                 conf,
-                n_batches // n_noise,
                 i_noise,
                 noise_scale,
                 n_readers,
