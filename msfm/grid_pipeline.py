@@ -126,7 +126,7 @@ def get_grid_dset(
     # load the pixel file to get the size of the data vector
     data_vec_pix, _, _, _, _ = analysis.load_pixel_file(conf)
     n_pix = len(data_vec_pix)
-    masks = tf.constant(analysis.get_tomo_masks(conf))
+    masks = tf.constant(analysis.get_tomo_masks(conf), dtype=tf.float32)
     n_z_bins = masks.shape[1]
     if params is None:
         conf = analysis.load_config(conf)
