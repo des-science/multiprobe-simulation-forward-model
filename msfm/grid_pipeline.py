@@ -75,7 +75,7 @@ def get_grid_dset(
     tfr_pattern: str,
     local_batch_size: int,
     # configuration
-    params: list = None,
+    n_params: int = None,
     conf: dict = None,
     # shape noise settings
     i_noise: int = 0,
@@ -94,6 +94,8 @@ def get_grid_dset(
     Args:
         tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
         batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
+        n_params (list): Number of the cosmological parameters stored in the .tfrecords, this is typically all of them.
+            The value is used to reshape the stored tensors, and for nothing else.        
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). Defaults to None.
         i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
@@ -113,7 +115,6 @@ def get_grid_dset(
                 def dataset_fn(input_context):
                     dset = fiducial_pipeline.get_fiducial_dset(
                         tfr_pattern,
-                        pert_labels,
                         batch_size,
                         input_context=input_context,
                     )
@@ -128,10 +129,10 @@ def get_grid_dset(
     n_pix = len(data_vec_pix)
     masks = tf.constant(analysis.get_tomo_masks(conf), dtype=tf.float32)
     n_z_bins = masks.shape[1]
-    if params is None:
+    if n_params is None:
         conf = analysis.load_config(conf)
         params = conf["analysis"]["params"]
-    n_params = len(params)
+        n_params = len(params)
 
     # for determinism TODO double check whether this actually fixes everything
     tf.random.set_seed(tf_seed)
