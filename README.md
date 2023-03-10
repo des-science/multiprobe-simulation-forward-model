@@ -2,6 +2,9 @@
 # multiprobe-simulation-forward-model
 This repo contains a pipeline to forward model DES Y3 like weak lensing and galaxy clustering maps from the n-body simulations in the CosmoGrid. It is tailored to the [`y3-deep-lss`](https://github.com/des-science/y3-deep-lss) and peak count analysis within the DES collaboration.
 
+### List of tasks ahead
+See this [overleaf](https://www.overleaf.com/project/633d2e0525619c7b5a0daf70)
+
 ### Installation
 The installation should be as easy as 
 ```
