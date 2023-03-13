@@ -28,7 +28,7 @@ def dset_augmentations(
     pert_labels: list,
     m_bias_dist: tfp.distributions.Distribution = None,
     noise_scale: float = 1.0,
-    masks: tf.tensor = None,
+    masks: tf.constant = None,
 ):
     """Applies random augmentations and general pre-processing to the kappa maps. This includes in order:
         - Adds random multiplicative shear bias (the additive one is negligible) to the kappa maps
@@ -314,6 +314,11 @@ def get_fiducial_multi_noise_dset(
         tf.data.Dataset: A dataset that returns samples with a given batchsize in the right ordering for the delta loss
             The label consists of (i_example, i_noise)
     """
+    if file_name_shuffle_buffer is not None:
+        file_name_shuffle_buffer = file_name_shuffle_buffer // n_noise
+
+    if examples_shuffle_buffer is not None:
+        examples_shuffle_buffer = examples_shuffle_buffer // n_noise
 
     dset = tf.data.Dataset.sample_from_datasets(
         [
@@ -327,8 +332,8 @@ def get_fiducial_multi_noise_dset(
                 is_cached=is_cached,
                 n_readers=n_readers,
                 n_prefetch=0,
-                file_name_shuffle_buffer=file_name_shuffle_buffer // n_noise,
-                examples_shuffle_buffer=examples_shuffle_buffer // n_noise,
+                file_name_shuffle_buffer=file_name_shuffle_buffer,
+                examples_shuffle_buffer=examples_shuffle_buffer,
                 file_name_shuffle_seed=file_name_shuffle_seed + i_noise,
                 examples_shuffle_seed=examples_shuffle_seed + i_noise,
                 input_context=input_context,
@@ -337,7 +342,11 @@ def get_fiducial_multi_noise_dset(
         ]
     )
 
+    # prefetch
+    if n_prefetch is None:
+        n_prefetch = tf.data.AUTOTUNE
     dset = dset.prefetch(n_prefetch)
+
     LOGGER.info(
         f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for i_noise in"
         f" [0, {n_noise}]"

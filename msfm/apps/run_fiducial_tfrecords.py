@@ -191,7 +191,7 @@ def main(indices, args):
 
                 assert np.allclose(inv_kg_perts, kg_perts)
                 assert np.allclose(inv_sn, sn_realz[0])
-                assert np.allclose(inv_index, i_example)
+                assert np.allclose(inv_index[0], i_example)
 
                 LOGGER.debug("decoded successfully")
 

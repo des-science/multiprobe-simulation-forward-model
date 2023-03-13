@@ -192,8 +192,8 @@ def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=Non
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
         "n_z_bins": tf.io.FixedLenFeature([], tf.int64),
         # label
-        # "i_example": tf.io.FixedLenFeature([], tf.int64),
-        "index": tf.io.FixedLenFeature([], tf.int64),
+        "i_example": tf.io.FixedLenFeature([], tf.int64),
+        # "index": tf.io.FixedLenFeature([], tf.int64),
     }
 
     # kappa perturbations
@@ -219,8 +219,8 @@ def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=Non
 
     # TODO dg
 
-    # index = (data["i_example"], i_noise)
-    index = (data["index"], i_noise)
+    index = (data["i_example"], i_noise)
+    # index = (data["index"], i_noise)
 
     return data_vectors, index
 
