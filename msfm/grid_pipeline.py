@@ -22,8 +22,19 @@ warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
 
-def dset_add_bias(kg, sn, cosmo, index, m_bias_dist=None):
-    """Adds a random multiplicative shear bias (the additive one is negligible)
+def dset_augmentations(
+    kg: tf.constant,
+    sn: tf.constant,
+    cosmo: tf.constant,
+    index: tuple,
+    m_bias_dist: tfp.distributions.Distribution = None,
+    noise_scale: float = 1.0,
+    masks: tf.constant = None,
+):
+    """Applies random augmentations and general pre-processing to the maps. This includes in order:
+        - Adds random multiplicative shear bias (the additive one is negligible) to the kappa maps
+        - Adds the chosen shape noise realization to the kappa maps
+        - Masks the resulting data vector (this is only required if an addition like an additive shear bias is applied)
 
     Args:
         kg (tf.tensor): shape(n_pix, n_z_bins) the sum of weak lensing signal and intrinsic alignment
@@ -32,41 +43,40 @@ def dset_add_bias(kg, sn, cosmo, index, m_bias_dist=None):
         index (tuple): A tuple of two integers (i_sobol, i_noise)
         m_bias_dist (tfp.distributions.Distribution, optional): TensorFlow probability distribution from which the bias
             is sampled. The samples have to be drawn within this function for randomness. Defaults to None, then the
-            bias is equal to one.
+            bias is always equal to one.
+        noise_scale (float): Multiplicative factor applied to the shape noise before it is added. Defaults to 1.0,
+            for a value of None, no shape noise is added to the kappa maps.
+        masks (tf.tensor): Tensor Of shape (n_pix, n_z_bins) only containing zeros and ones.
 
     Returns:
-        tuple: (kg, sn, cosmo, index) of the same shape as at the input
+        tuple: (data_vectors, index), where data_vectors is a tensor of shape (n_perts * batch_size, n_pix). The first
+            batch_size elements correspond to the fiducial value, the second to the first perturbation, the third to
+            the second perturbation, etc. (for compatibility with the delta loss). Furthermore, data_vectors["sn"] is
+            removed.
     """
-    LOGGER.warning(f"Tracing dset_add_bias")
 
-    if m_bias_dist is None:
-        LOGGER.warning(f"No multiplicative shear bias is applied")
+    LOGGER.warning(f"Tracing dset_augmentations")
 
-    elif isinstance(m_bias_dist, tfp.distributions.Distribution):
+    # shear bias
+    if m_bias_dist is not None:
+        # shape (n_z_bins,)
         m_bias = m_bias_dist.sample()
         # broadcast axis 0 of size n_pix
-        kg *= 1 + m_bias
+        kg *= 1.0 + m_bias
+    else:
+        LOGGER.warning(f"No multiplicative shear bias is applied")
 
-    return kg, sn, cosmo, index
+    # shape noise
+    if noise_scale is not None:
+        kg += noise_scale * sn
+    else:
+        LOGGER.warning(f"No shape noise is added")
 
-
-def dset_add_noise(kg, sn, cosmo, index, noise_scale=1):
-    """
-    Args:
-        kg (tf.tensor): shape(n_pix, n_z_bins) the sum of weak lensing signal and intrinsic alignment
-        sn (tf.tensor): shape(n_pix, n_z_bins) one shape noise realization
-        cosmo (tf.tensor): shape(n_params,) the cosmological parameter label
-        index (tuple): A tuple of two integers (i_sobol, i_noise)
-        m_bias_dist (tfp.distributions.Distribution, optional): TensorFlow probability distribution from which the bias
-            is sampled. The samples have to be drawn within this function for randomness. Defaults to None, then the
-            bias is equal to one.
-
-    Returns:
-        tuple: (kg, cosmo, index) but kg now also includes the shape noise component
-    """
-    LOGGER.warning(f"Tracing dset_add_noise")
-
-    kg += noise_scale * sn
+    # masking
+    if masks is not None:
+        kg *= masks
+    else:
+        LOGGER.warning(f"No masking is applied")
 
     return kg, cosmo, index
 
@@ -95,7 +105,7 @@ def get_grid_dset(
         tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
         batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
         n_params (list): Number of the cosmological parameters stored in the .tfrecords, this is typically all of them.
-            The value is used to reshape the stored tensors, and for nothing else.        
+            The value is used to reshape the stored tensors, and for nothing else.
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). Defaults to None.
         i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
@@ -133,6 +143,7 @@ def get_grid_dset(
         conf = analysis.load_config(conf)
         params = conf["analysis"]["params"]
         n_params = len(params)
+    m_bias_dist = shear.get_m_bias_distribution(conf)
 
     # for determinism TODO double check whether this actually fixes everything
     tf.random.set_seed(tf_seed)
@@ -157,25 +168,31 @@ def get_grid_dset(
         deterministic=True,
     )
 
-    dset_parse_inverse = lambda serialized_example: tfrecords.parse_inverse_grid(
-        serialized_example, i_noise, n_pix, n_z_bins, n_params
+    # parse, output signature (kg, sn, cosmo, index)
+    dset = dset.map(
+        lambda serialized_example: tfrecords.parse_inverse_grid(
+            serialized_example, i_noise, n_pix, n_z_bins, n_params
+        ),
+        num_parallel_calls=tf.data.AUTOTUNE,
     )
-    # output signature (kg, sn, cosmo, index)
-    dset = dset.map(dset_parse_inverse, num_parallel_calls=tf.data.AUTOTUNE)
 
-    # add shear bias
-    m_bias_dist = shear.get_m_bias_distribution(conf)
-    dset = dset.map(lambda kg, sn, cosmo, index: dset_add_bias(kg, sn, cosmo, index, m_bias_dist))
-
-    # add noise, output signature (kg, cosmo, index)
-    dset = dset.map(lambda kg, sn, cosmo, index: dset_add_noise(kg, sn, cosmo, index, noise_scale))
-
-    # batch
+    # batch (first, for vectorization)
     dset = dset.batch(local_batch_size, drop_remainder=False)
     LOGGER.info(f"Batching into {local_batch_size} elements locally")
 
-    # mask to ensure the padding (relevant if there's additive shift somewhere). the masks tensor is broadcast
-    dset = dset.map(lambda kg, cosmo, index: (tf.multiply(kg, masks), cosmo, index))
+    # augmentations (all in one function, to make parallelization easier)
+    dset = dset.map(
+        lambda kg, sn, cosmo, index: dset_augmentations(
+            kg,
+            sn,
+            cosmo,
+            index,
+            m_bias_dist,
+            noise_scale,
+            masks,
+        ),
+        num_parallel_calls=tf.data.AUTOTUNE,
+    )
 
     dset = dset.prefetch(n_prefetch)
 
@@ -225,7 +242,15 @@ def get_grid_multi_noise_dset(
     dset = tf.data.Dataset.sample_from_datasets(
         [
             get_grid_dset(
-                tfr_pattern, local_batch_size, conf, i_noise, noise_scale, n_readers, 0, tf_seed + i_noise, input_context
+                tfr_pattern,
+                local_batch_size,
+                conf,
+                i_noise,
+                noise_scale,
+                n_readers,
+                0,
+                tf_seed + i_noise,
+                input_context,
             )
             for i_noise in range(n_noise)
         ]

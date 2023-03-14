@@ -174,6 +174,7 @@ def get_fiducial_dset(
     m_bias_dist = shear.get_m_bias_distribution(conf)
 
     if is_eval:
+        LOGGER.warning(f"Evaluation mode is activated, the random seed is fixed and the dataset is not repeated")
         tf.random.set_seed(eval_seed)
 
     # get the file names
@@ -205,11 +206,13 @@ def get_fiducial_dset(
             deterministic=False,
         )
 
-    dset_parse_inverse = lambda serialized_example: tfrecords.parse_inverse_fiducial(
-        serialized_example, pert_labels, i_noise, n_pix, n_z_bins
+    # parse, output signature (data_vectors, (i_example, i_noise))
+    dset = dset.map(
+        lambda serialized_example: tfrecords.parse_inverse_fiducial(
+            serialized_example, pert_labels, i_noise, n_pix, n_z_bins
+        ),
+        num_parallel_calls=tf.data.AUTOTUNE,
     )
-    # output signature (data_vectors, (i_example, i_noise))
-    dset = dset.map(dset_parse_inverse, num_parallel_calls=tf.data.AUTOTUNE)
 
     if is_cached:
         LOGGER.warning(f"Caching the dataset")
