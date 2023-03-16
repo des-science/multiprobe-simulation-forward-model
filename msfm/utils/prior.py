@@ -8,15 +8,15 @@ Based off https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/ma
 by Janis Fluri
 """
 
-import os
 import numpy as np
 from scipy.spatial import Delaunay
 from scipy.optimize import fsolve
 
-from msfm.utils import parameters, analysis
+from msfm.utils import parameters, analysis, logger
 
+LOGGER = logger.get_logger(__file__)
 
-def in_grid_prior(cosmos, conf=None):
+def in_grid_prior(cosmos, conf=None, params=None):
     """Determines whether the elements of the given array of cosmological parameters are contained within the analysis
     prior. This is needed to build a vectorized log posterior.
 
@@ -26,6 +26,8 @@ def in_grid_prior(cosmos, conf=None):
         conf (str, dict, optional): Config to use, can be either a string to the config.yaml file, the dictionary
             obtained by reading such a file or None, where the default config within the repo is used. Defaults to
             None.
+        params (list, optional): List of strings containing "Om", "s8", "Ob", "H0", "ns" and "w0" in the same order as
+            within the cosmos array. 
 
     Raises:
         ValueError: If an incompatible type is passed to the conf argument
@@ -35,30 +37,39 @@ def in_grid_prior(cosmos, conf=None):
         contained within the prior.
     """
     conf = analysis.load_config(conf)
+    if params is None:
+        params = conf["analysis"]["params"]
 
     # make the params 2d
     cosmos = np.atleast_2d(cosmos)
 
-    # get the number of params
-    n_params = cosmos.shape[1]
+    prior_intervals = parameters.get_prior_intervals(params)
 
-    params = conf["analysis"]["params"][:n_params]
+    # check if we are in the prior intervals
+    in_prior = np.all(np.logical_and(prior_intervals[:, 0] <= cosmos, cosmos <= prior_intervals[:, 1]), axis=1)
 
-    priors = parameters.get_priors(params)
-    # priors = np.array(conf["analysis"]["grid"]["prior"]["standard"])
+    try:
+        i_Om = params.index("Om")
+        i_s8 = params.index("s8")
+                
+        # hull of the border points
+        hull = Delaunay(conf["analysis"]["grid"]["priors"]["Om_s8_border_points"])
 
-    # check if we are in the prior
-    in_prior = np.all(np.logical_and(priors[:, 0] <= cosmos, cosmos <= priors[:, 1]), axis=1)
+        # check if we are in the hull, what is False will stay false irrespective of the rhs
+        in_prior[in_prior] = hull.find_simplex(cosmos[:, [i_Om, i_s8]]) >= 0
 
-    # hull of the border points
-    hull = Delaunay(conf["analysis"]["grid"]["priors"]["Om_s8_border_points"])
+    except ValueError:
+        LOGGER.warning(f"The hull prior is only checked when Om and s8 are included as parameters")
+ 
+    try:
+        i_Om = params.index("Om")
+        i_w0 = params.index("w0")
 
-    # check if we are in the hull
-    in_prior[in_prior] = hull.find_simplex(cosmos[in_prior, :2]) >= 0
+        # check if we are above the w0 threshold (same as get_min_w0 with margin = 0.01)
+        in_prior[in_prior] = 1.0 / (cosmos[in_prior, i_Om] - 1.0) + 0.01 <= cosmos[in_prior, i_w0]
 
-    # check if we are above the w0 threshold (same as get_min_w0 with margin = 0.01)
-    #                                            Om                                   w0
-    in_prior[in_prior] = 1.0 / (cosmos[in_prior, 0] - 1.0) + 0.01 <= cosmos[in_prior, 5]
+    except ValueError:
+        LOGGER.warning(f"The w0 threshold is only checked if Om and w0 are included as parameters")
 
     return in_prior[:, np.newaxis]
 

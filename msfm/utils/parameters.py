@@ -12,7 +12,7 @@ import numpy as np
 from msfm.utils import analysis
 
 
-def get_priors(params=None, conf=None):
+def get_prior_intervals(params=None, conf=None):
     """Return the array of priors over the cosmological parameters
     (just the intervals without the additional restrictions)
 
