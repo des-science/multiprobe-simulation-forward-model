@@ -36,7 +36,7 @@ try:
     import mpi4py.MPI
     comm = mpi4py.MPI.COMM_WORLD
     rank = comm.Get_rank()
-	size = comm.Get_size()
+    size = comm.Get_size()
 
 except ImportError:
 
@@ -94,20 +94,20 @@ def main():
 
 		t    = comm.bcast(t, root = 0)
 
-	maskfile      = '/global/cscratch1/sd/vajani/cosmo_packages/lss_sys/files_needed_to_run/y3_gold_2.2.1_RING_joint_redmagic_v0.5.1_wide_maglim_v2.2_mask.fits.gz'
-	num_dens_file = '/pool/pcae75/data3/des/Y3A2/maglim_sample/maglim_v2.2_new_zbinning_jointmask/number_densities.txt'
+	maskfile      = '/global/cfs/cdirs/des/vajani/Cori/cosmo_packages/lss_sys/files_needed_to_run/y3_gold_2.2.1_RING_joint_redmagic_v0.5.1_wide_maglim_v2.2_mask.fits'
+	num_dens_file = '/global/cfs/cdirs/des/vajani/Cori/cosmo_packages/lss_sys/files_needed_to_run/number_densities.txt'
 
-	wmaps_path = '/pool/pcae75/data3/des/Y3A2/maglim_sample/maglim_v2.2_new_zbinning_jointmask/jointmask/tests_post_unblind/enet_weights/w_maps/'
+	wmaps_path = '/global/cfs/cdirs/des/vajani/Cori/cosmo_packages/lss_sys/files_needed_to_run/'
 	weight_map_files = [
-		wmaps_path+'enet_weights_map_maglim_Nbase50_512_izbin0_minfrac0.2_sqrt_pca_hii99_mask_fracdet.fits.gz',
-		wmaps_path+'enet_weights_map_maglim_Nbase50_512_izbin1_minfrac0.2_sqrt_pca_hii99_mask_fracdet.fits.gz',
-		wmaps_path+'enet_weights_map_maglim_Nbase50_512_izbin2_minfrac0.2_sqrt_pca_hii99_mask_fracdet.fits.gz',
-		wmaps_path+'enet_weights_map_maglim_Nbase50_512_izbin3_minfrac0.2_sqrt_pca_hii99_mask_fracdet.fits.gz',
-		wmaps_path+'enet_weights_map_maglim_Nbase50_512_izbin4_minfrac0.2_sqrt_pca_hii99_mask_fracdet.fits.gz',
-		wmaps_path+'enet_weights_map_maglim_Nbase50_512_izbin5_minfrac0.2_sqrt_pca_hii99_mask_fracdet.fits.gz',
+		wmaps_path+'enet_weights_map_maglim_Nbase107_512_izbin0_minfrac0.1_sqrt_mask_fracdet.fits.gz',
+		wmaps_path+'enet_weights_map_maglim_Nbase107_512_izbin1_minfrac0.1_sqrt_mask_fracdet.fits.gz',
+		wmaps_path+'enet_weights_map_maglim_Nbase107_512_izbin2_minfrac0.1_sqrt_mask_fracdet.fits.gz',
+		wmaps_path+'enet_weights_map_maglim_Nbase107_512_izbin3_minfrac0.1_sqrt_mask_fracdet.fits.gz',
+		wmaps_path+'enet_weights_map_maglim_Nbase107_512_izbin4_minfrac0.1_sqrt_mask_fracdet.fits.gz',
+		wmaps_path+'enet_weights_map_maglim_Nbase107_512_izbin5_minfrac0.1_sqrt_mask_fracdet.fits.gz',
 		]
 
-	mock_outdir = '/pool/pcae75/data2/des/Y3A2/maglim_sample/maglim_v2.2_new_zbinning_jointmask/jointmask/tests_post_unblind/enet_weights/weights_validation/contaminated_lognormal_mocks_enet_weights_50_cut/'
+	mock_outdir = '/global/cfs/cdirs/des/vajani/Cori/cosmo_packages/lss_sys/mock_outdir/'
 	measure_outdir = os.path.join(mock_outdir,'measure/')
 
 	####################################################

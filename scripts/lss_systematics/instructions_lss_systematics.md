@@ -15,25 +15,22 @@ N.B: The contamination is applied to the galaxy number field, not to the density
 - [healpix_util](https://github.com/esheldon/healpix_util)
 
 
-
 **Required files:**
 
 -  the path to `ell.txt` needs to be changed in --> `/lss_sys/mock_config/theory_dvecs/cosmosis_y3like/test_theory_maglim_y3like/galaxy_cl/`
 - need to download` y3_gold_2.2.1_RING_joint_redmagic_v0.5.1_wide_maglim_v2.2_mask.fits.gz` from https://desdr-server.ncsa.illinois.edu/despublic/y3a2_files/redmagic/ . I have currently put it in `/global/cscratch1/sd/vajani/cosmo_packages/lss_sys/files_needed_to_run`
-
-
-**Folders and files we need to find:** 
-
-- `maglim_v2.2_new_zbinning_jointmask/number_densities.txt`
+- `number_densities.txt`
 - `maglim_v2.2_new_zbinning_jointmask/jointmask/tests_post_unblind/enet_weights/w_maps/`
 
 
-_Notes:_
+**Current state and next step:** 
+At the moment through this script we are able to produce Gaussian/log-normal mocks to produce the weights for SP maps for Maglim.
+Next step is to repeat the proceudre for Metacal. Since the weightss are very sample specific, we need to re-run any decontamination method on metacal to obtain its own weights. 
 
-I have found a folder called `/global/cfs/cdirs/des/monroy/systematics_analysis/enet_weights_tests/w_maps/` but the names of the files are different.
+Options: 
 
-I have asked further information to Martìn and continue digging into `/global/cfs/cdirs/des/` to look for the missing files.
+- run ISD weights: to do this we need to generate lognormal mocks that match metacal's number densities and a skewness parameter for the lognormalization. In addition, we would need the n(z)'s and a given cosmology (we could use Y3 I guess) to generate the Cl's.
 
+- run ENet weights: we just need `N_gal` pixel maps of metacal per redshift bin. N.B.: this is available only at nside = 512. 
 
-
-
+- Discuss validation strategy: if we want to validate the weights obtained by any of these methods with lognormal mocks, then we will need to imprint them (1/weights) on the mocks and ideally these weights would come from the method alternative to the one we wish to validate, but this could be discussed to evaluate to what extent we want the validation to go.
