@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit
 
-from . import logger
+from msfm.utils import logger
 
 LOGGER = logger.get_logger(__file__)
 
@@ -90,7 +90,7 @@ def numba_transfer_map(full_sky, old_pix, new_pix):
 
 
 @njit
-def map_to_data_vec(hp_map, data_vec_len, corresponding_pix, cutout_pix):
+def map_to_data_vec(hp_map, data_vec_len, corresponding_pix, cutout_pix, remove_mean=False):
     """
     This function makes cutouts from full sky maps to a nice data vector that can be fed into a DeepSphere network
 
@@ -99,10 +99,15 @@ def map_to_data_vec(hp_map, data_vec_len, corresponding_pix, cutout_pix):
         data_vec_len (int): length of the full data vec (including padding)
         corresponding_pix (np.ndarray): pixels inside the data vec that should be populated (excludes padding)
         cutout_pix (np.ndarray): pixels that should be cut out from the map (excludes padding)
+        remove_mean (bool): Remove the mean within the footprint, that is without including the padding
 
     Returns:
         np.ndarray: the data vec
     """
+    if remove_mean:
+        # remove mean within the patch (not over the full sky)
+        hp_map -= np.mean(hp_map[cutout_pix])
+
     data_vec = np.zeros(data_vec_len, dtype=np.float32)
     n_indices = corresponding_pix.shape[0]
 

@@ -295,8 +295,13 @@ def main(indices, args):
                         n_bar = tomo_n_bar[i_z]
                         bias = tomo_bias[i_z]
                         gamma_cat = tomo_gamma_cat[i_z]
-                        n_gals_cat = gamma_cat.shape[0]
+
+                        # create joint distribution, as this is faster than random indexing
                         gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
+                        w = gamma_cat[:, 2]
+                        cat_dist = tfp.distributions.Empirical(
+                            samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1
+                        )
 
                         # normalize to number density contrast
                         delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
@@ -307,59 +312,20 @@ def main(indices, args):
                         counts_full = np.random.poisson(counts_full)
 
                         for i_patch, patch_pix in enumerate(patches_pix):
-                            LOGGER.debug(f"Starting with patch index {i_patch}")
-                            LOGGER.timer.start("noise_patch")
-
                             # not a full healpy map, just the patch with no zeros
-                            counts_patch = counts_full[patch_pix]
-                            n_gals_patch = np.sum(counts_patch)
+                            counts = counts_full[patch_pix]
 
-                            # indices to sum over all of the galaxies in the individual pixels
-                            seg_ids = []
-                            for id, n_gals in enumerate(counts_patch):
-                                seg_ids.extend(n_gals * [id])
+                            # vectorized sampling, shape (counts_patch.shape[0], n_noise_per_example)
+                            gamma1, gamma2 = noise_gen(counts, cat_dist, n_noise_per_example)
 
-                            # inputs to the tf.function have to be tensors
-                            seg_ids = tf.constant(seg_ids, dtype=tf.int32)
-
+                            # not vectorized because of the healpy alm transform
                             for i_noise in range(n_noise_per_example):
-                                LOGGER.debug(f"Starting with noise realization {i_noise}")
-                                LOGGER.timer.start("noise_realization")
-
-                                # randomize TODO set random seed on operator level?
-                                phase = tf.random.uniform(shape=(n_gals_cat,), minval=0, maxval=2 * np.pi)
-                                gamma1 = tf.math.cos(phase) * gamma_abs
-                                gamma2 = tf.math.sin(phase) * gamma_abs
-
-                                # TODO sample within the tf.function? Could be a bit faster
-                                # joint samples for e1, e2 and w, this is faster than random indexing
-                                emp_dist = tfp.distributions.Empirical(
-                                    samples=tf.stack([gamma1, gamma2, gamma_cat[:, 2]], axis=1), event_ndims=1
-                                )
-
-                                samples = emp_dist.sample(sample_shape=n_gals_patch)
-
-                                gamma1, gamma2 = tf_noise_gen(samples, seg_ids)
-
-                                # The condition means that the final pixel contains zero galaxies. Then, its index is
-                                # not included in the seg_ids (multiplication with zero) and because it's the last,
-                                # tensorflow has no way of knowing that it should still take the segmented_sum over
-                                # this index, which evaluates to zero. The while loop allows more than one of the last
-                                # pixels to be zero.
-                                n_zero_pix = 0
-                                while counts_patch[-(n_zero_pix + 1)] == 0:
-                                    n_zero_pix += 1
-
-                                if n_zero_pix > 0:
-                                    # There is no galaxy in the final pixels, so the shape noise there is equal to zero
-                                    gamma1 = np.concatenate((gamma1, np.zeros(n_zero_pix)))
-                                    gamma2 = np.concatenate((gamma2, np.zeros(n_zero_pix)))
-
+                                # full healpy map with zeros outside the footprint
                                 gamma1_patch = np.zeros(n_pix, dtype=np.float32)
-                                gamma1_patch[base_patch_pix] = gamma1
+                                gamma1_patch[base_patch_pix] = gamma1[:, i_noise]
 
                                 gamma2_patch = np.zeros(n_pix, dtype=np.float32)
-                                gamma2_patch[base_patch_pix] = gamma2
+                                gamma2_patch[base_patch_pix] = gamma2[:, i_noise]
 
                                 kappa_patch = shear.mode_removal(
                                     gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
@@ -376,23 +342,14 @@ def main(indices, args):
 
                                 data_vectors[map_type_out][i_patch, i_noise, :, i_z] = kappa_dv
 
-                                LOGGER.debug(
-                                    f"Done with noise realization {i_noise} after"
-                                    f" {LOGGER.timer.elapsed('noise_realization')}"
-                                )
-
                             if args.store_counts:
                                 # correct cut out procedure involves a full sky map
                                 counts_patch_map = np.zeros(n_pix, dtype=np.float32)
-                                counts_patch_map[base_patch_pix] = counts_patch
+                                counts_patch_map[base_patch_pix] = counts
                                 counts_dv = maps.map_to_data_vec(
                                     counts_patch_map, data_vec_len, corresponding_pix, base_patch_pix
                                 )
                                 data_vectors["ct"][i_patch, :, i_z] = counts_dv
-
-                            LOGGER.debug(
-                                f"Done with noise patch {i_patch} after {LOGGER.timer.elapsed('noise_patch')}"
-                            )
 
                 # TODO
                 # clustering, maglim sample ###########################################################################
@@ -439,32 +396,74 @@ def main(indices, args):
         yield index
 
 
-# the input tensors have variable length because of the varying number of galaxies in the count map
-@tf.function(
-    # jit_compile=True,
-    input_signature=[tf.TensorSpec(shape=(None, 3), dtype=tf.float32), tf.TensorSpec(shape=(None,), dtype=tf.int32)],
-)
-def tf_noise_gen(samples, seg_ids):
-    LOGGER.warning(
-        f"Tracing the noise generator tf.function for samples.shape = {samples.shape} and "
-        f"seg_ids.shape = {seg_ids.shape}"
+# making this a tf.function doesn't speed things up because the seg_ids are always different
+def noise_gen(counts, cat_dist, n_noise_per_example):
+    """Generates shape noise from a map of galaxy counts and joint distribution of absolute shear values and their
+    weights.
+
+    Args:
+        counts (np.ndarray): Array of shape (len(base_patch_pix),) that contains the galaxy count per pixel
+        cat_dist (tfp.distributions): Distribution with samples of length 2 that contains the absolute magnitudes and
+            weights
+        n_noise_per_example (int): Number of noise realizations to create, this dimension is included for vectorization
+
+    Returns:
+        np.ndarray: Arrays of shape (len(base_patch_pix, n_noise_per_example) containing the two gamma components
+    """
+
+    # indices to sum over all of the galaxies in the individual pixels
+    seg_ids = []
+    for id, n_gals in enumerate(counts):
+        seg_ids.extend(n_gals * [id])
+
+    # total number of galaxies in the patch
+    n_gals_patch = len(seg_ids)
+
+    # shape (n_gals_patch, n_noise_per_example, 2)
+    cat_samples = cat_dist.sample(sample_shape=(n_gals_patch, n_noise_per_example))
+    # shape (n_gals_patch, n_noise_per_example)
+    phase_samples = tf.random.uniform(
+        shape=(
+            n_gals_patch,
+            n_noise_per_example,
+        ),
+        minval=0,
+        maxval=2 * np.pi,
     )
 
-    # shape (total_gals, 3)
-    e_samples = samples[:, :2]
-    w_samples = tf.expand_dims(samples[:, 2], axis=1)
+    # shape (n_gals_patch,)
+    g1_samples = tf.math.cos(phase_samples) * cat_samples[..., 0]
+    g2_samples = tf.math.sin(phase_samples) * cat_samples[..., 0]
+    w_samples = cat_samples[..., 1]
 
-    # apply weights
-    samples = tf.concat([e_samples * w_samples, w_samples], axis=1)
+    # shape (n_gals_patch, 3)
+    weighted_gamma_samples = tf.stack([g1_samples * w_samples, g2_samples * w_samples, w_samples], axis=-1)
 
-    # same shape as base_patch_pix and counts_patch, unless the final pixel of the patch doesn't contain a galaxy.
-    # Then, it's one element smaller
-    sum_per_pix = tf.math.segment_sum(samples, seg_ids)
+    # same length as base_patch_pix = counts_patch, unless the final pixel of the patch doesn't contain a
+    # galaxy. Then, it's one element smaller
+    sum_per_pix = tf.math.segment_sum(weighted_gamma_samples, seg_ids)
 
     # normalize with weights, set 0/0 equal to 0 instead of nan
-    e_per_pix = tf.math.divide_no_nan(sum_per_pix[:, :2], tf.expand_dims(sum_per_pix[:, 2], axis=1))
+    gamma_per_pix = tf.math.divide_no_nan(sum_per_pix[..., :2], tf.expand_dims(sum_per_pix[..., 2], axis=-1))
 
-    return e_per_pix[:, 0], e_per_pix[:, 1]
+    gamma1 = gamma_per_pix[..., 0]
+    gamma2 = gamma_per_pix[..., 1]
+
+    # The condition means that the final pixel contains zero galaxies. Then, its index is not included in the seg_ids
+    # (multiplication with zero) and because it's the last, tensorflow has no way of knowing that it should still take
+    # the segmented_sum over this index, which evaluates to zero. The while loop allows more than one of the last
+    # pixels to be zero.
+    n_final_zero_pix = 0
+    while counts[-(n_final_zero_pix + 1)] == 0:
+        n_final_zero_pix += 1
+
+    if n_final_zero_pix > 0:
+        # There is no galaxy in the final pixels, so the shape noise there is equal to zero
+        gamma1 = tf.concat((gamma1, tf.zeros((n_final_zero_pix, n_noise_per_example), dtype=tf.float32)), axis=0)
+        gamma2 = tf.concat((gamma2, tf.zeros((n_final_zero_pix, n_noise_per_example), dtype=tf.float32)), axis=0)
+
+    # shape (len(base_patch_pix), 3)
+    return gamma1.numpy(), gamma2.numpy()
 
 
 def save_output_container(
@@ -506,11 +505,11 @@ if __name__ == "__main__":
     args = [
         "--simset=grid",
         "--dir_in=/Users/arne/data/CosmoGrid_example/DES/grid",
-        "--dir_out=/Users/arne/data/CosmoGrid_example/DES/grid/v1",
+        "--dir_out=/Users/arne/data/CosmoGrid_example/DES/grid/v2",
         "--config=configs/config.yaml",
         "--max_sleep=0",
         "--debug",
-        "--verbosity=debug",
+        "--verbosity=info",
         "--store_counts",
     ]
 

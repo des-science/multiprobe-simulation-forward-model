@@ -6,10 +6,13 @@ Tools to handle the scale cuts, kaiser-squires transformation and multiplicative
 """
 
 import numpy as np
+import healpy as hp
+import tensorflow as tf
 import tensorflow_probability as tfp
 
+from msfm.utils import analysis, logger
 
-from msfm.utils import analysis
+LOGGER = logger.get_logger(__file__)
 
 
 def get_kaiser_squires_factors(l):
@@ -48,3 +51,33 @@ def get_m_bias_distribution(conf=None):
     )
 
     return m_bias_dist
+
+
+def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath=None):
+    """Takes in survey patches of gamma maps and puts out survey patches of kappa maps that only contain E-modes
+
+    Args:
+        gamma1_patch (np.ndarray): Array of size n_pix, but only the survey patch is populated
+        gamma2_patch (np.ndarray): Same
+        gamma2kappa_fac (np.ndarray): Kaiser squires conversion factors
+        l_mask_fac (np.ndarray): Mask l = 0,1
+        n_side (int): Resolution of the map
+        hp_datapath (str, optional): Path to a healpy pixel weights file. Defaults to None.
+
+    Returns:
+        np.ndarray: Array of size n_pix, but only the survey patch is populated
+    """
+    # gamma: map -> alm
+    _, gamma_alm_E, gamma_alm_B = hp.map2alm(
+        [np.zeros_like(gamma1_patch), gamma1_patch, gamma2_patch],
+        use_pixel_weights=True,
+        datapath=hp_datapath,
+    )
+    # gamma -> kappa
+    kappa_alm = gamma_alm_E * gamma2kappa_fac
+    kappa_alm *= l_mask_fac
+
+    # kappa: alm -> map
+    kappa_patch = hp.alm2map(kappa_alm, nside=n_side)
+
+    return kappa_patch
