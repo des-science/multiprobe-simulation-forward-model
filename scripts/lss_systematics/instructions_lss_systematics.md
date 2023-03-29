@@ -43,11 +43,16 @@ Options:
 __________________________________________________
 ## TO DOs to apply script to Metacal and generate weights that then we can use to correct the $\delta_g$ cataogue for the sources and see if we get a galaxy bias that makes sense for our noise model
 
+**1st test with the contaminated mocks**
+(with ENets which are independant from the mocks and are applied to the mocks as weights)
+
 - Final goal: $\delta_g^{\rm sources}$ --> $w*$ $\delta_g^{\rm sources}$ in the sims - compare histograms
 - We need to produce the weights $w$ for the 4 Metacalibration redshift bins, so we will have 4 $w$ maps in the end 
 - number_densities.txt files per redshift bins of metacal
-- We need the theoretical $C_{\ell}$ with $n(z)$ from the metacal sample. We might have this already from PyCosmo --> organise same format 
-- We need to produce: 4 E-nets `.fits.gz` files for each redshift bin 
+- We need the theoretical $C_{\ell}$ with $n(z)$ from the metacal sample. We might have this already from PyCosmo --> organise same format
+- Do a firs run with our $C_{\ell}$  for uncontaminated mocks probably just need to comment	mockrun.add_func('add_weight', mockrun.option_add_weight_maps, options=(weight_maps,)). These uncontaminated mocks we can use for ISDs. 
 - We need the mask --> shouldn't be a problem, we can probably can use the same
 - to lognormalise the output mocks we need a $k_0$ skewness parameters that for Y3 was found by fitting the distribution of the catalogue with log-normal distribution dependent on $k_0$ (and very dependant on the nside - so Sujeong Lee when doing this for Y3 found a tuning between resolution and reasonable values for $k_0$) - Reference about log-normalization (equation 21): https://arxiv.org/abs/1602.08503 --> Martin contacts Sujeong 
 - *Galaxy Bias*: this might be a bit tricky: the code requires the galaxy bias for the sample which is exactly our unknown. It enters the code as `k0    = k0*gbias`. We set up a first test in which we consider that the difference between the catalog's histogram and the fiducial sims histogram is given by an _effective_ bias that get contribution from both the standard galaxy bias $b_{g}$ as well as a bias comeing from the systematics that are not yet corrected for $b_{sys}$ so that $b_{effective}$ = $b_{g}$ * $b_{sys}$. We assume for the first run a $b_{g} = 1$ to have an untuition of the contribution of the systematics and find a way to estimate the actual $b_{g}$ a posteriori through the histogram comparison. 
+- We need to produce: 4 E-nets `.fits.gz` files for each redshift bin. *Strategy*: there is a scikit-learn E-nets implementation. What we need to do is then adapt the implementation https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.ElasticNetCV.html#sklearn.linear_model.ElasticNetCV to our case with the parameters we need (e.g. FRACDET ...) --> Martin will check with Noah
+
