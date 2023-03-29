@@ -35,6 +35,7 @@ Options:
 
 - Discuss validation strategy: if we want to validate the weights obtained by any of these methods with lognormal mocks, then we will need to imprint them (1/weights) on the mocks and ideally these weights would come from the method alternative to the one we wish to validate, but this could be discussed to evaluate to what extent we want the validation to go.
 
+- number_densities.txt file?
 
 
 
