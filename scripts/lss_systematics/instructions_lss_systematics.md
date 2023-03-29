@@ -34,3 +34,16 @@ Options:
 - run ENet weights: we just need `N_gal` pixel maps of metacal per redshift bin. N.B.: this is available only at nside = 512. 
 
 - Discuss validation strategy: if we want to validate the weights obtained by any of these methods with lognormal mocks, then we will need to imprint them (1/weights) on the mocks and ideally these weights would come from the method alternative to the one we wish to validate, but this could be discussed to evaluate to what extent we want the validation to go.
+
+
+
+
+
+__________________________________________________
+## TO DOs to apply script to Metacal and generate weights that then we can use to correct the $\delta_g$ cataogue for the sources and see if we get a galaxy bias that makes sense for our noise model
+
+- Final goal: $\delta_g^{\rm sources}$ --> $w*$ $\delta_g^{\rm sources}$ in the sims - compare histograms
+- We need to produce the weights $w$ for the 4 Metacalibration redshift bins, so we will have 4 $w$ maps in the end 
+- We need to produce: 4 E-nets `.fits.gz` files for each redshift bin 
+- We need the theoretical $C_{\ell}$ with $n(z)$ from the metacal sample. We might have this already from PyCosmo
+- We need the mask
