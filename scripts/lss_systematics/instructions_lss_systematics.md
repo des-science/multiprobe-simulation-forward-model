@@ -48,4 +48,4 @@ __________________________________________________
 - We need to produce: 4 E-nets `.fits.gz` files for each redshift bin 
 - We need the theoretical $C_{\ell}$ with $n(z)$ from the metacal sample. We might have this already from PyCosmo
 - We need the mask
-- number_densities.txt files?
+- number_densities.txt files per redshift bins of metacal
