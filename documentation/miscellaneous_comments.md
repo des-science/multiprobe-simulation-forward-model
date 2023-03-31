@@ -4,3 +4,4 @@
   - at NERSC `/global/cfs/cdirs/des/cosmogrid/DESY3`
 - Start jupyter on Euler `./start_jupyter_nb.sh -u athomsen -l -W 04:00 --n 16 -m 2048 -s new -w /cluster/home/athomsen/des/repos/multiprobe-simulation-forward-model/notebooks`
 - Run on a set number of cores (for debugging in an interactive session): `taskset --cpu-list 0-16`  
+- Euler interactive session `srun -n 1 --cpus-per-task=8 --time=1:00:00 --mem-per-cpu=2048 --pty bash`
