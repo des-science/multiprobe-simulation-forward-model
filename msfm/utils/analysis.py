@@ -55,8 +55,8 @@ def load_config(conf=None):
 
 def load_pixel_file(conf=None):
     """Loads the .h5 file that contains the pixel indices associated with the survey like the different patches. That
-    file is generated in notebooks/survey_file_gen/pixel_file.ipynb. If the conf and repo_dir arguments are not passed,
-    the default within the directory where this file resides is used.
+    file is generated in notebooks/survey_file_gen/pixel_file.ipynb. If the conf argument is not passed, the default 
+    within the directory where this file resides is used.
 
     Args:
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
@@ -65,10 +65,11 @@ def load_pixel_file(conf=None):
 
     Returns:
         data_vec_pix: data vector pixels including padding in NEST ordering (non-tomographic)
-        non_tomo_patches_pix: non padded patches in RING ordering (non-tomographic)
-        gamma2_signs: signs for gamma2 that come from mirroring the survey patch
-        tomo_patches_pix: tomographic patch indices in RING ordering to cut out from the full sky maps
-        tomo_corresponding_pix: needed to convert the pixels in RING ordering to NEST
+        metacal_tomo_patches_pix: Tomographic patch indices in RING ordering to cut out from the full sky maps
+        metacal_tomo_corresponding_pix: Needed to convert the pixels in RING ordering to NEST inside the datavector
+        gamma2_signs: Signs for gamma2 that come from mirroring the survey patch
+        maglim_patches_pix: Patch indices in RING ordering to cut out from the full sky maps (non-tomographic)
+        maglim_corresponding_pix: Needed to convert the pixels in RING ordering to NEST inside the datavector
     """
     conf = load_config(conf)
 
@@ -77,28 +78,41 @@ def load_pixel_file(conf=None):
     pixel_file = os.path.join(repo_dir, conf["files"]["pixels"])
 
     with h5py.File(pixel_file, "r") as f:
+        print(pixel_file)
         # pixel indices of padded data vector
-        data_vec_pix = f["metacal/map_cut_outs/data_vec_ids"][:]
+        data_vec_pix = f["data_vec"][:]
 
-        # pixel indices of the non padded patches (non tomographic)
-        patches_pix = f["metacal/masks/RING/non_tomo"][:]
-
-        # to correct the shear for patch cut outs that have been mirrored
-        gamma2_signs = f["metacal/map_cut_outs/patches/gamma_2_sign"][:]
-
-        tomo_patches_pix = []
-        tomo_corresponding_pix = []
+        # Metacal sample: weak lensing
+        metacal_tomo_patches_pix = []
+        metacal_tomo_corresponding_pix = []
         for z_bin in conf["survey"]["metacal"]["z_bins"]:
             # shape (4, pix_in_bin)
-            patches_pix = f[f"metacal/map_cut_outs/patches/RING/{z_bin}"][:]
+            patches_pix = f[f"metacal/patches/{z_bin}"][:]
             # shape (pix_in_bin,)
-            corresponding_pix = f[f"metacal/map_cut_outs/RING_ids_to_data_vec/{z_bin}"][:]
+            corresponding_pix = f[f"metacal/patch_to_data_vec/{z_bin}"][:]
 
-            tomo_patches_pix.append(patches_pix)
-            tomo_corresponding_pix.append(corresponding_pix)
+            metacal_tomo_patches_pix.append(patches_pix)
+            metacal_tomo_corresponding_pix.append(corresponding_pix)
+
+        # to correct the shear for patch cut outs that have been mirrored
+        gamma2_signs = f["metacal/gamma_2_sign"][:]
+
+        # Maglim sample: galaxy clustering
+        maglim_patches_pix = f["maglim/patches"][:]
+        maglim_corresponding_pix = f["maglim/patch_to_data_vec"][:]
+
     LOGGER.info(f"Loaded the pixel file")
 
-    return data_vec_pix, patches_pix, gamma2_signs, tomo_patches_pix, tomo_corresponding_pix
+    return (
+        data_vec_pix,
+        # lensing
+        metacal_tomo_patches_pix,
+        metacal_tomo_corresponding_pix,
+        gamma2_signs,
+        # clustering
+        maglim_patches_pix,
+        maglim_corresponding_pix,
+    )
 
 
 def get_tomo_masks(conf=None):
@@ -111,11 +125,11 @@ def get_tomo_masks(conf=None):
     Returns:
         np.ndarray: Mask array of shape (n_pix, n_z_bins) that is zero for the padding and one for the data
     """
-    data_vec_pix, _, _, _, tomo_corresponding_pix = load_pixel_file(conf)
+    data_vec_pix, _, metacal_tomo_conversion_pix, _, _, _ = load_pixel_file(conf)
 
     masks = []
     # loop over the tomographic bins
-    for pix in tomo_corresponding_pix:
+    for pix in metacal_tomo_conversion_pix:
         mask = np.zeros(len(data_vec_pix), dtype=np.int32)
         # loop over individual pixels
         for p in pix:
