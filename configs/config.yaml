@@ -58,6 +58,7 @@ analysis:
   params: ["Om", "s8", "H0", "Ob", "ns", "w0", "Aia"]
   n_side: 512
   n_pix: 3145728
+  n_side_down: 16
   # verify this scale cut physically
   l_max: 1535
   n_patches: 4
@@ -71,7 +72,7 @@ analysis:
     # CosmoGrid
     n_cosmos: 2500
     n_perms_per_cosmo: 4
-    n_noise_per_example: 1
+    n_noise_per_example: 3
     # different parameter ordering
     params_sobol: ["Om", "s8", "Ob", "H0", "ns", "w0", "Aia"]
     priors:
