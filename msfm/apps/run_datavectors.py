@@ -129,7 +129,7 @@ def main(indices, args):
 
     # metacal, TODO this is only a placeholder bias
     tomo_bias_metacal = conf["survey"]["metacal"]["bias"]
-    tomo_n_gal_metacal = conf["survey"]["metacal"]["n_gal"] * hp.nside2pixarea(n_side, deg=True)
+    tomo_n_gal_metacal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
     # alm
     l = hp.Alm.getlm(l_max)[0]
@@ -172,7 +172,8 @@ def main(indices, args):
         cosmo_dir_out = cosmo_dirs_out[index]
         if not os.path.isdir(cosmo_dir_out):
             input_output.robust_makedirs(cosmo_dir_out)
-        LOGGER.info(f"Index {index} takes input from {cosmo_dir_in}")
+        data_vec_file = get_filename_data_vectors(cosmo_dir_out, args.with_bary)
+        LOGGER.info(f"Index {index} takes input from {cosmo_dir_in} and writes to {data_vec_file}")
 
         for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Loop over permutations\n", at_level="info"):
             LOGGER.timer.start("permutation")
@@ -183,7 +184,7 @@ def main(indices, args):
             full_maps_file = get_filename_full_maps(perm_dir_in, with_bary=args.with_bary)
 
             # output containers, one for each permutation, in NEST ordering with padding
-            data_vectors = {}
+            data_vec_container = {}
 
             for sample in ["metacal", "maglim"]:
                 LOGGER.info(f"Starting with sample {sample}")
@@ -222,9 +223,9 @@ def main(indices, args):
                         dvs_dtype = np.float32
 
                         if args.store_counts:
-                            data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=int)
+                            data_vec_container["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=int)
 
-                    data_vectors[out_map_type] = np.zeros(dvs_shape, dtype=dvs_dtype)
+                    data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=dvs_dtype)
 
                     for i_z, z_bin in enumerate(z_bins):
                         # load the full sky maps
@@ -283,7 +284,7 @@ def main(indices, args):
                                         remove_mean=True,
                                     )
 
-                                    data_vectors[out_map_type][i_patch, :, i_z] = kappa_dv
+                                    data_vec_container[out_map_type][i_patch, :, i_z] = kappa_dv
 
                             elif in_map_type == "dg":
                                 delta_full = map_full
@@ -342,7 +343,7 @@ def main(indices, args):
                                             remove_mean=True,
                                         )
 
-                                        data_vectors[out_map_type][i_patch, i_noise, :, i_z] = kappa_dv
+                                        data_vec_container[out_map_type][i_patch, i_noise, :, i_z] = kappa_dv
 
                                     if args.store_counts:
                                         # correct cut out procedure involves a full sky map
@@ -351,7 +352,7 @@ def main(indices, args):
                                         counts_dv = maps.map_to_data_vec(
                                             counts_patch_map, data_vec_len, corresponding_pix, base_patch_pix
                                         )
-                                        data_vectors["ct"][i_patch, :, i_z] = counts_dv
+                                        data_vec_container["ct"][i_patch, :, i_z] = counts_dv
 
                         # clustering, maglim sample ###################################################################
                         elif sample == "maglim":
@@ -370,7 +371,7 @@ def main(indices, args):
 
                                 delta_dv = maps.patch_to_data_vec(delta_patch, data_vec_len, corresponding_pix)
 
-                                data_vectors[out_map_type][i_patch, :, i_z] = delta_dv
+                                data_vec_container[out_map_type][i_patch, :, i_z] = delta_dv
 
                         else:
                             raise ValueError
@@ -378,16 +379,15 @@ def main(indices, args):
                     LOGGER.info(f"Done with map type {out_map_type} after {LOGGER.timer.elapsed('map_type')}")
 
             # save the results
-            data_vec_file = get_filename_data_vectors(cosmo_dir_out, args.with_bary)
             save_output_container(
+                conf,
                 data_vec_file,
-                data_vectors,
+                data_vec_container,
                 i_perm,
                 n_perms_per_cosmo,
                 n_patches,
                 n_noise_per_example,
                 data_vec_len,
-                n_z_bins,
             )
 
             LOGGER.info(f"Done with permutation {i_perm:04d} after {LOGGER.timer.elapsed('permutation')}")
@@ -397,7 +397,7 @@ def main(indices, args):
 
 
 def save_output_container(
-    conf, filename, output_container, i_perm, n_perms_per_cosmo, n_patches, n_noise_per_example, output_len, n_z_bins
+    conf, filename, container, i_perm, n_perms_per_cosmo, n_patches, n_noise_per_example, output_len
 ):
     """Saves an .h5 file collecting all results on the level of the cosmological parameters (so for different
     permutations/runs and patches)
@@ -411,13 +411,14 @@ def save_output_container(
         output_len (int): Length of the (padded) data vector
         n_z_bins (int): Number of tomographic bins
     """
+
     with h5py.File(filename, "a") as f:
-        for map_type in output_container.keys():
+        for map_type in container.keys():
             # set the number of redshift bins
             if map_type in conf["survey"]["metacal"]["map_types"]["output"]:
                 n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
             elif map_type in conf["survey"]["maglim"]["map_types"]["output"]:
-                n_z_bins = len(conf["survey"]["magllim"]["z_bins"])
+                n_z_bins = len(conf["survey"]["maglim"]["z_bins"])
 
             # there's multiple shape noise realizations
             if map_type == "sn":
@@ -431,7 +432,7 @@ def save_output_container(
             except ValueError:
                 LOGGER.debug(f"dataset {map_type} already exists in {filename}")
 
-            f[map_type][n_patches * i_perm : n_patches * (i_perm + 1)] = output_container[map_type]
+            f[map_type][n_patches * i_perm : n_patches * (i_perm + 1)] = container[map_type]
 
     LOGGER.info(f"Stored {filename}")
 
