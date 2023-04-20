@@ -21,6 +21,8 @@ survey:
     map_types:
       input: ["kg", "ia", "dg"]
       output: ["kg", "ia", "sn"]
+    # from Table 1 in https://arxiv.org/pdf/2105.13543.pdf, in units of galaxies/deg^2
+    n_gal: [5313.6, 5324.4, 5342.4, 5259.6]
     # from Table 2 in https://arxiv.org/pdf/2012.08566.pdf
     z_lims: [[0.0, 0.358], [0.358, 0.631], [0.631, 0.872], [0.872, 2.0]]
     z_bins: ["desy3metacal1", "desy3metacal2", "desy3metacal3", "desy3metacal4"]
