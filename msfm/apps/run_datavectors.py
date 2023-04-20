@@ -117,7 +117,7 @@ def main(indices, args):
     # args.config is a string to the file
     conf = analysis.load_config(args.config)
 
-    # constants
+    # general constants
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
     l_max = conf["analysis"]["l_max"]
@@ -127,17 +127,22 @@ def main(indices, args):
     LOGGER.info(f"Looping through {n_perms_per_cosmo} permutations per cosmological parameter set")
     LOGGER.info(f"Generating {n_noise_per_example} noise realizations per example")
 
+    # metacal, TODO this is only a placeholder bias
+    tomo_bias_metacal = conf["survey"]["metacal"]["bias"]
+    tomo_n_gal_metacal = conf["survey"]["metacal"]["n_gal"] * hp.nside2pixarea(n_side, deg=True)
+
+    # alm
     l = hp.Alm.getlm(l_max)[0]
     l[l == 1] = 0
     kappa2gamma_fac, gamma2kappa_fac = shear.get_kaiser_squires_factors(l)
     l_mask_fac = shear.get_l_mask(l)
 
     # pixel file
-    data_vec_pix, patches_pix, gamma2_signs, tomo_patches_pix, tomo_corresponding_pix = analysis.load_pixel_file(conf)
+    data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs = analysis.load_pixel_file(conf)
     data_vec_len = len(data_vec_pix)
 
     # noise file
-    tomo_gamma_cat, tomo_n_bar = analysis.load_noise_file(conf)
+    tomo_gamma_cat, _ = analysis.load_noise_file(conf)
 
     # set up general directories
     file_dir = os.path.dirname(__file__)
@@ -169,14 +174,6 @@ def main(indices, args):
             input_output.robust_makedirs(cosmo_dir_out)
         LOGGER.info(f"Index {index} takes input from {cosmo_dir_in}")
 
-        # the perturbations of the fiducial cosmology are treated differently
-        if args.simset == "grid" or (args.simset == "fiducial" and "cosmo_fiducial" in cosmo_dir_in):
-            is_perturbation = False
-            LOGGER.info(f"This is not a perturbation, running all map types")
-        else:
-            is_perturbation = True
-            LOGGER.info(f"This is a perturbation, intrinsic alignment and shape noise are skipped")
-
         for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Loop over permutations\n", at_level="info"):
             LOGGER.timer.start("permutation")
             LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
@@ -188,208 +185,201 @@ def main(indices, args):
             # output containers, one for each permutation, in NEST ordering with padding
             data_vectors = {}
 
-            for map_type_in in conf["survey"]["map_types"]["input"]:
-                LOGGER.info(f"Starting with input map type {map_type_in}")
-                LOGGER.timer.start("map_type")
+            for sample in ["metacal", "maglim"]:
+                LOGGER.info(f"Starting with sample {sample}")
+                LOGGER.timer.start("sample")
 
-                # lensing, metacal sample #############################################################################
-                z_bins = conf["survey"]["metacal"]["z_bins"]
-                n_z_bins = len(z_bins)
-                # FIXME correct metacal bias
-                tomo_bias = conf["survey"]["metacal"]["bias"]
-
-                # TODO do every patch multiple times like in KiDS1000 with the redshift errors
-
-                # always do the convergence
-                if map_type_in == "kg":
-                    map_type_out = map_type_in
-                    dvs_shape = (n_patches, data_vec_len, n_z_bins)
-
-                # don't do intrinsic alignment for the fiducial perturbations
-                elif map_type_in == "ia" and not is_perturbation:
-                    map_type_out = map_type_in
-                    dvs_shape = (n_patches, data_vec_len, n_z_bins)
-
-                # don't do shape noise for the fiducial perturbations
-                elif map_type_in == "dg" and not is_perturbation:
-                    map_type_out = "sn"
-                    dvs_shape = (n_patches, n_noise_per_example, data_vec_len, n_z_bins)
-
-                    if args.store_counts:
-                        data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-
-                else:
-                    map_type_out = None
-                    LOGGER.info(f"This combination of cosmology and input map type is skipped")
-                    continue
-
-                if map_type_out is not None:
-                    data_vectors[map_type_out] = np.zeros(dvs_shape, dtype=np.float32)
-
-                for i_z, z_bin in enumerate(z_bins):
-                    # only consider this tomographic bin
-                    patches_pix = tomo_patches_pix[i_z]
-                    corresponding_pix = tomo_corresponding_pix[i_z]
-
-                    # base (rotated) footprint
-                    base_patch_pix = patches_pix[0]
-
-                    # load the full sky maps for the metacal redshift bins
-                    map_dir = f"{map_type_in}/{z_bin}"
-                    with h5py.File(full_maps_file, "r") as f:
-                        map_full = f[map_dir][:]
-                    LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
-
-                    # don't save intrinsic alignment maps for the perturbations of the fiducial
-                    if (map_type_out in ["kg", "ia"]) and (map_type_out is not None):
-                        kappa_full = map_full
-
-                        # kappa -> gamma (full sky)
-                        kappa_alm = hp.map2alm(kappa_full, lmax=l_max, use_pixel_weights=True, datapath=hp_datapath)
-                        gamma_alm = kappa_alm * kappa2gamma_fac
-                        _, gamma1_full, gamma2_full = hp.alm2map(
-                            [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
-                        )
-
-                        for i_patch, patch_pix in enumerate(patches_pix):
-                            LOGGER.debug(f"Starting with patch index {i_patch}")
-
-                            # The 90° rots do NOT change the shear, however, the mirroring does,
-                            # therefore we have to swap sign of gamma2 for the last 2 patches!
-                            gamma2_sign = gamma2_signs[i_patch]
-                            LOGGER.debug(f"Using gamma2 sign {gamma2_sign}")
-
-                            # TODO each patch is done multiple times
-
-                            gamma1_patch = np.zeros(n_pix, dtype=np.float32)
-                            gamma1_patch[base_patch_pix] = gamma1_full[patch_pix]
-
-                            gamma2_patch = np.zeros(n_pix, dtype=np.float32)
-                            gamma2_patch[base_patch_pix] = gamma2_full[patch_pix]
-
-                            # fix the sign
-                            gamma2_patch *= gamma2_sign
-
-                            # kappa patch is a full sky map, but only the patch is occupied
-                            kappa_patch = shear.mode_removal(
-                                gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
-                            )
-
-                            # cut out padded data vector
-                            kappa_dv = maps.map_to_data_vec(
-                                hp_map=kappa_patch,
-                                data_vec_len=data_vec_len,
-                                corresponding_pix=corresponding_pix,
-                                cutout_pix=base_patch_pix,
-                                remove_mean=True,
-                            )
-
-                            data_vectors[map_type_out][i_patch, :, i_z] = kappa_dv
-
-                    # don't generate noise maps for the perturbations of the fiducial
-                    elif (map_type_out == "sn") and (map_type_out is not None):
-                        delta_full = map_full
-
-                        # only consider this tomographic bin
-                        n_bar = tomo_n_bar[i_z]
-                        bias = tomo_bias[i_z]
-                        gamma_cat = tomo_gamma_cat[i_z]
-
-                        # create joint distribution, as this is faster than random indexing
-                        gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
-                        w = gamma_cat[:, 2]
-                        cat_dist = tfp.distributions.Empirical(
-                            samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1
-                        )
-
-                        # normalize to number density contrast
-                        delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
-
-                        # number of galaxies per pixel
-                        counts_full = n_bar * (1 + bias * delta_full)
-                        counts_full = np.where(0 < counts_full, counts_full, 0)
-                        counts_full = np.random.poisson(counts_full)
-
-                        for i_patch, patch_pix in enumerate(patches_pix):
-                            # not a full healpy map, just the patch with no zeros
-                            counts = counts_full[patch_pix]
-
-                            # vectorized sampling, shape (len(counts), n_noise_per_example)
-                            gamma1, gamma2 = shear.noise_gen(counts, cat_dist, n_noise_per_example)
-
-                            # not vectorized because of the healpy alm transform
-                            for i_noise in range(n_noise_per_example):
-                                # full healpy map with zeros outside the footprint
-                                gamma1_patch = np.zeros(n_pix, dtype=np.float32)
-                                gamma1_patch[base_patch_pix] = gamma1[:, i_noise]
-
-                                gamma2_patch = np.zeros(n_pix, dtype=np.float32)
-                                gamma2_patch[base_patch_pix] = gamma2[:, i_noise]
-
-                                kappa_patch = shear.mode_removal(
-                                    gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
-                                )
-
-                                # cut out padded data vector
-                                kappa_dv = maps.map_to_data_vec(
-                                    hp_map=kappa_patch,
-                                    data_vec_len=data_vec_len,
-                                    corresponding_pix=corresponding_pix,
-                                    cutout_pix=base_patch_pix,
-                                    remove_mean=True,
-                                )
-
-                                data_vectors[map_type_out][i_patch, i_noise, :, i_z] = kappa_dv
-
-                            if args.store_counts:
-                                # correct cut out procedure involves a full sky map
-                                counts_patch_map = np.zeros(n_pix, dtype=np.float32)
-                                counts_patch_map[base_patch_pix] = counts
-                                counts_dv = maps.map_to_data_vec(
-                                    counts_patch_map, data_vec_len, corresponding_pix, base_patch_pix
-                                )
-                                data_vectors["ct"][i_patch, :, i_z] = counts_dv
-
-                # TODO
-                # clustering, maglim sample ###########################################################################
-                z_bins = conf["survey"]["maglim"]["z_bins"]
+                # constants
+                z_bins = conf["survey"][sample]["z_bins"]
                 n_z_bins = len(z_bins)
 
-                if map_type_in == "dg":
-                    map_type_out = map_type_in
-                    dvs_shape = (n_patches, data_vec_len, n_z_bins)
+                in_map_types = conf["survey"][sample]["map_types"]["input"]
+                out_map_types = conf["survey"][sample]["map_types"]["output"]
 
-                else:
-                    map_type_out = None
-                    LOGGER.info(f"This combination of cosmology and input map type is skipped")
-                    continue
+                all_patches_pix = patches_pix_dict[sample]
+                all_corresponding_pix = corresponding_pix_dict[sample]
 
-                if map_type_out is not None:
-                    data_vectors[map_type_out] = np.zeros(dvs_shape, dtype=np.float32)
+                for in_map_type, out_map_type in zip(in_map_types, out_map_types):
+                    # some fiducial perturbations are skipped for lensing
+                    if ("delta" in cosmo_dir_in) and (sample == "metacal") and (in_map_type in ["ia", "dg"]):
+                        LOGGER.info(f"Skipping input map type {in_map_type} for this perturbation")
+                        continue
 
-                # if map_type_in in conf["survey"]["map_types"]["lensing"]:
-                #     map_type_out = map_type_in
-                # elif map_type_in in conf["survey"]["map_types"]["clustering"]:
-                #     map_type_out = "sn"
-                #     if args.store_counts:
-                #         data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-                #         if args.store_patches:
-                #             data_patches["ct"] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
+                    LOGGER.info(f"Starting with input map type {in_map_type}")
+                    LOGGER.timer.start("map_type")
 
-                # # TODO do every patch multiple times
-                # data_vectors[map_type_out] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.float32)
-                # if args.store_patches:
-                #     data_patches[map_type_out] = np.zeros((n_patches, patches_len, n_z_bins), dtype=np.float32)
+                    # array content of the output container
+                    if out_map_type in ["kg", "ia", "dg"]:
+                        dvs_shape = (n_patches, data_vec_len, n_z_bins)
 
-                # for i_z, z_bin in enumerate(z_bins):
-                #     pass
+                        if out_map_type in ["kg", "ia"]:
+                            dvs_dtype = np.float32
+                        elif out_map_type == "dg":
+                            dvs_dtype = np.float32
 
-                LOGGER.info(f"Done with map type {map_type_out} after {LOGGER.timer.elapsed('map_type')}")
+                    elif out_map_type == "sn":
+                        dvs_shape = (n_patches, n_noise_per_example, data_vec_len, n_z_bins)
+                        dvs_dtype = np.float32
+
+                        if args.store_counts:
+                            data_vectors["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=int)
+
+                    data_vectors[out_map_type] = np.zeros(dvs_shape, dtype=dvs_dtype)
+
+                    for i_z, z_bin in enumerate(z_bins):
+                        # load the full sky maps
+                        map_dir = f"{in_map_type}/{z_bin}"
+                        with h5py.File(full_maps_file, "r") as f:
+                            map_full = f[map_dir][:]
+                        LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
+
+                        # lensing, metacal sample #####################################################################
+                        if sample == "metacal":
+                            # only consider this tomographic bin
+                            patches_pix = all_patches_pix[i_z]
+                            corresponding_pix = all_corresponding_pix[i_z]
+                            base_patch_pix = patches_pix[0]
+
+                            if in_map_type in ["kg", "ia"]:
+                                kappa_full = map_full
+
+                                # kappa -> gamma (full sky)
+                                kappa_alm = hp.map2alm(
+                                    kappa_full, lmax=l_max, use_pixel_weights=True, datapath=hp_datapath
+                                )
+                                gamma_alm = kappa_alm * kappa2gamma_fac
+                                _, gamma1_full, gamma2_full = hp.alm2map(
+                                    [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
+                                )
+
+                                for i_patch, patch_pix in enumerate(patches_pix):
+                                    # The 90° rots do NOT change the shear, however, the mirroring does,
+                                    # therefore we have to swap sign of gamma2 for the last 2 patches!
+                                    gamma2_sign = gamma2_signs[i_patch]
+                                    LOGGER.debug(f"Using gamma2 sign {gamma2_sign} for patch index {i_patch}")
+
+                                    # TODO do each patch multiple times
+
+                                    gamma1_patch = np.zeros(n_pix, dtype=np.float32)
+                                    gamma1_patch[base_patch_pix] = gamma1_full[patch_pix]
+
+                                    gamma2_patch = np.zeros(n_pix, dtype=np.float32)
+                                    gamma2_patch[base_patch_pix] = gamma2_full[patch_pix]
+
+                                    # fix the sign
+                                    gamma2_patch *= gamma2_sign
+
+                                    # kappa_patch is a full sky map, but only the patch is occupied
+                                    kappa_patch = shear.mode_removal(
+                                        gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
+                                    )
+
+                                    # cut out padded data vector
+                                    kappa_dv = maps.map_to_data_vec(
+                                        hp_map=kappa_patch,
+                                        data_vec_len=data_vec_len,
+                                        corresponding_pix=corresponding_pix,
+                                        cutout_pix=base_patch_pix,
+                                        remove_mean=True,
+                                    )
+
+                                    data_vectors[out_map_type][i_patch, :, i_z] = kappa_dv
+
+                            elif in_map_type == "dg":
+                                delta_full = map_full
+
+                                # only consider this tomographic bin
+                                n_bar = tomo_n_gal_metacal[i_z]
+                                bias = tomo_bias_metacal[i_z]
+                                gamma_cat = tomo_gamma_cat[i_z]
+
+                                # create joint distribution, as this is faster than random indexing
+                                gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
+                                w = gamma_cat[:, 2]
+                                cat_dist = tfp.distributions.Empirical(
+                                    samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1
+                                )
+
+                                # normalize to number density contrast
+                                delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
+
+                                # number of galaxies per pixel
+                                counts_full = n_bar * (1 + bias * delta_full)
+                                counts_full = np.where(0 < counts_full, counts_full, 0)
+                                counts_full = np.random.poisson(counts_full)
+
+                                for i_patch, patch_pix in enumerate(patches_pix):
+                                    # not a full healpy map, just the patch with no zeros
+                                    counts = counts_full[patch_pix]
+
+                                    # vectorized sampling, shape (len(counts), n_noise_per_example)
+                                    gamma1, gamma2 = shear.noise_gen(counts, cat_dist, n_noise_per_example)
+
+                                    # not vectorized because of the healpy alm transform
+                                    for i_noise in range(n_noise_per_example):
+                                        # full healpy map with zeros outside the footprint
+                                        gamma1_patch = np.zeros(n_pix, dtype=np.float32)
+                                        gamma1_patch[base_patch_pix] = gamma1[:, i_noise]
+
+                                        gamma2_patch = np.zeros(n_pix, dtype=np.float32)
+                                        gamma2_patch[base_patch_pix] = gamma2[:, i_noise]
+
+                                        kappa_patch = shear.mode_removal(
+                                            gamma1_patch,
+                                            gamma2_patch,
+                                            gamma2kappa_fac,
+                                            l_mask_fac,
+                                            n_side,
+                                            hp_datapath,
+                                        )
+
+                                        # cut out padded data vector
+                                        kappa_dv = maps.map_to_data_vec(
+                                            hp_map=kappa_patch,
+                                            data_vec_len=data_vec_len,
+                                            corresponding_pix=corresponding_pix,
+                                            cutout_pix=base_patch_pix,
+                                            remove_mean=True,
+                                        )
+
+                                        data_vectors[out_map_type][i_patch, i_noise, :, i_z] = kappa_dv
+
+                                    if args.store_counts:
+                                        # correct cut out procedure involves a full sky map
+                                        counts_patch_map = np.zeros(n_pix, dtype=np.float32)
+                                        counts_patch_map[base_patch_pix] = counts
+                                        counts_dv = maps.map_to_data_vec(
+                                            counts_patch_map, data_vec_len, corresponding_pix, base_patch_pix
+                                        )
+                                        data_vectors["ct"][i_patch, :, i_z] = counts_dv
+
+                        # clustering, maglim sample ###################################################################
+                        elif sample == "maglim":
+                            # here, the mask for the tomographic bins is shared
+                            patches_pix = all_patches_pix
+                            corresponding_pix = all_corresponding_pix
+
+                            delta_full = map_full
+
+                            # normalize to number density contrast
+                            delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
+
+                            for i_patch, patch_pix in enumerate(patches_pix):
+                                # not a full healpy map, just the patch with no zeros
+                                delta_patch = delta_full[patch_pix]
+
+                                delta_dv = maps.patch_to_data_vec(delta_patch, data_vec_len, corresponding_pix)
+
+                                data_vectors[out_map_type][i_patch, :, i_z] = delta_dv
+
+                        else:
+                            raise ValueError
+
+                    LOGGER.info(f"Done with map type {out_map_type} after {LOGGER.timer.elapsed('map_type')}")
 
             # save the results
             data_vec_file = get_filename_data_vectors(cosmo_dir_out, args.with_bary)
             save_output_container(
-                "datavectors",
                 data_vec_file,
                 data_vectors,
                 i_perm,
@@ -406,40 +396,44 @@ def main(indices, args):
         yield index
 
 
-
-
 def save_output_container(
-    label, filename, output_container, i_perm, n_perms_per_cosmo, n_patches, n_noise_per_example, output_len, n_z_bins
+    conf, filename, output_container, i_perm, n_perms_per_cosmo, n_patches, n_noise_per_example, output_len, n_z_bins
 ):
     """Saves an .h5 file collecting all results on the level of the cosmological parameters (so for different
     permutations/runs and patches)
 
     Args:
-        label (str): either "datavectors" or "patches"
         filename (str): path to the output .h5 file
         output_container (dict): Dictionary of arrays of shape (n_patches, output_len, n_z_bins)
         i_perm (int): Index of the permutation
-        n_perms_per_cosmo (int):
-        n_patches (int):
-        output_len (int):
-        n_z_bins (int):
+        n_perms_per_cosmo (int): Number of permutations/simulation runs per cosmology
+        n_patches (int): Number of cut outs from the full sky
+        output_len (int): Length of the (padded) data vector
+        n_z_bins (int): Number of tomographic bins
     """
     with h5py.File(filename, "a") as f:
         for map_type in output_container.keys():
+            # set the number of redshift bins
+            if map_type in conf["survey"]["metacal"]["map_types"]["output"]:
+                n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+            elif map_type in conf["survey"]["maglim"]["map_types"]["output"]:
+                n_z_bins = len(conf["survey"]["magllim"]["z_bins"])
+
+            # there's multiple shape noise realizations
             if map_type == "sn":
                 out_shape = (n_perms_per_cosmo * n_patches, n_noise_per_example, output_len, n_z_bins)
             else:
                 out_shape = (n_perms_per_cosmo * n_patches, output_len, n_z_bins)
 
+            # create dataset for every parameter level directory, collecting the permutation levels
             try:
-                # create dataset for every parameter level directory, collecting the permutation levels
                 f.create_dataset(name=map_type, shape=out_shape)
             except ValueError:
                 LOGGER.debug(f"dataset {map_type} already exists in {filename}")
 
             f[map_type][n_patches * i_perm : n_patches * (i_perm + 1)] = output_container[map_type]
 
-    LOGGER.info(f"Stored {label} in {filename}")
+    LOGGER.info(f"Stored {filename}")
 
 
 # This main only exists for testing purposes when not using esub

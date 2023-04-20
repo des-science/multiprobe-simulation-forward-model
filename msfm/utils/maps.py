@@ -144,3 +144,29 @@ def data_vec_to_map(data_vec, n_pix, corresponding_pix, cutout_pix):
         hp_map[cutout_pix[i]] = data_vec[corresponding_pix[i]]
 
     return hp_map
+
+@njit
+def patch_to_data_vec(patch, data_vec_len, corresponding_pix):
+    """
+    This function makes cutouts from full sky maps to a nice data vector that can be fed into a DeepSphere network
+
+    Args:
+        hp_map (np.ndarray): The full sky healpy map one should make a cutout from
+        data_vec_len (int): length of the full data vec (including padding)
+        corresponding_pix (np.ndarray): pixels inside the data vec that should be populated (excludes padding)
+        cutout_pix (np.ndarray): pixels that should be cut out from the map (excludes padding)
+        remove_mean (bool): Remove the mean within the footprint, that is without including the padding
+
+    Returns:
+        np.ndarray: the data vec
+    """
+    data_vec = np.zeros(data_vec_len, dtype=np.float32)
+    n_indices = corresponding_pix.shape[0]
+
+    assert corresponding_pix.shape == patch.shape
+
+    # assign
+    for i in range(n_indices):
+        data_vec[corresponding_pix[i]] = patch[i]
+
+    return data_vec

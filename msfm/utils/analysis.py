@@ -87,12 +87,12 @@ def load_pixel_file(conf=None):
         metacal_tomo_corresponding_pix = []
         for z_bin in conf["survey"]["metacal"]["z_bins"]:
             # shape (4, pix_in_bin)
-            patches_pix = f[f"metacal/patches/{z_bin}"][:]
+            patches_pix_dict = f[f"metacal/patches/{z_bin}"][:]
             # shape (pix_in_bin,)
-            corresponding_pix = f[f"metacal/patch_to_data_vec/{z_bin}"][:]
+            corresponding_pix_dict = f[f"metacal/patch_to_data_vec/{z_bin}"][:]
 
-            metacal_tomo_patches_pix.append(patches_pix)
-            metacal_tomo_corresponding_pix.append(corresponding_pix)
+            metacal_tomo_patches_pix.append(patches_pix_dict)
+            metacal_tomo_corresponding_pix.append(corresponding_pix_dict)
 
         # to correct the shear for patch cut outs that have been mirrored
         gamma2_signs = f["metacal/gamma_2_sign"][:]
@@ -103,16 +103,27 @@ def load_pixel_file(conf=None):
 
     LOGGER.info(f"Loaded the pixel file")
 
-    return (
-        data_vec_pix,
-        # lensing
-        metacal_tomo_patches_pix,
-        metacal_tomo_corresponding_pix,
-        gamma2_signs,
-        # clustering
-        maglim_patches_pix,
-        maglim_corresponding_pix,
-    )
+    # package into dictionaries
+    patches_pix_dict = {}
+    patches_pix_dict["metacal"] = metacal_tomo_patches_pix
+    patches_pix_dict["maglim"] = maglim_patches_pix
+
+    corresponding_pix_dict = {}
+    corresponding_pix_dict["metacal"] = metacal_tomo_corresponding_pix
+    corresponding_pix_dict["maglim"] = maglim_corresponding_pix
+
+    return data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs
+
+    # return (
+    #     data_vec_pix,
+    #     # lensing
+    #     metacal_tomo_patches_pix,
+    #     metacal_tomo_corresponding_pix,
+    #     gamma2_signs,
+    #     # clustering
+    #     maglim_patches_pix,
+    #     maglim_corresponding_pix,
+    # )
 
 
 def get_tomo_masks(conf=None):
