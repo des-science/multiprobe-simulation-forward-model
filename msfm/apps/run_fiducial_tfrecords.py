@@ -22,8 +22,7 @@ import os, argparse, warnings, h5py
 
 from numpy.random import default_rng
 
-from msfm.utils import logger, input_output, cosmogrid, tfrecords, analysis
-from msfm.utils.filenames import *
+from msfm.utils import logger, input_output, cosmogrid, tfrecords, analysis, filenames, redshift
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -101,6 +100,36 @@ def main(indices, args):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["fiducial"]["n_perms_per_cosmo"]
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo
+    tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
+
+    # redshift evolution
+    z0 = conf["analysis"]["z0"]
+
+    # intrinsic alignment
+    Aia = conf["analysis"]["fiducial"]["Aia"]
+    n_Aia = conf["analysis"]["fiducial"]["n_Aia"]
+    delta_Aia = conf["analysis"]["fiducial"]["perturbations"]["Aia"]
+    delta_n_Aia = conf["analysis"]["fiducial"]["perturbations"]["n_Aia"]
+    tomo_z_metacal, tomo_nz_metacal = analysis.load_redshift_distributions("metacal", conf)
+    tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+    tomo_Aia_m = redshift.get_tomo_amplitudes(Aia - delta_Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+    tomo_Aia_p = redshift.get_tomo_amplitudes(Aia + delta_Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+    tomo_n_Aia_m = redshift.get_tomo_amplitudes(Aia, n_Aia - delta_n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+    tomo_n_Aia_p = redshift.get_tomo_amplitudes(Aia, n_Aia + delta_n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+
+    # galaxy bias
+    bg = conf["analysis"]["fiducial"]["Aia"]
+    n_bg = conf["analysis"]["fiducial"]["n_Aia"]
+    delta_bg = conf["analysis"]["fiducial"]["perturbations"]["Aia"]
+    delta_n_bg = conf["analysis"]["fiducial"]["perturbations"]["n_Aia"]
+    tomo_z_maglim, tomo_nz_maglim = analysis.load_redshift_distributions("maglim", conf)
+    tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+    tomo_Aia_m = redshift.get_tomo_amplitudes(Aia - delta_Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+    tomo_Aia_p = redshift.get_tomo_amplitudes(Aia + delta_Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+    tomo_n_Aia_m = redshift.get_tomo_amplitudes(Aia, n_Aia - delta_n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+    tomo_n_Aia_p = redshift.get_tomo_amplitudes(Aia, n_Aia + delta_n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+
+
     delta_Aia = conf["analysis"]["fiducial"]["perturbations"]["Aia"]
 
     # set up the paths
@@ -123,15 +152,14 @@ def main(indices, args):
             f"The total number of examples per cosmology {n_examples_per_cosmo}"
             f" has to be divisible by the number of files {args.n_files}"
         )
+    LOGGER.info(f"n_examples_per_file = {n_examples_per_file}")
 
     # shuffle the indices
     rng = default_rng(seed=args.np_seed)
     i_examples = rng.permutation(n_examples_per_cosmo)
 
-    LOGGER.info(f"n_examples_per_file = {n_examples_per_file}")
-
     pert_labels = [label.split("cosmo_")[1].replace("/", "") for label in cosmo_dirs_in]
-    # manually add intrinsic alignment after the fiducial
+    # manually add intrinsic alignment perturbations after the fiducial
     pert_labels = [pert_labels[0]] + ["delta_Aia_m", "delta_Aia_p"] + pert_labels[1:]
     LOGGER.info(f"{len(pert_labels)} labels = {pert_labels}")
 
@@ -139,7 +167,9 @@ def main(indices, args):
     for index in indices:
         LOGGER.timer.start("index")
 
-        tfr_file = get_filename_tfrecords(args.dir_out, tag=conf["survey"]["name"], index=index, simset="fiducial")
+        tfr_file = filenames.get_filename_tfrecords(
+            args.dir_out, tag=conf["survey"]["name"], index=index, simset="fiducial"
+        )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
         js = index * n_examples_per_file
@@ -148,6 +178,7 @@ def main(indices, args):
         n_done = 0
         with tf.io.TFRecordWriter(tfr_file) as file_writer:
             for j in LOGGER.progressbar(range(js, je), at_level="info", desc="Storing DES examples\n", total=je - js):
+
                 if args.debug:
                     if n_done > 5:
                         LOGGER.warning("Debug mode, aborting after 5 subindices")
@@ -159,19 +190,34 @@ def main(indices, args):
 
                 # loop over the perturbations in the right order
                 kg_perts = []
+                dg_perts = []
                 for cosmo_dir_in in cosmo_dirs_in:
-                    file_cosmo = get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
+                    file_cosmo = filenames.get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
                     LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
 
-                    kg = load_kg(file_cosmo, i_example)
+                    kg, ia, dg = load_example(file_cosmo, i_example, ["kg", "ia", "dg"])
+
+                    # add the fiducial intrinsic alignment
+                    kg += tomo_Aia * ia
+
                     kg_perts.append(kg)
 
+                    # apply the fiducial galaxy bias
+                    dg = tomo_n_gal_maglim * (1 + tomo_bg * dg)
+                    dg = np.where(0 < dg, dg, 0)
+
+                    dg_perts.append(dg)
+
                     if "cosmo_fiducial" in cosmo_dir_in:
-                        ia, sn_realz = load_ia_and_sn(file_cosmo, i_example)
+                        ia, sn_realz = load_example(file_cosmo, i_example, ["ia", "sn"])
 
                         LOGGER.debug(f"Adding intrinsic alignment as a perturbation to the fiducial")
                         kg_perts.append(kg - delta_Aia * ia)
                         kg_perts.append(kg + delta_Aia * ia)
+
+                        # clustering is unaffected by this
+                        dg_perts.append(dg)
+                        dg_perts.append(dg)
 
                 # shape (2 * n_cosmos + 1, n_pix, n_z_bins) for the delta loss
                 # TODO refactor this to not make use of the kg_perts array, but the perturbation labels
@@ -203,21 +249,33 @@ def main(indices, args):
         yield index
 
 
-def load_kg(filename, ind_example):
+def load_example(filename, i_example, map_labels):
     with h5py.File(filename, "r") as f:
-        # shape (n_examples_per_cosmo, n_pix, n_z_bins) before the indexing
-        kg = f["kg"][ind_example, ...]
+        maps = []
+        for map_label in map_labels:
+            # shape (n_examples_per_cosmo, n_pix, n_z_bins) before the indexing
+            maps.append(f[map_label][i_example, ...])
 
-    LOGGER.debug(f"Successfully loaded kg")
-    return kg
+    return maps
 
 
-def load_ia_and_sn(filename, ind_example):
-    with h5py.File(filename, "r") as f:
-        # shape (n_examples_per_cosmo, n_pix, n_z_bins) before the indexing
-        ia = f["ia"][ind_example, ...]
-        # shape (n_examples_per_cosmo, n_noise, n_pix, n_z_bins) before the indexing
-        sn = f["sn"][ind_example, ...]
+# def load_kg_dg(filename, ind_example):
+#     with h5py.File(filename, "r") as f:
+#         # shape (n_examples_per_cosmo, n_pix, n_z_metacal) before the indexing
+#         kg = f["kg"][ind_example, ...]
+#         # shape (n_examples_per_cosmo, n_pix, n_z_maglim) before the indexing
+#         dg = f["dg"][ind_example, ...]
 
-    LOGGER.debug(f"Successfully loaded ia and sn")
-    return ia, sn
+#     LOGGER.debug(f"Successfully loaded example {ind_example} of kg and dg")
+#     return kg, dg
+
+
+# def load_ia_sn(filename, ind_example):
+#     with h5py.File(filename, "r") as f:
+#         # shape (n_examples_per_cosmo, n_pix, n_z_bins) before the indexing
+#         ia = f["ia"][ind_example, ...]
+#         # shape (n_examples_per_cosmo, n_noise, n_pix, n_z_bins) before the indexing
+#         sn = f["sn"][ind_example, ...]
+
+#     LOGGER.debug(f"Successfully loaded example {ind_example} of ia and sn")
+#     return ia, sn

@@ -10,7 +10,7 @@ Functions to handle the configuration and read in the survey files on the data v
 import os, h5py, warnings
 import numpy as np
 
-from msfm.utils import logger, input_output
+from msfm.utils import logger, input_output, filenames
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -55,7 +55,7 @@ def load_config(conf=None):
 
 def load_pixel_file(conf=None):
     """Loads the .h5 file that contains the pixel indices associated with the survey like the different patches. That
-    file is generated in notebooks/survey_file_gen/pixel_file.ipynb. If the conf argument is not passed, the default 
+    file is generated in notebooks/survey_file_gen/pixel_file.ipynb. If the conf argument is not passed, the default
     within the directory where this file resides is used.
 
     Args:
@@ -114,17 +114,6 @@ def load_pixel_file(conf=None):
 
     return data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs
 
-    # return (
-    #     data_vec_pix,
-    #     # lensing
-    #     metacal_tomo_patches_pix,
-    #     metacal_tomo_corresponding_pix,
-    #     gamma2_signs,
-    #     # clustering
-    #     maglim_patches_pix,
-    #     maglim_corresponding_pix,
-    # )
-
 
 def get_tomo_masks(conf=None):
     """Masks the data vectors for the different tomographic bins.
@@ -182,3 +171,35 @@ def load_noise_file(conf=None):
     LOGGER.info(f"Loaded the noise file")
 
     return tomo_gamma_cat, tomo_n_bar
+
+
+def load_redshift_distributions(galaxy_sample, conf=None):
+    """Load the redshift distributions from disk to memory.
+
+    Args:
+        galaxy_sample (str): Either "metacal" or "maglim".
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
+            passed through) or None (the default config is loaded). The relative paths are stored here. Defaults to
+            None.
+
+    Returns:
+        list: Per redshift bin z an nz values of the distribution.
+    """
+    conf = load_config(conf)
+
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    redshift_dir = os.path.join(repo_dir, conf["dirs"]["redshift_distributions"])
+
+    n_z_bins = len(conf["survey"][galaxy_sample]["z_bins"])
+
+    tomo_z = []
+    tomo_nz = []
+    for i_tomo in range(1, n_z_bins + 1):
+        z_dist_file = filenames.get_filename_z_distribution(redshift_dir, galaxy_sample, i_tomo)
+        z_dist = np.loadtxt(z_dist_file)
+
+        tomo_z.append(z_dist[:, 0])
+        tomo_nz.append(z_dist[:, 1])
+
+    return tomo_z, tomo_nz

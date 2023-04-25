@@ -1,3 +1,12 @@
+# Copyright (C) 2023 ETH Zurich, Institute for Particle Physics and Astrophysics
+
+""" 
+Created April 2023
+Author: Arne Thomsen
+
+Tools to handle maps like conversion to and from data vectors, partially made more efficient using numba.
+"""
+
 import numpy as np
 from numba import njit
 

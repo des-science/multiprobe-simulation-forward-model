@@ -15,12 +15,12 @@ from msfm.utils import analysis, logger
 LOGGER = logger.get_logger(__file__)
 
 
-def get_kaiser_squires_factors(l):
+def get_kaiser_squires_factors(l_max):
     """Factors for a spherical Kaiser Squires transformation
     from eq. (11) in https://academic.oup.com/mnras/article/505/3/4626/6287258
-
-    l = hp.Alm.getlm(lmax)[0]
     """
+    l = hp.Alm.getlm(l_max)[0]
+
     kappa2gamma_fac = np.where(
         np.logical_and(l != 1, l != 0),
         -np.sqrt(((l + 2.0) * (l - 1)) / ((l + 1) * l)),
@@ -31,15 +31,9 @@ def get_kaiser_squires_factors(l):
         1 / kappa2gamma_fac,
         0,
     )
-    return kappa2gamma_fac, gamma2kappa_fac
+    l_mask_fac = np.where(np.logical_and(l != 1, l != 0), 1.0, 0.0)
 
-
-def get_l_mask(l):
-    """Masks l equal to 0 and 1 (as these are problematic in the KS inversion)
-
-    l = hp.Alm.getlm(lmax)[0]
-    """
-    return np.where(np.logical_and(l != 1, l != 0), 1.0, 0.0)
+    return kappa2gamma_fac, gamma2kappa_fac, l_mask_fac
 
 
 def get_m_bias_distribution(conf=None):
@@ -53,7 +47,7 @@ def get_m_bias_distribution(conf=None):
     return m_bias_dist
 
 
-def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath=None):
+def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, n_side, l_min, l_max, hp_datapath=None):
     """Takes in survey patches of gamma maps and puts out survey patches of kappa maps that only contain E-modes
 
     Args:
@@ -70,15 +64,19 @@ def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side
     # gamma: map -> alm
     _, gamma_alm_E, gamma_alm_B = hp.map2alm(
         [np.zeros_like(gamma1_patch), gamma1_patch, gamma2_patch],
+        lmax=l_max,
         use_pixel_weights=True,
         datapath=hp_datapath,
     )
     # gamma -> kappa
     kappa_alm = gamma_alm_E * gamma2kappa_fac
-    kappa_alm *= l_mask_fac
+
+    # discard scales that are too large
+    l = hp.Alm.getlm(l_max)
+    kappa_alm[l < l_min] = 0.0
 
     # kappa: alm -> map
-    kappa_patch = hp.alm2map(kappa_alm, nside=n_side)
+    kappa_patch = hp.alm2map(kappa_alm, nside=n_side, lmax=l_max)
 
     return kappa_patch
 

@@ -17,13 +17,13 @@ by Janis Fluri
 """
 
 import numpy as np
+import healpy as hp
 import tensorflow as tf
 import os, argparse, warnings, h5py
 
 from sobol_seq import i4_sobol
 
-from msfm.utils import logger, input_output, cosmogrid, tfrecords, analysis, parameters
-from msfm.utils.filenames import *
+from msfm.utils import logger, input_output, cosmogrid, tfrecords, analysis, parameters, shear, filenames, redshift
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -87,7 +87,10 @@ def main(indices, args):
 
     LOGGER.timer.start("main")
     LOGGER.info(f"Got index set of size {len(indices)}")
-    # LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
+    try:
+        LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
+    except AttributeError:
+        pass
 
     conf = analysis.load_config(args.config)
 
@@ -99,17 +102,23 @@ def main(indices, args):
     LOGGER.info(f"Loaded meta information")
 
     # constants
-    target_params = conf["analysis"]["params"]
-    n_params = len(target_params)
-
-    # different parameter ordering
-    sobol_priors = parameters.get_priors(conf["analysis"]["grid"]["params_sobol"])
+    n_side = conf["analysis"]["n_side"]
+    tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
+    sobol_priors = parameters.get_prior_intervals(conf["analysis"]["grid"]["params_sobol"])
 
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo * n_noise_per_example
+
+    # shear bias distribution, NOTE fixing this in the .tfrecords simplifies reproducibility
+    m_bias_dist = shear.get_m_bias_distribution(conf)
+
+    # redshift evolution
+    z0 = conf["analysis"]["z0"]
+    tomo_z_metacal, tomo_nz_metacal = analysis.load_redshift_distributions("metacal", conf)
+    tomo_z_maglim, tomo_nz_maglim = analysis.load_redshift_distributions("maglim", conf)
 
     # set up the paths
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
@@ -137,7 +146,9 @@ def main(indices, args):
     for index in indices:
         LOGGER.timer.start("index")
 
-        tfr_file = get_filename_tfrecords(args.dir_out, tag=conf["survey"]["name"], index=index, simset="grid")
+        tfr_file = filenames.get_filename_tfrecords(
+            args.dir_out, tag=conf["survey"]["name"], index=index, simset="grid"
+        )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
         # index for the cosmological parameters
@@ -155,11 +166,12 @@ def main(indices, args):
                 total=je - js,
             ):
                 LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
+
                 if args.debug and n_done > 5:
                     LOGGER.warning("Debug mode, aborting after 5 subindices")
                     break
 
-                # select the relevant cosmological parameters
+                # select the relevant cosmological parameters, the first six are part of the CosmoGrid
                 cosmo = [cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in conf["analysis"]["params"][:6]]
                 cosmo = np.array(cosmo, dtype=np.float32)
 
@@ -171,8 +183,18 @@ def main(indices, args):
                 sobol_params = sobol_params.astype(np.float32)
 
                 # add these to the label
-                Aia = sobol_params[-1]
-                cosmo = np.concatenate((cosmo, np.array([Aia])))
+                Aia = sobol_params[6]
+                bg = sobol_params[7]
+                n_Aia = sobol_params[8]
+                n_bg = sobol_params[9]
+                cosmo = np.concatenate((cosmo, np.array([Aia, bg, n_Aia, n_bg])))
+
+                # redshift evolution
+                tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+                tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+                LOGGER.debug(f"Aia = {tomo_Aia}")
+                LOGGER.debug(f"bg = {tomo_bg}")
+
 
                 # verify that the Sobol sequences are identical (the parameters are ordered differently)
                 assert np.allclose(sobol_params[0], cosmo[0], rtol=1e-3, atol=1e-5)  # Om
@@ -183,27 +205,38 @@ def main(indices, args):
                 assert np.allclose(sobol_params[5], cosmo[5], rtol=1e-3, atol=1e-5)  # w0
 
                 # load the .h5 files
-                file_cosmo = get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
-                kg_examples, ia_examples, sn_examples = load_data_vectors(file_cosmo)
+                file_cosmo = filenames.get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
+                kg_examples, ia_examples, sn_examples, dg_examples = load_data_vecs(file_cosmo)
 
                 # loop over the n_examples_per_cosmo
-                for kg, ia, sn_realz in LOGGER.progressbar(
-                    zip(kg_examples, ia_examples, sn_examples),
+                for kg, ia, sn_realz, dg in LOGGER.progressbar(
+                    zip(kg_examples, ia_examples, sn_examples, dg_examples),
                     at_level="debug",
                     desc="Looping through the examples of one cosmology",
                     total=n_examples_per_cosmo,
                 ):
-                    # add the intrinsic alignment (on kappa level)
-                    kg += Aia * ia
+                    # intrinsic alignment (on kappa level), broadcast (data_vec_len, n_z_metacal) and (n_z_metacal,)
+                    kg += tomo_Aia * ia
 
-                    serialized = tfrecords.parse_forward_grid(kg, sn_realz, cosmo, i_sobol).SerializeToString()
+                    # multiplicative shear bias, broadcast (data_vec_len, n_z_metacal) and (n_z_metacal,)
+                    m_bias = m_bias_dist.sample()
+                    kg *= 1.0 + m_bias
+
+                    # apply the galaxy bias and Poisson noise, broadcast the tomo bin axis
+                    # broadcast (data_vec_len, n_z_maglim) and (n_z_maglim,)
+                    dg = tomo_n_gal_maglim * (1 + tomo_bg * dg)
+                    dg = np.where(0 < dg, dg, 0)
+                    dg = np.random.poisson(dg)
+
+                    serialized = tfrecords.parse_forward_grid(kg, sn_realz, dg, cosmo, i_sobol).SerializeToString()
 
                     # check correctness
                     i_noise = 0
-                    inv_kg, inv_sn, inv_cosmo, inv_index = tfrecords.parse_inverse_grid(serialized, i_noise)
+                    inv_kg, inv_sn, inv_dg, inv_cosmo, inv_index = tfrecords.parse_inverse_grid(serialized, i_noise)
 
                     assert np.allclose(inv_kg, kg)
                     assert np.allclose(inv_sn, sn_realz[i_noise])
+                    assert np.allclose(inv_dg, dg)
                     assert np.allclose(inv_cosmo, cosmo)
                     assert np.allclose(inv_index[0], i_sobol)
                     assert np.allclose(inv_index[1], i_noise)
@@ -218,7 +251,7 @@ def main(indices, args):
         yield index
 
 
-def load_data_vectors(
+def load_data_vecs(
     filename,
 ):
     with h5py.File(filename, "r") as f:
@@ -226,6 +259,7 @@ def load_data_vectors(
         kg = f["kg"][:]
         ia = f["ia"][:]
         sn_realz = f["sn"][:]
+        dg = f["dg"][:]
 
     LOGGER.debug(f"Successfully loaded the data vectors")
-    return kg, ia, sn_realz
+    return kg, ia, sn_realz, dg

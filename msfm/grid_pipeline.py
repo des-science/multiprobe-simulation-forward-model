@@ -57,14 +57,15 @@ def dset_augmentations(
 
     LOGGER.warning(f"Tracing dset_augmentations")
 
-    # shear bias
-    if m_bias_dist is not None:
-        # shape (n_z_bins,)
-        m_bias = m_bias_dist.sample()
-        # broadcast axis 0 of size n_pix
-        kg *= 1.0 + m_bias
-    else:
-        LOGGER.warning(f"No multiplicative shear bias is applied")
+    # Done on the level of the .tfrecords
+    # # shear bias
+    # if m_bias_dist is not None:
+    #     # shape (n_z_bins,)
+    #     m_bias = m_bias_dist.sample()
+    #     # broadcast axis 0 of size n_pix
+    #     kg *= 1.0 + m_bias
+    # else:
+    #     LOGGER.warning(f"No multiplicative shear bias is applied")
 
     # shape noise
     if noise_scale is not None:

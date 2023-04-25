@@ -120,7 +120,8 @@ def main(indices, args):
     # general constants
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
-    l_max = conf["analysis"]["l_max"]
+    l_range_wl = conf["analysis"]["l_range"]["lensing"]
+    l_range_gc = conf["analysis"]["l_range"]["clustering"]
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"][args.simset]["n_perms_per_cosmo"]
     n_noise_per_example = conf["analysis"][args.simset]["n_noise_per_example"]
@@ -132,10 +133,7 @@ def main(indices, args):
     tomo_n_gal_metacal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
     # alm
-    l = hp.Alm.getlm(l_max)[0]
-    l[l == 1] = 0
-    kappa2gamma_fac, gamma2kappa_fac = shear.get_kaiser_squires_factors(l)
-    l_mask_fac = shear.get_l_mask(l)
+    kappa2gamma_fac, gamma2kappa_fac, _ = shear.get_kaiser_squires_factors(l_range_wl[1])
 
     # pixel file
     data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs = analysis.load_pixel_file(conf)
@@ -202,7 +200,8 @@ def main(indices, args):
 
                 for in_map_type, out_map_type in zip(in_map_types, out_map_types):
                     # some fiducial perturbations are skipped for lensing
-                    if ("delta" in cosmo_dir_in) and (sample == "metacal") and (in_map_type in ["ia", "dg"]):
+                    # if ("delta" in cosmo_dir_in) and (sample == "metacal") and (in_map_type in ["ia", "dg"]):
+                    if ("delta" in cosmo_dir_in) and (sample == "metacal") and (in_map_type == "dg"):
                         LOGGER.info(f"Skipping input map type {in_map_type} for this perturbation")
                         continue
 
@@ -216,14 +215,14 @@ def main(indices, args):
                         if out_map_type in ["kg", "ia"]:
                             dvs_dtype = np.float32
                         elif out_map_type == "dg":
-                            dvs_dtype = np.float32
+                            dvs_dtype = np.int16
 
                     elif out_map_type == "sn":
                         dvs_shape = (n_patches, n_noise_per_example, data_vec_len, n_z_bins)
                         dvs_dtype = np.float32
 
                         if args.store_counts:
-                            data_vec_container["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=int)
+                            data_vec_container["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.int16)
 
                     data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=dvs_dtype)
 
@@ -246,11 +245,13 @@ def main(indices, args):
 
                                 # kappa -> gamma (full sky)
                                 kappa_alm = hp.map2alm(
-                                    kappa_full, lmax=l_max, use_pixel_weights=True, datapath=hp_datapath
+                                    kappa_full, lmax=l_range_wl[1], use_pixel_weights=True, datapath=hp_datapath
                                 )
                                 gamma_alm = kappa_alm * kappa2gamma_fac
                                 _, gamma1_full, gamma2_full = hp.alm2map(
-                                    [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
+                                    [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)],
+                                    nside=n_side,
+                                    lmax=l_range_wl[1],
                                 )
 
                                 for i_patch, patch_pix in enumerate(patches_pix):
@@ -272,7 +273,13 @@ def main(indices, args):
 
                                     # kappa_patch is a full sky map, but only the patch is occupied
                                     kappa_patch = shear.mode_removal(
-                                        gamma1_patch, gamma2_patch, gamma2kappa_fac, l_mask_fac, n_side, hp_datapath
+                                        gamma1_patch,
+                                        gamma2_patch,
+                                        gamma2kappa_fac,
+                                        n_side,
+                                        l_range_wl[0],
+                                        l_range_wl[1],
+                                        hp_datapath,
                                     )
 
                                     # cut out padded data vector
@@ -329,8 +336,9 @@ def main(indices, args):
                                             gamma1_patch,
                                             gamma2_patch,
                                             gamma2kappa_fac,
-                                            l_mask_fac,
                                             n_side,
+                                            l_range_wl[0],
+                                            l_range_wl[1],
                                             hp_datapath,
                                         )
 
@@ -347,7 +355,7 @@ def main(indices, args):
 
                                     if args.store_counts:
                                         # correct cut out procedure involves a full sky map
-                                        counts_patch_map = np.zeros(n_pix, dtype=np.float32)
+                                        counts_patch_map = np.zeros(n_pix, dtype=np.int16)
                                         counts_patch_map[base_patch_pix] = counts
                                         counts_dv = maps.map_to_data_vec(
                                             counts_patch_map, data_vec_len, corresponding_pix, base_patch_pix
@@ -359,6 +367,7 @@ def main(indices, args):
                             # here, the mask for the tomographic bins is shared
                             patches_pix = all_patches_pix
                             corresponding_pix = all_corresponding_pix
+                            base_patch_pix = patches_pix[0]
 
                             delta_full = map_full
 
@@ -366,9 +375,22 @@ def main(indices, args):
                             delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
 
                             for i_patch, patch_pix in enumerate(patches_pix):
-                                # not a full healpy map, just the patch with no zeros
-                                delta_patch = delta_full[patch_pix]
+                                # always populate the same patch
+                                delta_patch = np.zeros(n_pix, dtype=np.float32)
+                                delta_patch[base_patch_pix] = delta_full[patch_pix]
 
+                                # apply the scale cuts
+                                delta_alm = hp.map2alm(
+                                    delta_patch,
+                                    lmax=l_range_gc[1],
+                                    use_pixel_weights=True,
+                                    datapath=hp_datapath,
+                                )
+                                l = hp.Alm.getlm(l_range_gc[1])
+                                delta_alm[l < l_range_gc[0]] = 0.0
+                                delta_patch = hp.alm2map(delta_alm, nside=n_side, lmax=l_range_gc[1])
+
+                                # cut out padded data vector
                                 delta_dv = maps.patch_to_data_vec(delta_patch, data_vec_len, corresponding_pix)
 
                                 data_vec_container[out_map_type][i_patch, :, i_z] = delta_dv
