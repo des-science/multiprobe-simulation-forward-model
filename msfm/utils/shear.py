@@ -72,7 +72,7 @@ def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, n_side, l_min, l_m
     kappa_alm = gamma_alm_E * gamma2kappa_fac
 
     # discard scales that are too large
-    l = hp.Alm.getlm(l_max)
+    l = hp.Alm.getlm(l_max)[0]
     kappa_alm[l < l_min] = 0.0
 
     # kappa: alm -> map

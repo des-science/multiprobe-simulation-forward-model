@@ -195,7 +195,6 @@ def main(indices, args):
                 LOGGER.debug(f"Aia = {tomo_Aia}")
                 LOGGER.debug(f"bg = {tomo_bg}")
 
-
                 # verify that the Sobol sequences are identical (the parameters are ordered differently)
                 assert np.allclose(sobol_params[0], cosmo[0], rtol=1e-3, atol=1e-5)  # Om
                 assert np.allclose(sobol_params[1], cosmo[1], rtol=1e-3, atol=1e-5)  # s8
@@ -206,6 +205,7 @@ def main(indices, args):
 
                 # load the .h5 files
                 file_cosmo = filenames.get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
+
                 kg_examples, ia_examples, sn_examples, dg_examples = load_data_vecs(file_cosmo)
 
                 # loop over the n_examples_per_cosmo
@@ -222,11 +222,10 @@ def main(indices, args):
                     m_bias = m_bias_dist.sample()
                     kg *= 1.0 + m_bias
 
-                    # apply the galaxy bias and Poisson noise, broadcast the tomo bin axis
-                    # broadcast (data_vec_len, n_z_maglim) and (n_z_maglim,)
+                    # apply the galaxy bias and Poisson noise, broadcast (data_vec_len, n_z_maglim) and (n_z_maglim,)
                     dg = tomo_n_gal_maglim * (1 + tomo_bg * dg)
                     dg = np.where(0 < dg, dg, 0)
-                    dg = np.random.poisson(dg)
+                    dg = np.random.poisson(dg).astype(np.int16)
 
                     serialized = tfrecords.parse_forward_grid(kg, sn_realz, dg, cosmo, i_sobol).SerializeToString()
 

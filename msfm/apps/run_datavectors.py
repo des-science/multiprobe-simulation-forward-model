@@ -173,7 +173,8 @@ def main(indices, args):
         data_vec_file = get_filename_data_vectors(cosmo_dir_out, args.with_bary)
         LOGGER.info(f"Index {index} takes input from {cosmo_dir_in} and writes to {data_vec_file}")
 
-        for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Loop over permutations\n", at_level="info"):
+        # for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Loop over permutations\n", at_level="info"):
+        for i_perm in LOGGER.progressbar(range(4), desc="Loop over permutations\n", at_level="info"):
             LOGGER.timer.start("permutation")
             LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
@@ -212,19 +213,13 @@ def main(indices, args):
                     if out_map_type in ["kg", "ia", "dg"]:
                         dvs_shape = (n_patches, data_vec_len, n_z_bins)
 
-                        if out_map_type in ["kg", "ia"]:
-                            dvs_dtype = np.float32
-                        elif out_map_type == "dg":
-                            dvs_dtype = np.int16
-
                     elif out_map_type == "sn":
                         dvs_shape = (n_patches, n_noise_per_example, data_vec_len, n_z_bins)
-                        dvs_dtype = np.float32
 
                         if args.store_counts:
                             data_vec_container["ct"] = np.zeros((n_patches, data_vec_len, n_z_bins), dtype=np.int16)
 
-                    data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=dvs_dtype)
+                    data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
 
                     for i_z, z_bin in enumerate(z_bins):
                         # load the full sky maps
@@ -386,12 +381,14 @@ def main(indices, args):
                                     use_pixel_weights=True,
                                     datapath=hp_datapath,
                                 )
-                                l = hp.Alm.getlm(l_range_gc[1])
+                                l = hp.Alm.getlm(l_range_gc[1])[0]
                                 delta_alm[l < l_range_gc[0]] = 0.0
                                 delta_patch = hp.alm2map(delta_alm, nside=n_side, lmax=l_range_gc[1])
 
                                 # cut out padded data vector
-                                delta_dv = maps.patch_to_data_vec(delta_patch, data_vec_len, corresponding_pix)
+                                delta_dv = maps.map_to_data_vec(
+                                    delta_patch, data_vec_len, corresponding_pix, base_patch_pix
+                                )
 
                                 data_vec_container[out_map_type][i_patch, :, i_z] = delta_dv
 

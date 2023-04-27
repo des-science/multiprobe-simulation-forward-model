@@ -30,4 +30,4 @@ def get_tomo_amplitudes(amplitude, exponent, tomo_z, tomo_nz, z0):
 
         tomo_amplitudes.append(amplitude * integral)
 
-    return np.array(tomo_amplitudes)
+    return np.array(tomo_amplitudes).astype(np.float32)

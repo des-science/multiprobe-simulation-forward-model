@@ -124,14 +124,14 @@ def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_metacal=No
     return kg, sn, dg, cosmo, index
 
 
-def parse_forward_fiducial(kg_perts, dg_perts, pert_labels, sn_realz, i_example):
+def parse_forward_fiducial(pert_labels, kg_perts, dg_perts, sn_realz, i_example):
     """The fiducials don't need a label and contain the perturbation for the delta loss with
     n_perts = 2 * n_params + 1
 
     Args:
+        pert_labels (list): Dictionary keys of length n_perts and string elements.
         kg_perts (list): Kappa perturbations of length n_perts and elements of shape(n_pix, n_z_metacal).
         dg_perts (list): Delta perturbations of length n_perts and elements of shape(n_pix, n_z_maglim).
-        pert_labels (list): Dictionary keys of length n_perts and string elements.
         sn_realz (np.ndarray): Shape noise realizations of shape(n_noise, n_pix, n_z_metacal).
         i_example (int): example index (comes from simulation run and the patch), there are
             n_perms_per_cosmo * n_patches.
@@ -158,7 +158,7 @@ def parse_forward_fiducial(kg_perts, dg_perts, pert_labels, sn_realz, i_example)
     }
 
     # kappa and delta perturbations
-    for label, kg_pert in zip(pert_labels, kg_perts, dg_perts):
+    for label, kg_pert, dg_pert in zip(pert_labels, kg_perts, dg_perts):
         features[f"kg_{label}"] = _bytes_feature(tf.io.serialize_tensor(kg_pert))
         features[f"dg_{label}"] = _bytes_feature(tf.io.serialize_tensor(dg_pert))
 
@@ -212,19 +212,17 @@ def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=Non
     data_vectors = {}
 
     # parse the perturbations
-    for map_type, dtype, n_z_bins, n_z_bins_str in zip(
-        ["kg", "dg"],
-        [tf.float32, tf.int16],
-        [n_z_metacal, n_z_maglim],
-        ["n_z_metacal", "n_z_maglim"],
+    for map_type, n_z_bins, n_z_bins_str in zip(
+        ["kg", "dg"], [n_z_metacal, n_z_maglim], ["n_z_metacal", "n_z_maglim"]
     ):
         for label in pert_labels:
             key = f"{map_type}_{label}"
-            pert = tf.io.parse_tensor(data[key], out_type=dtype)
+            pert = tf.io.parse_tensor(data[key], out_type=tf.float32)
 
             # reshape allows for None shapes within the graph, but is slower
             if (n_pix is None) or (n_z_metacal is None) or (n_z_maglim is None):
                 pert = tf.reshape(pert, shape=(data["n_pix"], data[n_z_bins_str]))
+                
             # tf.ensure_shape fixes the shape inside the graph
             else:
                 pert = tf.ensure_shape(pert, shape=(n_pix, n_z_bins))

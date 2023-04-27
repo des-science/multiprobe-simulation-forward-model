@@ -83,11 +83,13 @@ analysis:
   n_patches: 4
   # pivot redshift from https://arxiv.org/pdf/2105.13543.pdf (Y3) and https://journals.aps.org/prd/pdf/10.1103/PhysRevD.98.043528 (Y1)
   z0: 0.62
-  # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf, TODO convert to kappa instead of gamma level
+  # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf, TODO check sqrt(2) kappa -> gamma conversion
   shear_bias:
     multiplicative:
-      mu: [-0.0063, -0.0198, -0.0241, -0.0369]
-      sigma: [0.0091, 0.0078, 0.0076, 0.0076]
+      # [-0.0063, -0.0198, -0.0241, -0.0369] * sqrt(2)
+      mu: [-0.00890955, -0.02800143, -0.03408255, -0.05218448]
+      # [0.0091, 0.0078, 0.0076, 0.0076] * sqrt(2)
+      sigma: [0.01286934, 0.01103087, 0.01074802, 0.01074802]
   grid:
     # CosmoGrid
     n_cosmos: 2500
@@ -142,5 +144,5 @@ analysis:
       w0: 0.05
       Aia: 0.1
       bg: 0.1
-      n_Aia: 0.1
-      n_bg: 0.1
+      n_Aia: 0.2
+      n_bg: 0.2
