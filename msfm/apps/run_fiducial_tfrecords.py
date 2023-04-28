@@ -22,7 +22,7 @@ import os, argparse, warnings, h5py
 
 from numpy.random import default_rng
 
-from msfm.utils import logger, input_output, cosmogrid, tfrecords, analysis, filenames, redshift
+from msfm.utils import logger, input_output, cosmogrid, tfrecords, analysis, filenames, redshift, parameters
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -105,16 +105,7 @@ def main(indices, args):
     z0 = conf["analysis"]["z0"]
 
     # intrinsic alignment
-    Aia = conf["analysis"]["fiducial"]["Aia"]
-    n_Aia = conf["analysis"]["fiducial"]["n_Aia"]
-    delta_Aia = conf["analysis"]["fiducial"]["perturbations"]["Aia"]
-    delta_n_Aia = conf["analysis"]["fiducial"]["perturbations"]["n_Aia"]
-    tomo_z_metacal, tomo_nz_metacal = analysis.load_redshift_distributions("metacal", conf)
-    tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
-    tomo_Aia_m = redshift.get_tomo_amplitudes(Aia - delta_Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
-    tomo_Aia_p = redshift.get_tomo_amplitudes(Aia + delta_Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
-    tomo_n_Aia_m = redshift.get_tomo_amplitudes(Aia, n_Aia - delta_n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
-    tomo_n_Aia_p = redshift.get_tomo_amplitudes(Aia, n_Aia + delta_n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+    tomo_Aia_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("Aia", conf)
 
     # set up the paths
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
@@ -146,10 +137,13 @@ def main(indices, args):
         rng = default_rng(seed=args.np_seed)
         i_examples = rng.permutation(n_examples_per_cosmo)
 
+    # CosmoGrid perturbations in cosmological parameters
     pert_labels = [label.split("cosmo_")[1].replace("/", "") for label in cosmo_dirs_in]
-    # manually add intrinsic alignment perturbations after the fiducial
-    pert_labels = [pert_labels[0]] + ["delta_Aia_m", "delta_Aia_p", "delta_n_Aia_m", "delta_n_Aia_p"] + pert_labels[1:]
-    LOGGER.info(f"{len(pert_labels)} labels = {pert_labels}")
+    LOGGER.info(f"There's {len(pert_labels)} cosmological labels = {pert_labels}")
+
+    # separate label list for intrinsic alignment perturbations
+    ia_pert_labels = parameters.get_fiducial_perturbation_labels(conf["analysis"]["params"]["ia"])[1:]
+    LOGGER.info(f"There's {len(ia_pert_labels)} intrinsic alignment labels = {ia_pert_labels}")
 
     # index corresponds to a .tfrecord file ###########################################################################
     for index in indices:
@@ -179,6 +173,7 @@ def main(indices, args):
                 # loop over the perturbations in the right order
                 kg_perts = []
                 dg_perts = []
+                ia_perts = []
                 # (2 * n_cosmos + 1,) iterations
                 for cosmo_dir_in in cosmo_dirs_in:
                     file_cosmo = filenames.get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
@@ -187,9 +182,9 @@ def main(indices, args):
                     (kg, ia, dg) = load_example(file_cosmo, i_example, ["kg", "ia", "dg"])
 
                     # add the fiducial intrinsic alignment
-                    kg_perts.append(kg + tomo_Aia * ia)
+                    kg_perts.append(kg + tomo_Aia_perts_dict["fiducial"] * ia)
 
-                    # galaxy bias is only applied later
+                    # galaxy bias and Poisson noise is only applied later
                     dg_perts.append(dg)
 
                     # add the perturbations to the two intrinsic alignment parameters
@@ -198,33 +193,30 @@ def main(indices, args):
                         (sn_realz,) = load_example(file_cosmo, i_example, ["sn"])
 
                         # Aia perturbations
-                        kg_perts.append(kg + tomo_Aia_m * ia)
-                        kg_perts.append(kg + tomo_Aia_p * ia)
-                        # clustering is unaffected by this, TODO don't save redundant clustering maps
-                        dg_perts.append(dg)
-                        dg_perts.append(dg)
+                        ia_perts.append(kg + tomo_Aia_perts_dict["delta_Aia_m"] * ia)
+                        ia_perts.append(kg + tomo_Aia_perts_dict["delta_Aia_p"] * ia)
 
                         # n_Aia perturbations
-                        kg_perts.append(kg + tomo_n_Aia_m * ia)
-                        kg_perts.append(kg + tomo_n_Aia_p * ia)
-                        dg_perts.append(dg)
-                        dg_perts.append(dg)
+                        ia_perts.append(kg + tomo_Aia_perts_dict["delta_n_Aia_m"] * ia)
+                        ia_perts.append(kg + tomo_Aia_perts_dict["delta_n_Aia_p"] * ia)
 
                 # serialize the lists of tensors of shape (n_pix, n_z_bins)
                 serialized = tfrecords.parse_forward_fiducial(
-                    pert_labels, kg_perts, dg_perts, sn_realz, i_example
+                    pert_labels, kg_perts, dg_perts, ia_pert_labels, ia_perts, sn_realz, i_example
                 ).SerializeToString()
 
                 # check correctness
                 i_noise = 0
                 inv_data_vectors, inv_index = tfrecords.parse_inverse_fiducial(
-                    serialized, pert_labels, i_noise=i_noise
+                    serialized, pert_labels + ia_pert_labels, i_noise=i_noise
                 )
                 inv_kg_perts = tf.stack([inv_data_vectors[f"kg_{pert_label}"] for pert_label in pert_labels], axis=0)
+                inv_ia_perts = tf.stack([inv_data_vectors[f"kg_{pert_label}"] for pert_label in ia_pert_labels], axis=0)
                 inv_dg_perts = tf.stack([inv_data_vectors[f"dg_{pert_label}"] for pert_label in pert_labels], axis=0)
                 inv_sn = inv_data_vectors["sn"]
 
                 assert np.allclose(inv_kg_perts, kg_perts)
+                assert np.allclose(inv_ia_perts, ia_perts)
                 assert np.allclose(inv_dg_perts, dg_perts)
                 assert np.allclose(inv_sn, sn_realz[i_noise])
                 assert np.allclose(inv_index[0], i_example)

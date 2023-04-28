@@ -8,8 +8,9 @@ Functions to read in the parameter values stored in the config
 """
 
 import numpy as np
+import healpy as hp
 
-from msfm.utils import analysis
+from msfm.utils import analysis, redshift
 
 
 def get_prior_intervals(params=None, conf=None):
@@ -29,7 +30,9 @@ def get_prior_intervals(params=None, conf=None):
     conf = analysis.load_config(conf)
 
     if params is None:
-        params = conf["analysis"]["params"]
+        params = (
+            conf["analysis"]["params"]["cosmo"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
+        )
 
     priors = np.array([conf["analysis"]["grid"]["priors"][param] for param in params])
 
@@ -51,7 +54,9 @@ def get_fiducials(params=None, conf=None):
     conf = analysis.load_config(conf)
 
     if params is None:
-        params = conf["analysis"]["params"]
+        params = (
+            conf["analysis"]["params"]["cosmo"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
+        )
 
     fids = np.array([conf["analysis"]["fiducial"][param] for param in params])
 
@@ -73,7 +78,9 @@ def get_fiducial_perturbations(params=None, conf=None):
     conf = analysis.load_config(conf)
 
     if params is None:
-        params = conf["analysis"]["params"]
+        params = (
+            conf["analysis"]["params"]["cosmo"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
+        )
 
     perts = np.array([conf["analysis"]["fiducial"]["perturbations"][param] for param in params])
 
@@ -92,7 +99,9 @@ def get_fiducial_perturbation_labels(params=None):
     """
     if params is None:
         conf = analysis.load_config()
-        params = conf["analysis"]["params"]
+        params = (
+            conf["analysis"]["params"]["cosmo"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
+        )
 
     pert_labels = ["fiducial"]
     for param in params:
@@ -100,3 +109,46 @@ def get_fiducial_perturbation_labels(params=None):
         pert_labels.append(f"delta_{param}_p")
 
     return pert_labels
+
+
+def get_tomo_amplitude_perturbations_dict(param, conf=None):
+    """Returns a dictionary containing the tomographic amplitudes calculated like in redshift.py for the different
+    perturbations of the intrinsic alignment or galaxy biasing parameters.
+
+    Args:
+        param (str): Has to be either "Aia" or "bg"
+        conf (str, dict, optional): The config, either specified as a str pointing to a file or a dict. Defaults to
+            None, then the standard config of this repo is used.
+
+    Raises:
+        ValueError: When an unknown parameter string is passed.
+
+    Returns:
+        dict: Dictionary containing the per bin amplitude values for either Aia or bg and the perturbations.
+    """
+    # redshift
+    z0 = conf["analysis"]["z0"]
+    if param == "Aia":
+        tomo_z, tomo_nz = analysis.load_redshift_distributions("metacal", conf)
+    elif param == "bg":
+        tomo_z, tomo_nz = analysis.load_redshift_distributions("maglim", conf)
+    else:
+        raise ValueError(f"param {param} needs to be either 'bg' or 'Aia'")
+
+    # fiducial values
+    amplitude = conf["analysis"]["fiducial"][param]
+    exponent = conf["analysis"]["fiducial"][f"n_{param}"]
+
+    # perturbations
+    delta_amplitude = conf["analysis"]["fiducial"]["perturbations"][param]
+    delta_exponent = conf["analysis"]["fiducial"]["perturbations"][f"n_{param}"]
+
+    tomo_amplitude_perturbations_dict = {
+        "fiducial": redshift.get_tomo_amplitudes(amplitude, exponent, tomo_z, tomo_nz, z0),
+        f"delta_{param}_m": redshift.get_tomo_amplitudes(amplitude - delta_amplitude, exponent, tomo_z, tomo_nz, z0),
+        f"delta_{param}_p": redshift.get_tomo_amplitudes(amplitude + delta_amplitude, exponent, tomo_z, tomo_nz, z0),
+        f"delta_n_{param}_m": redshift.get_tomo_amplitudes(amplitude, exponent - delta_exponent, tomo_z, tomo_nz, z0),
+        f"delta_n_{param}_p": redshift.get_tomo_amplitudes(amplitude, exponent + delta_exponent, tomo_z, tomo_nz, z0),
+    }
+
+    return tomo_amplitude_perturbations_dict

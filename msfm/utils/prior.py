@@ -39,7 +39,9 @@ def in_grid_prior(cosmos, conf=None, params=None):
     """
     conf = analysis.load_config(conf)
     if params is None:
-        params = conf["analysis"]["params"]
+        params = (
+            conf["analysis"]["params"]["cosmo"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
+        )
 
     # make the params 2d
     cosmos = np.atleast_2d(cosmos)

@@ -64,12 +64,12 @@ def load_pixel_file(conf=None):
             None.
 
     Returns:
-        data_vec_pix: data vector pixels including padding in NEST ordering (non-tomographic)
-        metacal_tomo_patches_pix: Tomographic patch indices in RING ordering to cut out from the full sky maps
-        metacal_tomo_corresponding_pix: Needed to convert the pixels in RING ordering to NEST inside the datavector
-        gamma2_signs: Signs for gamma2 that come from mirroring the survey patch
-        maglim_patches_pix: Patch indices in RING ordering to cut out from the full sky maps (non-tomographic)
-        maglim_corresponding_pix: Needed to convert the pixels in RING ordering to NEST inside the datavector
+        data_vec_pix: data vector pixels including padding in NEST ordering (non-tomographic).
+        patches_pix_dict: For "metacal" (tomographic) and "maglim" (non-tomographic), four patch indices in RING
+            ordering to cut out from the full sky maps.
+        corresponding_pix_dict: For "metacal" (tomographic) and "maglim" (non-tomographic), needed to convert the
+            pixels in RING ordering to NEST inside the datavector.
+        gamma2_signs: Signs for gamma2 that come from mirroring the survey patch, needed for Metacal only.
     """
     conf = load_config(conf)
 
@@ -123,20 +123,31 @@ def get_tomo_masks(conf=None):
             passed through) or None (the default config is loaded). Defaults to None.
 
     Returns:
-        np.ndarray: Mask array of shape (n_pix, n_z_bins) that is zero for the padding and one for the data
+        dict: For "metacal" (tomographic) and "maglim" (non-tomographic), mask array of shape (n_pix, n_z_bins) or
+            (n_pix, 1) that is zero for the padding and one for the data.
     """
-    data_vec_pix, _, metacal_tomo_conversion_pix, _, _, _ = load_pixel_file(conf)
+    data_vec_pix, _, corresponding_pix_dict, _ = load_pixel_file(conf)
 
-    masks = []
+    masks_metacal = []
     # loop over the tomographic bins
-    for pix in metacal_tomo_conversion_pix:
+    for pix in corresponding_pix_dict["metacal"]:
         mask = np.zeros(len(data_vec_pix), dtype=np.int32)
         # loop over individual pixels
         for p in pix:
             mask[p] = 1
-        masks.append(mask)
+        masks_metacal.append(mask)
 
-    return np.array(masks).T
+    mask_maglim = np.zeros(len(data_vec_pix), dtype=np.int32)
+    # loop over individual pixels
+    for p in corresponding_pix_dict["maglim"]:
+        mask_maglim[p] = 1
+
+    masks_dict = {
+        "metacal": np.array(masks_metacal).T,
+        "maglim": mask_maglim[:,np.newaxis],
+    }
+
+    return masks_dict
 
 
 def load_noise_file(conf=None):

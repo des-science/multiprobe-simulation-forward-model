@@ -69,7 +69,11 @@ survey:
 
 analysis:
   # the six cosmological parameters of the CosmoGrid have to be listed first
-  params: ["Om", "s8", "H0", "Ob", "ns", "w0", "Aia", "bg", "n_Aia", "n_bg"]
+  params:
+    cosmo: ["Om", "s8", "H0", "Ob", "ns", "w0"]
+    sobol: ["Om", "s8", "Ob", "H0", "ns", "w0"]
+    ia: ["Aia", "n_Aia"]
+    bg: ["bg", "n_bg"]
   n_side: 512
   n_pix: 3145728
   # minimal n_side_for the networks, determines the padding of the data vectors
@@ -95,9 +99,6 @@ analysis:
     n_cosmos: 2500
     n_perms_per_cosmo: 4
     n_noise_per_example: 3
-    # different parameter ordering
-    params_sobol:
-      ["Om", "s8", "Ob", "H0", "ns", "w0", "Aia", "bg", "n_Aia", "n_bg"]
     priors:
       # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
       Om: [0.1, 0.5]

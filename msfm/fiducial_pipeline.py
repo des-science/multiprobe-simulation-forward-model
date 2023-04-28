@@ -9,12 +9,12 @@ https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1
 by Janis Fluri
 """
 
-import numpy as np
+import healpy as hp  # this import could be avoided easily
 import tensorflow as tf
 import tensorflow_probability as tfp
 import warnings
 
-from msfm.utils import analysis, logger, tfrecords, shear, parameters
+from msfm.utils import analysis, logger, tfrecords, shear, parameters, redshift
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -26,9 +26,14 @@ def dset_augmentations(
     data_vectors: dict,
     index: tuple,
     pert_labels: list,
+    # kg
     m_bias_dist: tfp.distributions.Distribution = None,
     noise_scale: float = 1.0,
-    masks: tf.constant = None,
+    masks_metacal: tf.constant = None,
+    # dg
+    tomo_n_gal_maglim: tf.constant = None,
+    tomo_bg_perts_dict: dict = None,
+    mask_maglim: tf.constant = None,
 ):
     """Applies random augmentations and general pre-processing to the kappa maps. This includes in order:
         - Adds random multiplicative shear bias (the additive one is negligible) to the kappa maps
@@ -41,13 +46,18 @@ def dset_augmentations(
             (batch_size, n_pix, n_z_bins).
         index (tf.tensor): Tuple of integers (i_example, i_noise) that is only passed through.
         pert_labels (list): The labels of the perturbations to loop through. These are needed explicitly for the
-            function to be converted by autograph.
+            function to be converted by autograph. This list should include all parameters, so cosmo, ia and bg ones.
         m_bias_dist (tfp.distributions.Distribution, optional): TensorFlow probability distribution from which the bias
             is sampled. The samples have to be drawn within this function for randomness. Defaults to None, then the
             bias is always equal to one.
         noise_scale (float): Multiplicative factor applied to the shape noise before it is added. Defaults to 1.0,
             for a value of None, no shape noise is added to the kappa maps.
-        masks (tf.tensor): Tensor Of shape (n_pix, n_z_bins) only containing zeros and ones.
+        masks_metacal (tf.tensor): Tensor of shape (n_pix, n_z_metacal) only containing zeros and ones.
+        tomo_n_gal_maglim (tf.tensor): Average number of galaxies per pixel for the given nside of shape (n_z_maglim,).
+        tomo_bg_perts_dict (dict): Dict of arrays of shape (n_z_maglim,) which contains one galaxy biasing amplitude
+            per tomographic bin. The dictionary keys are the perturbation labels.
+        masks_maglim (tf.tensor): Tensor of shape (n_pix, 1) only containing zeros and ones. The mask is identical for
+            all tomographic bins.
 
     Returns:
         tuple: (data_vectors, index), where data_vectors is a tensor of shape (n_perts * batch_size, n_pix). The first
@@ -61,35 +71,90 @@ def dset_augmentations(
     # shape noise
     sn = data_vectors.pop("sn")
 
-    augmented_dvs = []
+    augmented_kg = []
+    augmented_dg = []
     for label in pert_labels:
-        data_vector = data_vectors[f"kg_{label}"]
+        # intrinsic alignemnt perturbations
+        if "Aia" in label:
+            kg_data_vector = data_vectors[f"kg_{label}"]
+            # doesn't affect the clustering map
+            dg_data_vector = data_vectors[f"dg_fiducial"]
 
-        # shear bias
+            tomo_bg = tomo_bg_perts_dict["fiducial"]
+
+        # galaxy bias perturbations
+        elif "bg" in label:
+            # doesn't affect the convergence map
+            kg_data_vector = data_vectors[f"kg_fiducial"]
+            # the perturbation comes in the per bin bias parameter
+            dg_data_vector = data_vectors[f"dg_fiducial"]
+
+            tomo_bg = tomo_bg_perts_dict[label]
+
+        # cosmology perturbations
+        else:
+            kg_data_vector = data_vectors[f"kg_{label}"]
+            dg_data_vector = data_vectors[f"dg_{label}"]
+
+            tomo_bg = tomo_bg_perts_dict["fiducial"]
+
+        """ lensing """
+
         if m_bias_dist is not None:
-            # shape (n_z_bins,)
-            m_bias = m_bias_dist.sample()
+            # shear bias, only sample at the fiducial (which always comes first)
+            if "fiducial" in label:
+                # shape (n_z_bins,)
+                m_bias = m_bias_dist.sample()
+
             # broadcast axis 0 of size n_pix
-            data_vector *= 1.0 + m_bias
+            kg_data_vector *= 1.0 + m_bias
         else:
             LOGGER.warning(f"No multiplicative shear bias is applied")
 
         # shape noise
         if noise_scale is not None:
-            data_vector += noise_scale * sn
+            kg_data_vector += noise_scale * sn
         else:
             LOGGER.warning(f"No shape noise is added")
 
         # masking
-        if masks is not None:
-            data_vector *= masks
+        if masks_metacal is not None:
+            kg_data_vector *= masks_metacal
         else:
-            LOGGER.warning(f"No masking is applied")
+            LOGGER.warning(f"No masking is applied to metacal")
 
-        augmented_dvs.append(data_vector)
+        """ clustering """
 
-    # concatenate
-    data_vectors = tf.concat(augmented_dvs, axis=0)
+        # go from galaxy density contrast to galaxy number map
+        dg_data_vector = tomo_n_gal_maglim * (1 + tomo_bg * dg_data_vector)
+        dg_data_vector = tf.where(0 < dg_data_vector, dg_data_vector, 0)
+
+        # Poisson noise, only sample at the fiducial (which always comes first)
+        if "fiducial" in label:
+            dg_noisy_fiducial = tf.random.poisson(shape=[], lam=dg_data_vector)
+            dg_fiducial_noise = dg_noisy_fiducial - dg_data_vector
+
+            dg_data_vector = dg_noisy_fiducial
+        else:
+            # apply the "fiducial Poisson noise" to the perturbations
+            dg_data_vector += dg_fiducial_noise
+
+        # masking
+        if mask_maglim is not None:
+            dg_data_vector *= mask_maglim
+        else:
+            LOGGER.warning(f"No masking is applied to maglim")
+
+        # results
+        augmented_kg.append(kg_data_vector)
+        augmented_dg.append(dg_data_vector)
+
+    # concatenate the perturbation axis
+    kg_data_vectors = tf.concat(augmented_kg, axis=0)
+    dg_data_vectors = tf.concat(augmented_dg, axis=0)
+
+    # concatenate the tomography axis
+    data_vectors = tf.concat([kg_data_vectors, dg_data_vectors], axis=-1)
 
     return data_vectors, index
 
@@ -118,7 +183,6 @@ def get_fiducial_dset(
     input_context: tf.distribute.InputContext = None,
 ) -> tf.data.Dataset:
     """Builds the training dataset from the given file name pattern
-    TODO add galaxy clustering maps
 
     Args:
         tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
@@ -164,14 +228,30 @@ def get_fiducial_dset(
             The index label consists of (i_example, i_noise)
     """
     LOGGER.info(f"Starting to generate the fiducial training set for i_noise = {i_noise}")
+    conf = analysis.load_config(conf)
+
+    # constants
+    n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
+    n_z_maglim = len(conf["survey"]["maglim"]["z_bins"])
+
+    pert_labels = parameters.get_fiducial_perturbation_labels(params)
+    cosmo_kg_pert_labels = [pert_label for pert_label in pert_labels if not "bg" in pert_label]
+    m_bias_dist = shear.get_m_bias_distribution(conf)
+
+    # galaxy biasing
+    tomo_n_gal_maglim = tf.constant(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(
+        conf["analysis"]["n_side"], degrees=True
+    )
+    tomo_bg_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg", conf)
 
     # load the pixel file to get the size of the data vector
-    data_vec_pix, _, _, _, _ = analysis.load_pixel_file(conf)
+    data_vec_pix, _, _, _ = analysis.load_pixel_file(conf)
     n_pix = len(data_vec_pix)
-    masks = tf.constant(analysis.get_tomo_masks(conf), dtype=tf.float32)
-    n_z_bins = masks.shape[1]
-    pert_labels = parameters.get_fiducial_perturbation_labels(params)
-    m_bias_dist = shear.get_m_bias_distribution(conf)
+
+    # masking
+    masks_dict = analysis.get_tomo_masks(conf)
+    masks_metacal = tf.constant(masks_dict["metacal"], dtype=tf.float32)
+    mask_maglim = tf.constant(masks_dict["maglim"], dtype=tf.float32)
 
     if is_eval:
         LOGGER.warning(f"Evaluation mode is activated, the random seed is fixed and the dataset is not repeated")
@@ -209,7 +289,7 @@ def get_fiducial_dset(
     # parse, output signature (data_vectors, (i_example, i_noise))
     dset = dset.map(
         lambda serialized_example: tfrecords.parse_inverse_fiducial(
-            serialized_example, pert_labels, i_noise, n_pix, n_z_bins
+            serialized_example, cosmo_kg_pert_labels, i_noise, n_pix, n_z_metacal, n_z_maglim
         ),
         num_parallel_calls=tf.data.AUTOTUNE,
     )
@@ -227,15 +307,20 @@ def get_fiducial_dset(
     dset = dset.batch(local_batch_size, drop_remainder=True)
     LOGGER.info(f"Batching into {local_batch_size} elements locally")
 
-    # augmentations (all in one function, to make parallelization easier)
+    # augmentations (all in one function, to make parallelization faster)
     dset = dset.map(
         lambda data_vectors, index: dset_augmentations(
             data_vectors,
             index,
             pert_labels,
+            # kg
             m_bias_dist,
             noise_scale,
-            masks,
+            masks_metacal,
+            # dg
+            tomo_n_gal_maglim,
+            tomo_bg_perts_dict,
+            mask_maglim,
         ),
         num_parallel_calls=tf.data.AUTOTUNE,
     )
