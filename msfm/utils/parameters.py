@@ -126,6 +126,9 @@ def get_tomo_amplitude_perturbations_dict(param, conf=None):
     Returns:
         dict: Dictionary containing the per bin amplitude values for either Aia or bg and the perturbations.
     """
+    if conf is None:
+        conf = analysis.load_config()
+        
     # redshift
     z0 = conf["analysis"]["z0"]
     if param == "Aia":
