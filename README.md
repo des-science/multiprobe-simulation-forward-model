@@ -34,8 +34,9 @@ Contains important metadata like information on the cosmological parameters cove
 ### msfm
 Contains the main forward model. 
 
-- `msfm/apps` contains the scripts meant to be submitted by [esub-epipe](https://cosmo-gitlab.phys.ethz.ch/cosmo_public/esub-epipe) and are parallelized over the fiducial or grid cosmologies of the [CosmoGridV1](http://www.cosmogrid.ai). Here, the aggregation according to the pipeline picture below is implemented.
-![](documentation/msfm_pipeline.png)
+- `msfm/apps` contains the scripts meant to be submitted by [esub-epipe](https://cosmo-gitlab.phys.ethz.ch/cosmo_public/esub-epipe) and are parallelized over the fiducial or grid cosmologies of the [CosmoGridV1](http://www.cosmogrid.ai). Here, the aggregation according to the pipeline picture below is implemented. Note that there are slight differences between the fiducial (used for training) and the grid (used for evaluation) pipelines:
+  - grid ![](documentation/grid_pipeline.png)
+  - fiducial ![](documentation/fiducial_pipeline.png)
 
 - `msfm/utils` contains various helper functions needed in `msfm/apps` 
 - `msfm/fiducial_pipeline.py` and `msfm/grid_pipeline.py` contain the generators to efficiently read the `.tfrecord` files and in conjunction with them, form the main product of this repo.
