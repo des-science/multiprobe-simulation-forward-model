@@ -104,7 +104,9 @@ def main(indices, args):
     # constants
     n_side = conf["analysis"]["n_side"]
     tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
-    sobol_priors = parameters.get_prior_intervals(conf["analysis"]["grid"]["params_sobol"])
+    sobol_priors = parameters.get_prior_intervals(
+        conf["analysis"]["params"]["sobol"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
+    )
 
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
@@ -171,8 +173,10 @@ def main(indices, args):
                     LOGGER.warning("Debug mode, aborting after 5 subindices")
                     break
 
-                # select the relevant cosmological parameters, the first six are part of the CosmoGrid
-                cosmo = [cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in conf["analysis"]["params"][:6]]
+                # select the relevant cosmological parameters
+                cosmo = [
+                    cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in conf["analysis"]["params"]["cosmo"]
+                ]
                 cosmo = np.array(cosmo, dtype=np.float32)
 
                 i_sobol = cosmo_params_info["sobol_index"][i_cosmo]
@@ -182,12 +186,12 @@ def main(indices, args):
                 sobol_params = sobol_point * np.squeeze(np.diff(sobol_priors)) + sobol_priors[:, 0]
                 sobol_params = sobol_params.astype(np.float32)
 
-                # add these to the label
+                # add these to the label, the parameters are ordered as in sobol_priors
                 Aia = sobol_params[6]
-                bg = sobol_params[7]
-                n_Aia = sobol_params[8]
+                n_Aia = sobol_params[7]
+                bg = sobol_params[8]
                 n_bg = sobol_params[9]
-                cosmo = np.concatenate((cosmo, np.array([Aia, bg, n_Aia, n_bg])))
+                cosmo = np.concatenate((cosmo, np.array([Aia, n_Aia, bg, n_bg])))
 
                 # redshift evolution
                 tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)

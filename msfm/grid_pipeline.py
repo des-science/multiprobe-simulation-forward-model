@@ -9,12 +9,10 @@ https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1
 by Janis Fluri
 """
 
-import numpy as np
 import tensorflow as tf
-import tensorflow_probability as tfp
 import warnings
 
-from msfm.utils import analysis, logger, tfrecords, shear
+from msfm.utils import analysis, logger, tfrecords
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -25,47 +23,44 @@ LOGGER = logger.get_logger(__file__)
 def dset_augmentations(
     kg: tf.constant,
     sn: tf.constant,
+    dg: tf.constant,
     cosmo: tf.constant,
     index: tuple,
-    m_bias_dist: tfp.distributions.Distribution = None,
     noise_scale: float = 1.0,
-    masks: tf.constant = None,
+    masks_metacal: tf.constant = None,
+    mask_maglim: tf.constant = None,
 ):
     """Applies random augmentations and general pre-processing to the maps. This includes in order:
-        - Adds random multiplicative shear bias (the additive one is negligible) to the kappa maps
+        lensing
+        - DEPRECATED (This was moved to run_grid_tfrecords.py): Adds random multiplicative shear bias (the additive
+            one is negligible) to the kappa maps
         - Adds the chosen shape noise realization to the kappa maps
         - Masks the resulting data vector (this is only required if an addition like an additive shear bias is applied)
 
+        clustering
+        - Masking only
+
     Args:
-        kg (tf.tensor): shape(n_pix, n_z_bins) the sum of weak lensing signal and intrinsic alignment
-        sn (tf.tensor): shape(n_pix, n_z_bins) one shape noise realization
+        kg (tf.tensor): shape(n_pix, n_z_metacal) the sum of weak lensing signal and intrinsic alignment
+        sn (tf.tensor): shape(n_pix, n_z_metacal) one shape noise realization
+        dg (tf.tensor): shape(n_pix, n_z_maglim) the galaxy number map
         cosmo (tf.tensor): shape(n_params,) the cosmological parameter label
         index (tuple): A tuple of two integers (i_sobol, i_noise)
-        m_bias_dist (tfp.distributions.Distribution, optional): TensorFlow probability distribution from which the bias
-            is sampled. The samples have to be drawn within this function for randomness. Defaults to None, then the
-            bias is always equal to one.
         noise_scale (float): Multiplicative factor applied to the shape noise before it is added. Defaults to 1.0,
             for a value of None, no shape noise is added to the kappa maps.
-        masks (tf.tensor): Tensor Of shape (n_pix, n_z_bins) only containing zeros and ones.
+        masks_metacal (tf.tensor): Tensor Of shape (n_pix, n_z_metacal) only containing zeros and ones.
+        mask_maglim (tf.tensor): Tensor Of shape (n_pix, 1) only containing zeros and ones. There's only one mask for
+            all tomographic bins.
 
     Returns:
-        tuple: (data_vectors, index), where data_vectors is a tensor of shape (n_perts * batch_size, n_pix). The first
-            batch_size elements correspond to the fiducial value, the second to the first perturbation, the third to
-            the second perturbation, etc. (for compatibility with the delta loss). Furthermore, data_vectors["sn"] is
-            removed.
+        tuple: (data_vectors, cosmo, index), where data_vectors is a tensor of shape
+        (batch_size, n_pix, n_z_metacal + n_z_maglim), cosmo is a label distributed on the Sobol sequence and index is
+        a tuple containing (i_sobol, i_noise).
     """
 
     LOGGER.warning(f"Tracing dset_augmentations")
 
-    # Done on the level of the .tfrecords
-    # # shear bias
-    # if m_bias_dist is not None:
-    #     # shape (n_z_bins,)
-    #     m_bias = m_bias_dist.sample()
-    #     # broadcast axis 0 of size n_pix
-    #     kg *= 1.0 + m_bias
-    # else:
-    #     LOGGER.warning(f"No multiplicative shear bias is applied")
+    """ lensing """
 
     # shape noise
     if noise_scale is not None:
@@ -74,12 +69,25 @@ def dset_augmentations(
         LOGGER.warning(f"No shape noise is added")
 
     # masking
-    if masks is not None:
-        kg *= masks
+    if masks_metacal is not None:
+        kg *= masks_metacal
     else:
-        LOGGER.warning(f"No masking is applied")
+        LOGGER.warning(f"No masking is applied to metacal")
 
-    return kg, cosmo, index
+    """ clustering """
+
+    dg = tf.cast(dg, tf.float32)
+
+    # masking
+    if mask_maglim is not None:
+        dg *= mask_maglim
+    else:
+        LOGGER.warning(f"No masking is applied to maglim")
+
+    # concatenate the tomography axis
+    data_vectors = tf.concat([kg, dg], axis=-1)
+
+    return data_vectors, cosmo, index
 
 
 def get_grid_dset(
@@ -94,13 +102,10 @@ def get_grid_dset(
     # performance
     n_readers: int = 8,
     n_prefetch: int = tf.data.AUTOTUNE,
-    # random seeds
-    tf_seed: int = 31,
     # distribution
     input_context: tf.distribute.InputContext = None,
 ) -> tf.data.Dataset:
     """Builds the training dataset from the given file name pattern
-    TODO add galaxy clustering maps
 
     Args:
         tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
@@ -116,8 +121,6 @@ def get_grid_dset(
         n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
             concurrently. This should be roughly less than a tenth of the number of files. Defaults to 8.
         n_prefetch (int, optional): Number of dataset elements to prefetch.
-        tf_seed (int, optional): The global tensorflow seed to make the evaluation of this function deterministic.
-            TODO check whether this is actually the case.
         input_context (tf.distribute.InputContext, optional): For distributed training, this is passed to the
             dataset_fn like in https://www.tensorflow.org/tutorials/distribute/input#tfdistributestrategydistribute_datasets_from_function
             Then, the dataset is sharded. Defaults to None for a non distributed dataset.
@@ -131,23 +134,32 @@ def get_grid_dset(
                     )
 
     Returns:
-        tf.data.Dataset: A deterministic dataset that goes through the grid cosmologies in the order of the sobol seeds
+        tf.data.Dataset: A deterministic dataset that goes through the grid cosmologies in the order of the sobol
+            seeds. The output is a tuple like (data_vectors, cosmo, index), where data_vectors is a tensor of shape
+        (batch_size, n_pix, n_z_metacal + n_z_maglim), cosmo is a label distributed on the Sobol sequence and index is
+        a tuple containing (i_sobol, i_noise).
     """
     LOGGER.info(f"Starting to generate the grid data set for i_noise = {i_noise}")
 
-    # load the pixel file to get the size of the data vector
-    data_vec_pix, _, _, _, _ = analysis.load_pixel_file(conf)
-    n_pix = len(data_vec_pix)
-    masks = tf.constant(analysis.get_tomo_masks(conf), dtype=tf.float32)
-    n_z_bins = masks.shape[1]
-    if n_params is None:
-        conf = analysis.load_config(conf)
-        params = conf["analysis"]["params"]
-        n_params = len(params)
-    m_bias_dist = shear.get_m_bias_distribution(conf)
+    # constants
+    conf = analysis.load_config(conf)
+    n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
+    n_z_maglim = len(conf["survey"]["maglim"]["z_bins"])
 
-    # for determinism TODO double check whether this actually fixes everything
-    tf.random.set_seed(tf_seed)
+    if n_params is None:
+        params = (
+            conf["analysis"]["params"]["cosmo"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
+        )
+        n_params = len(params)
+
+    # load the pixel file to get the size of the data vector
+    data_vec_pix, _, _, _ = analysis.load_pixel_file(conf)
+    n_pix = len(data_vec_pix)
+
+    # masking
+    masks_dict = analysis.get_tomo_masks(conf)
+    masks_metacal = tf.constant(masks_dict["metacal"], dtype=tf.float32)
+    mask_maglim = tf.constant(masks_dict["maglim"], dtype=tf.float32)
 
     # get the file names and dataset them
     dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=False)
@@ -169,10 +181,10 @@ def get_grid_dset(
         deterministic=True,
     )
 
-    # parse, output signature (kg, sn, cosmo, index)
+    # parse, output signature (kg, sn, dg, cosmo, index)
     dset = dset.map(
         lambda serialized_example: tfrecords.parse_inverse_grid(
-            serialized_example, i_noise, n_pix, n_z_bins, n_params
+            serialized_example, i_noise, n_pix, n_z_metacal, n_z_maglim, n_params
         ),
         num_parallel_calls=tf.data.AUTOTUNE,
     )
@@ -181,16 +193,17 @@ def get_grid_dset(
     dset = dset.batch(local_batch_size, drop_remainder=False)
     LOGGER.info(f"Batching into {local_batch_size} elements locally")
 
-    # augmentations (all in one function, to make parallelization easier)
+    # augmentations (all in one function, to make parallelization faster)
     dset = dset.map(
-        lambda kg, sn, cosmo, index: dset_augmentations(
+        lambda kg, sn, dg, cosmo, index: dset_augmentations(
             kg,
             sn,
+            dg,
             cosmo,
             index,
-            m_bias_dist,
             noise_scale,
-            masks,
+            masks_metacal,
+            mask_maglim,
         ),
         num_parallel_calls=tf.data.AUTOTUNE,
     )

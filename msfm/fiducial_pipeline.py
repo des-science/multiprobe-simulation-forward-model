@@ -228,9 +228,9 @@ def get_fiducial_dset(
             The index label consists of (i_example, i_noise)
     """
     LOGGER.info(f"Starting to generate the fiducial training set for i_noise = {i_noise}")
-    conf = analysis.load_config(conf)
 
     # constants
+    conf = analysis.load_config(conf)
     n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
     n_z_maglim = len(conf["survey"]["maglim"]["z_bins"])
 
