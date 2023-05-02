@@ -13,7 +13,7 @@ Meant for Euler (CPU nodes, local scratch)
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-import os, argparse, warnings, h5py, time, logging
+import os, argparse, warnings, h5py, time, logging, yaml
 
 from msfm.utils import analysis, logger, input_output, maps, shear, cosmogrid
 from msfm.utils.filenames import *
@@ -116,6 +116,10 @@ def main(indices, args):
 
     # args.config is a string to the file
     conf = analysis.load_config(args.config)
+
+    # save the config
+    with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
+        yaml.dump(conf, f)
 
     # general constants
     n_side = conf["analysis"]["n_side"]

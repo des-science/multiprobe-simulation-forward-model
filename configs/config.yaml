@@ -90,10 +90,8 @@ analysis:
   # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf, TODO check sqrt(2) kappa -> gamma conversion
   shear_bias:
     multiplicative:
-      # [-0.0063, -0.0198, -0.0241, -0.0369] * sqrt(2)
-      mu: [-0.00890955, -0.02800143, -0.03408255, -0.05218448]
-      # [0.0091, 0.0078, 0.0076, 0.0076] * sqrt(2)
-      sigma: [0.01286934, 0.01103087, 0.01074802, 0.01074802]
+      mu: [-0.0063, -0.0198, -0.0241, -0.0369]
+      sigma: [0.0091, 0.0078, 0.0076, 0.0076]
   grid:
     # CosmoGrid
     n_cosmos: 2500
