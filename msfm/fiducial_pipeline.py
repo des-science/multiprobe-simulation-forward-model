@@ -30,6 +30,29 @@ def lensing_augmentations(
     noise_scale: float = 1.0,
     masks: tf.constant = None,
 ):
+    """Applies random augmentations and general pre-processing to the weak lensing maps (kg). This includes in order:
+        - Adds random multiplicative shear bias (the additive one is negligible) to the kappa maps
+        - Adds the chosen shape noise realization to the kappa maps
+        - Masks the resulting data vector (this is only required if an addition like an additive shear bias is applied)
+        - Concatenates the batch and perturbations along axis 0 (for compatibility with the delta loss)
+
+    Args:
+        data_vectors (dict): Has keys "kg_{pert_label}" and "sn", which contain tensors of shape
+            (batch_size, n_pix, n_z_metacal).
+        pert_labels (list): The labels of the perturbations to loop through. This should contain both cosmological and
+            intrinsic alignment parameters.
+        m_bias_dist (tfp.distributions.Distribution, optional): TensorFlow probability distribution from which the bias
+            is sampled. The samples have to be drawn within this function for randomness. Defaults to None, then the
+            bias is always equal to one.
+        noise_scale (float): Multiplicative factor applied to the shape noise before it is added. Defaults to 1.0,
+            for a value of None, no shape noise is added to the kappa maps.
+        masks (tf.tensor): Tensor of shape (n_pix, n_z_metacal) only containing zeros and ones.
+
+    Returns:
+        tf.tensor: data_vectors of shape (n_perts * batch_size, n_pix, n_z_metacal). The first
+            batch_size elements correspond to the fiducial value, the second to the first perturbation, the third to
+            the second perturbation, etc. (for compatibility with the delta loss).
+    """
     # shape noise
     sn = data_vectors.pop("sn")
 
@@ -82,6 +105,30 @@ def clustering_augmentations(
     noise_scale: float = 1.0,
     masks: tf.constant = None,
 ):
+    """Applies random augmentations and general pre-processing to the clustering maps (dg). This includes in order:
+        - Convert from galaxy density contrast to galaxy number map
+        - Sample corresponding Poisson noise at the fiducial and multiplicatively apply to all maps
+        - Masks the resulting data vector (just to be safe)
+        - Concatenates the batch and perturbations along axis 0 (for compatibility with the delta loss)
+
+    Args:
+        data_vectors (dict): Has keys "dg_{pert_label}", which contain tensors of shape (batch_size, n_pix, n_z_maglim).
+        pert_labels (list): The labels of the perturbations to loop through. This should contain cosmological
+            parameters only (as the galaxy clustering parameters are added here in this function and not stored).
+        tomo_n_gal (tf.tensor): Average number of galaxies per pixel for the given nside of shape (n_z_maglim,).
+        tomo_bg_perts_dict (dict): Dict of arrays of shape (n_z_maglim,) which contains one galaxy biasing amplitude
+            per tomographic bin. The dictionary keys are the perturbation labels.
+        noise_scale (float): Multiplicative factor applied to the Poisson noise before. Defaults to 1.0, for a value of
+            None, no Poisson noise is sampled.
+        masks (tf.tensor): Tensor of shape (n_pix, 1) only containing zeros and ones. The mask is identical for
+            all tomographic bins.
+
+    Returns:
+        tf.tensor: data_vectors of shape (n_perts * batch_size, n_pix, n_z_maglim). The first batch_size elements
+            correspond to the fiducial value, the second to the first perturbation, the third to the second
+            perturbation, etc. (for compatibility with the delta loss).
+    """
+
     out_data_vectors = []
     for label in pert_labels:
         # intrinsic alignemnt perturbations
@@ -109,19 +156,14 @@ def clustering_augmentations(
         # Poisson noise, only sample at the fiducial (which always comes first)
         if noise_scale is not None:
             if "fiducial" in label:
-                dg_noisy_fiducial = tf.random.poisson(shape=[], lam=data_vector)
-                dg_noise_fac = dg_noisy_fiducial / data_vector
-                dg_noise_fac *= noise_scale
+                noisy_fiducial = tf.random.poisson(shape=[], lam=data_vector)
+                poisson_noise_fac = noisy_fiducial / data_vector
+                poisson_noise_fac *= noise_scale
 
             # apply the "fiducial Poisson noise" to the perturbations
-            data_vector *= dg_noise_fac
+            data_vector *= poisson_noise_fac
         else:
             LOGGER.warning(f"No Poisson noise is added")
-
-        #     data_vector = dg_noisy_fiducial
-        # else:
-        #     # apply the "fiducial Poisson noise" to the perturbations
-        #     data_vector *= dg_noise_fac
 
         # masking
         if masks is not None:
@@ -135,7 +177,7 @@ def clustering_augmentations(
     return tf.concat(out_data_vectors, axis=0)
 
 
-def dset_new_augmentations(
+def dset_augmentations(
     data_vectors: dict,
     index: tuple,
     pert_labels: list,
@@ -151,10 +193,42 @@ def dset_new_augmentations(
     poisson_noise_scale: float = 1.0,
     masks_maglim: tf.constant = None,
 ):
+    """This function wraps lensing_augmentations and clustering_augmentations and implements the appropriate case
+        distinction.
+
+    Args:
+        data_vectors (dict): Dict of tensors of shape (batch_size, n_pix, n_z_bins).
+        index (tf.tensor): Tuple of integers (i_example, i_noise) that is only passed through.
+        pert_labels (list): The labels of the perturbations to loop through.
+        with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
+        m_bias_dist (tfp.distributions.Distribution, optional): TensorFlow probability distribution from which the bias
+            is sampled. The samples have to be drawn within this function for randomness. Defaults to None, then the
+            bias is always equal to one.
+        shape_noise_scale (float, optional): Multiplicative factor applied to the shape noise before it is added.
+            Defaults to 1.0, for a value of None, no shape noise is added to the kappa maps.
+        masks_metacal (tf.constant, optional): Tensor of shape (n_pix, n_z_metacal) only containing zeros and ones.
+            Defaults to None, then no masking is applied.
+        with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
+        tomo_n_gal (tf.tensor): Average number of galaxies per pixel for the given nside of shape (n_z_maglim,).
+        tomo_bg_perts_dict (dict): Dict of arrays of shape (n_z_maglim,) which contains one galaxy biasing amplitude
+            per tomographic bin. The dictionary keys are the perturbation labels.
+        poisson_noise_scale (float): Multiplicative factor applied to the Poisson noise before. Defaults to 1.0, for a
+            value of None, no Poisson noise is sampled.
+        masks_maglim (tf.tensor): Tensor of shape (n_pix, 1) only containing zeros and ones. The mask is identical for
+            all tomographic bins.
+
+    Raises:
+        ValueError: If both with_lensing and with_clustering are False.
+
+    Returns:
+        Tuple: (data_vectors, index)
+    """
     LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
 
     if with_lensing and with_clustering:
-        kg_data_vectors = lensing_augmentations(data_vectors, pert_labels, m_bias_dist, shape_noise_scale, masks_metacal)
+        kg_data_vectors = lensing_augmentations(
+            data_vectors, pert_labels, m_bias_dist, shape_noise_scale, masks_metacal
+        )
         dg_data_vectors = clustering_augmentations(
             data_vectors, pert_labels, tomo_n_gal_maglim, tomo_bg_perts_dict, poisson_noise_scale, masks_maglim
         )
@@ -173,149 +247,11 @@ def dset_new_augmentations(
         )
 
     else:
-        raise ValueError(f"At least either of the lensing or clustering maps need to be selected")
+        raise ValueError(f"At least one of 'lensing' or 'clustering' maps need to be selected")
 
     LOGGER.info("new function")
 
     return data_vectors, index
-
-
-# def dset_augmentations(
-#     data_vectors: dict,
-#     index: tuple,
-#     pert_labels: list,
-#     # kg
-#     m_bias_dist: tfp.distributions.Distribution = None,
-#     shape_noise_scale: float = 1.0,
-#     masks_metacal: tf.constant = None,
-#     # dg
-#     tomo_n_gal_maglim: tf.constant = None,
-#     tomo_bg_perts_dict: dict = None,
-#     poisson_noise_scale: float = 1.0,
-#     mask_maglim: tf.constant = None,
-# ):
-#     """Applies random augmentations and general pre-processing to the kappa maps. This includes in order:
-#         - Adds random multiplicative shear bias (the additive one is negligible) to the kappa maps
-#         - Adds the chosen shape noise realization to the kappa maps
-#         - Masks the resulting data vector (this is only required if an addition like an additive shear bias is applied)
-#         - Concatenates the batch and perturbations along axis 0 (for compatibility with the delta loss)
-
-#     Args:
-#         data_vectors (dict): Has keys "kg_{pert_label}" and "sn", which contain tensors of shape
-#             (batch_size, n_pix, n_z_bins).
-#         index (tf.tensor): Tuple of integers (i_example, i_noise) that is only passed through.
-#         pert_labels (list): The labels of the perturbations to loop through. These are needed explicitly for the
-#             function to be converted by autograph. This list should include all parameters, so cosmo, ia and bg ones.
-#         m_bias_dist (tfp.distributions.Distribution, optional): TensorFlow probability distribution from which the bias
-#             is sampled. The samples have to be drawn within this function for randomness. Defaults to None, then the
-#             bias is always equal to one.
-#         noise_scale (float): Multiplicative factor applied to the shape noise before it is added. Defaults to 1.0,
-#             for a value of None, no shape noise is added to the kappa maps.
-#         masks_metacal (tf.tensor): Tensor of shape (n_pix, n_z_metacal) only containing zeros and ones.
-#         tomo_n_gal_maglim (tf.tensor): Average number of galaxies per pixel for the given nside of shape (n_z_maglim,).
-#         tomo_bg_perts_dict (dict): Dict of arrays of shape (n_z_maglim,) which contains one galaxy biasing amplitude
-#             per tomographic bin. The dictionary keys are the perturbation labels.
-#         masks_maglim (tf.tensor): Tensor of shape (n_pix, 1) only containing zeros and ones. The mask is identical for
-#             all tomographic bins.
-
-#     Returns:
-#         tuple: (data_vectors, index), where data_vectors is a tensor of shape (n_perts * batch_size, n_pix). The first
-#             batch_size elements correspond to the fiducial value, the second to the first perturbation, the third to
-#             the second perturbation, etc. (for compatibility with the delta loss). Furthermore, data_vectors["sn"] is
-#             removed.
-#     """
-
-#     LOGGER.warning(f"Tracing dset_augmentations")
-
-#     # shape noise
-#     sn = data_vectors.pop("sn")
-
-#     augmented_kg = []
-#     augmented_dg = []
-#     for label in pert_labels:
-#         # intrinsic alignemnt perturbations
-#         if "Aia" in label:
-#             kg_data_vector = data_vectors[f"kg_{label}"]
-#             # doesn't affect the clustering map
-#             dg_data_vector = data_vectors[f"dg_fiducial"]
-
-#             tomo_bg = tomo_bg_perts_dict["fiducial"]
-
-#         # galaxy bias perturbations
-#         elif "bg" in label:
-#             # doesn't affect the convergence map
-#             kg_data_vector = data_vectors[f"kg_fiducial"]
-#             # the perturbation comes in the per bin bias parameter
-#             dg_data_vector = data_vectors[f"dg_fiducial"]
-
-#             tomo_bg = tomo_bg_perts_dict[label]
-
-#         # cosmology perturbations
-#         else:
-#             kg_data_vector = data_vectors[f"kg_{label}"]
-#             dg_data_vector = data_vectors[f"dg_{label}"]
-
-#             tomo_bg = tomo_bg_perts_dict["fiducial"]
-
-#         """ lensing """
-
-#         if m_bias_dist is not None:
-#             # shear bias, only sample at the fiducial (which always comes first)
-#             if "fiducial" in label:
-#                 # shape (n_z_bins,)
-#                 m_bias = m_bias_dist.sample()
-
-#             # broadcast axis 0 of size n_pix
-#             kg_data_vector *= 1.0 + m_bias
-#         else:
-#             LOGGER.warning(f"No multiplicative shear bias is applied")
-
-#         # shape noise
-#         if shape_noise_scale is not None:
-#             kg_data_vector += shape_noise_scale * sn
-#         else:
-#             LOGGER.warning(f"No shape noise is added")
-
-#         # masking
-#         if masks_metacal is not None:
-#             kg_data_vector *= masks_metacal
-#         else:
-#             LOGGER.warning(f"No masking is applied to metacal")
-
-#         """ clustering """
-
-#         # go from galaxy density contrast to galaxy number map
-#         dg_data_vector = tomo_n_gal_maglim * (1 + tomo_bg * dg_data_vector)
-#         dg_data_vector = tf.where(0 < dg_data_vector, dg_data_vector, 0)
-
-#         # Poisson noise, only sample at the fiducial (which always comes first)
-#         if "fiducial" in label:
-#             dg_noisy_fiducial = tf.random.poisson(shape=[], lam=dg_data_vector)
-#             dg_noise_fac = dg_noisy_fiducial / dg_data_vector
-
-#             dg_data_vector = dg_noisy_fiducial
-#         else:
-#             # apply the "fiducial Poisson noise" to the perturbations
-#             dg_data_vector *= dg_noise_fac
-
-#         # masking
-#         if mask_maglim is not None:
-#             dg_data_vector *= mask_maglim
-#         else:
-#             LOGGER.warning(f"No masking is applied to maglim")
-
-#         # results
-#         augmented_kg.append(kg_data_vector)
-#         augmented_dg.append(dg_data_vector)
-
-#     # concatenate the perturbation axis
-#     kg_data_vectors = tf.concat(augmented_kg, axis=0)
-#     dg_data_vectors = tf.concat(augmented_dg, axis=0)
-
-#     # concatenate the tomography axis
-#     data_vectors = tf.concat([kg_data_vectors, dg_data_vectors], axis=-1)
-
-#     return data_vectors, index
 
 
 def get_fiducial_dset(
@@ -480,7 +416,7 @@ def get_fiducial_dset(
 
     # augmentations (all in one function, to make parallelization faster)
     dset = dset.map(
-        lambda data_vectors, index: dset_new_augmentations(
+        lambda data_vectors, index: dset_augmentations(
             data_vectors,
             index,
             pert_labels,
