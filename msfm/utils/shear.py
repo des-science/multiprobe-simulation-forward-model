@@ -64,19 +64,18 @@ def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, n_side, l_min, l_m
     # gamma: map -> alm
     _, gamma_alm_E, gamma_alm_B = hp.map2alm(
         [np.zeros_like(gamma1_patch), gamma1_patch, gamma2_patch],
-        lmax=l_max,
         use_pixel_weights=True,
         datapath=hp_datapath,
     )
     # gamma -> kappa
     kappa_alm = gamma_alm_E * gamma2kappa_fac
 
-    # discard scales that are too large
-    l = hp.Alm.getlm(l_max)[0]
+    # remove large scales (hard cut)
+    l = hp.Alm.getlm(3 * n_side - 1)[0]
     kappa_alm[l < l_min] = 0.0
 
-    # kappa: alm -> map
-    kappa_patch = hp.alm2map(kappa_alm, nside=n_side, lmax=l_max)
+    # kappa: alm -> map, remove small scales (Gaussian smoothing)
+    kappa_patch = hp.alm2map(kappa_alm, nside=n_side, fwhm=np.pi/l_max)
 
     return kappa_patch
 

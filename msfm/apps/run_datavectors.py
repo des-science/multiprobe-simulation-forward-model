@@ -124,8 +124,6 @@ def main(indices, args):
     # general constants
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
-    l_range_wl = conf["analysis"]["l_range"]["lensing"]
-    l_range_gc = conf["analysis"]["l_range"]["clustering"]
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"][args.simset]["n_perms_per_cosmo"]
     n_noise_per_example = conf["analysis"][args.simset]["n_noise_per_example"]
@@ -137,7 +135,7 @@ def main(indices, args):
     tomo_n_gal_metacal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
     # alm
-    kappa2gamma_fac, gamma2kappa_fac, _ = shear.get_kaiser_squires_factors(l_range_wl[1])
+    kappa2gamma_fac, gamma2kappa_fac, _ = shear.get_kaiser_squires_factors(3 * n_side - 1)
 
     # pixel file
     data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs = analysis.load_pixel_file(conf)
@@ -189,17 +187,21 @@ def main(indices, args):
             # output containers, one for each permutation, in NEST ordering with padding
             data_vec_container = {}
 
-            for sample in ["metacal", "maglim"]:
+            for sample, probe in zip(["metacal", "maglim"], ["lensing", "clustering"]):
                 LOGGER.info(f"Starting with sample {sample}")
                 LOGGER.timer.start("sample")
 
                 # constants
                 z_bins = conf["survey"][sample]["z_bins"]
                 n_z_bins = len(z_bins)
+                tomo_l_min = conf["analysis"]["scale_cuts"][probe]["l_min"]
+                tomo_l_max = conf["analysis"]["scale_cuts"][probe]["l_max"]
 
+                # map types
                 in_map_types = conf["survey"][sample]["map_types"]["input"]
                 out_map_types = conf["survey"][sample]["map_types"]["output"]
 
+                # pixel indices
                 all_patches_pix = patches_pix_dict[sample]
                 all_corresponding_pix = corresponding_pix_dict[sample]
 
@@ -232,6 +234,13 @@ def main(indices, args):
                             map_full = f[map_dir][:]
                         LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
 
+                        # scale cuts
+                        l_min = tomo_l_min[i_z]
+                        l_max = tomo_l_max[i_z]
+                        LOGGER.debug(f"Only keeping ell in [{l_min}, {l_max}] for bin {z_bin}")
+
+                        # kappa2gamma_fac, gamma2kappa_fac, _ = shear.get_kaiser_squires_factors(l_max)
+
                         # lensing, metacal sample #####################################################################
                         if sample == "metacal":
                             # only consider this tomographic bin
@@ -239,18 +248,21 @@ def main(indices, args):
                             corresponding_pix = all_corresponding_pix[i_z]
                             base_patch_pix = patches_pix[0]
 
+                            # kappa2gamma_fac, gamma2kappa_fac, _ = shear.get_kaiser_squires_factors(l_max)
+
                             if in_map_type in ["kg", "ia"]:
                                 kappa_full = map_full
 
                                 # kappa -> gamma (full sky)
                                 kappa_alm = hp.map2alm(
-                                    kappa_full, lmax=l_range_wl[1], use_pixel_weights=True, datapath=hp_datapath
+                                    kappa_full,
+                                    use_pixel_weights=True,
+                                    datapath=hp_datapath,
                                 )
+
                                 gamma_alm = kappa_alm * kappa2gamma_fac
                                 _, gamma1_full, gamma2_full = hp.alm2map(
-                                    [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)],
-                                    nside=n_side,
-                                    lmax=l_range_wl[1],
+                                    [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
                                 )
 
                                 for i_patch, patch_pix in enumerate(patches_pix):
@@ -276,8 +288,8 @@ def main(indices, args):
                                         gamma2_patch,
                                         gamma2kappa_fac,
                                         n_side,
-                                        l_range_wl[0],
-                                        l_range_wl[1],
+                                        l_min,
+                                        l_max,
                                         hp_datapath,
                                     )
 
@@ -336,8 +348,8 @@ def main(indices, args):
                                             gamma2_patch,
                                             gamma2kappa_fac,
                                             n_side,
-                                            l_range_wl[0],
-                                            l_range_wl[1],
+                                            l_min,
+                                            l_max,
                                             hp_datapath,
                                         )
 
@@ -378,16 +390,17 @@ def main(indices, args):
                                 delta_patch = np.zeros(n_pix, dtype=np.float32)
                                 delta_patch[base_patch_pix] = delta_full[patch_pix]
 
-                                # apply the scale cuts
+                                # remove large scales (hard cut)
                                 delta_alm = hp.map2alm(
                                     delta_patch,
-                                    lmax=l_range_gc[1],
                                     use_pixel_weights=True,
                                     datapath=hp_datapath,
                                 )
-                                l = hp.Alm.getlm(l_range_gc[1])[0]
-                                delta_alm[l < l_range_gc[0]] = 0.0
-                                delta_patch = hp.alm2map(delta_alm, nside=n_side, lmax=l_range_gc[1])
+                                l = hp.Alm.getlm(3 * n_side - 1)[0]
+                                delta_alm[l < l_min] = 0.0
+
+                                # remove small scales (Gaussian smoothing)
+                                delta_patch = hp.alm2map(delta_alm, nside=n_side, fwhm=np.pi/l_max)
 
                                 # cut out padded data vector
                                 delta_dv = maps.map_to_data_vec(
