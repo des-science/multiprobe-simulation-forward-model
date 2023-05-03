@@ -221,37 +221,36 @@ def dset_augmentations(
         ValueError: If both with_lensing and with_clustering are False.
 
     Returns:
-        Tuple: (data_vectors, index)
+        Tuple: (data_tensor, index)
     """
+    LOGGER.warning(f"Tracing dset_augmentations")
     LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
 
     if with_lensing and with_clustering:
-        kg_data_vectors = lensing_augmentations(
+        kg_tensor = lensing_augmentations(
             data_vectors, pert_labels, m_bias_dist, shape_noise_scale, masks_metacal
         )
-        dg_data_vectors = clustering_augmentations(
+        dg_tensor = clustering_augmentations(
             data_vectors, pert_labels, tomo_n_gal_maglim, tomo_bg_perts_dict, poisson_noise_scale, masks_maglim
         )
 
-        # concatenate the tomography axis
-        data_vectors = tf.concat([kg_data_vectors, dg_data_vectors], axis=-1)
+        # concatenate along the tomography axis
+        out_tensor = tf.concat([kg_tensor, dg_tensor], axis=-1)
 
     elif with_lensing:
         assert not any(param in pert_labels for param in ["bg", "n_bg"])
-        data_vectors = lensing_augmentations(data_vectors, pert_labels, m_bias_dist, shape_noise_scale, masks_metacal)
+        out_tensor = lensing_augmentations(data_vectors, pert_labels, m_bias_dist, shape_noise_scale, masks_metacal)
 
     elif with_clustering:
         assert not any(param in pert_labels for param in ["Aia", "n_Aia"])
-        data_vectors = clustering_augmentations(
+        out_tensor = clustering_augmentations(
             data_vectors, pert_labels, tomo_n_gal_maglim, tomo_bg_perts_dict, poisson_noise_scale, masks_maglim
         )
 
     else:
         raise ValueError(f"At least one of 'lensing' or 'clustering' maps need to be selected")
 
-    LOGGER.info("new function")
-
-    return data_vectors, index
+    return out_tensor, index
 
 
 def get_fiducial_dset(
@@ -265,6 +264,7 @@ def get_fiducial_dset(
     # noise
     i_noise: int = 0,
     shape_noise_scale: float = 1.0,
+    with_m_bias: bool = True,
     poisson_noise_scale: float = 1.0,
     # performance
     is_cached: bool = False,
@@ -285,15 +285,21 @@ def get_fiducial_dset(
     Args:
         tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
         local_batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
+            passed through) or None (the default config is loaded). Defaults to None.
         params (list): List of the cosmological parameters with respect to which the perturbations to be used in
             training are returned, see the config for all possibilities. Defaults to None, then all are included
             according to the config.
-        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
-            passed through) or None (the default config is loaded). Defaults to None.
+        with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
+        with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
         i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
             other tensor (like randomly sampled).
-        noise_scale (float): Factor by which to multiply the shape noise. This could also be a tf.Variable to change
-            it according to a schedule during training. Set to None to not include any shape noise. Defaults to 1.0.
+        shape_noise_scale (float, optional): Factor by which to multiply the shape noise. This could also be a 
+            tf.Variable to change it according to a schedule during training. Set to None to not include any shape 
+            noise. Defaults to 1.0.
+        with_m_bias (bool, optional): Whether to include the multiplicative shear bias. Defaults to True.
+        poisson_noise_scale (float, optional): Rescales the Poisson noise, could be used in a noise schedule like
+            the shape_noise_scale. Defaults to 1.0.
         is_cached (bool): Whether to cache on the level on the deserialized tensors. This is only feasible if all of
             the fiducial .tfrecords fit into RAM. Defaults to False.
         n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
@@ -342,7 +348,10 @@ def get_fiducial_dset(
 
     # lensing specific
     masks_metacal = tf.constant(masks_dict["metacal"], dtype=tf.float32)
-    m_bias_dist = shear.get_m_bias_distribution(conf)
+    if with_m_bias:
+        m_bias_dist = shear.get_m_bias_distribution(conf)
+    else:
+        m_bias_dist = None
 
     # clustering specific
     masks_maglim = tf.constant(masks_dict["maglim"], dtype=tf.float32)
@@ -422,8 +431,7 @@ def get_fiducial_dset(
             pert_labels,
             # kg
             with_lensing,
-            # m_bias_dist,
-            None,
+            m_bias_dist,
             shape_noise_scale,
             masks_metacal,
             # dg

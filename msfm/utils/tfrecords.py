@@ -68,7 +68,16 @@ def parse_forward_grid(kg, sn_realz, dg, cosmo, i_sobol):
     return example
 
 
-def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_metacal=None, n_z_maglim=None, n_params=None):
+def parse_inverse_grid(
+    serialized_example,
+    i_noise=0,
+    n_pix=None,
+    n_z_metacal=None,
+    n_z_maglim=None,
+    n_params=None,
+    with_lensing=True,
+    with_clustering=True,
+):
     """Use the same structure as in in the forward pass above. Note that n_pix, n_z_bins and n_params have to be passed
     as function arguments to ensure that the function can be converted to a graph.
 
@@ -89,42 +98,65 @@ def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_metacal=No
     features = {
         # tensor shapes
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
-        "n_z_metacal": tf.io.FixedLenFeature([], tf.int64),
-        "n_z_maglim": tf.io.FixedLenFeature([], tf.int64),
         "n_params": tf.io.FixedLenFeature([], tf.int64),
-        # lensing, metacal
-        "kg": tf.io.FixedLenFeature([], tf.string),
         f"sn_{i_noise}": tf.io.FixedLenFeature([], tf.string),
-        # clustering, maglim
-        "dg": tf.io.FixedLenFeature([], tf.string),
         # labels
         "cosmo": tf.io.FixedLenFeature([], tf.string),
         "i_sobol": tf.io.FixedLenFeature([], tf.int64),
     }
 
+    if with_lensing:
+        features["n_z_metacal"] = tf.io.FixedLenFeature([], tf.int64)
+        features["kg"] = tf.io.FixedLenFeature([], tf.string)
+        features[f"sn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
+
+    if with_clustering:
+        features["n_z_maglim"] = tf.io.FixedLenFeature([], tf.int64)
+        features["dg"] = tf.io.FixedLenFeature([], tf.string)
+
     data = tf.io.parse_single_example(serialized_example, features)
 
-    kg = tf.io.parse_tensor(data["kg"], out_type=tf.float32)
-    sn = tf.io.parse_tensor(data[f"sn_{i_noise}"], out_type=tf.float32)
-    dg = tf.io.parse_tensor(data["dg"], out_type=tf.int16)
-    cosmo = tf.io.parse_tensor(data["cosmo"], out_type=tf.float32)
+    # output container
+    data_vectors = {}
 
-    # defining the shapes like this works too, but is slower than when they are passed as function arguments
-    if (n_pix is None) or (n_z_metacal is None) or (n_z_maglim is None) or (n_params is None):
-        kg = tf.reshape(kg, shape=(data["n_pix"], data["n_z_metacal"]))
-        sn = tf.reshape(sn, shape=(data["n_pix"], data["n_z_metacal"]))
-        dg = tf.reshape(dg, shape=(data["n_pix"], data["n_z_maglim"]))
+    cosmo = tf.io.parse_tensor(data["cosmo"], out_type=tf.float32)
+    if n_params is None:
         cosmo = tf.reshape(cosmo, shape=(data["n_params"],))
-    # tf.ensure_shape fixes the shape inside the graph
     else:
-        kg = tf.ensure_shape(kg, shape=(n_pix, n_z_metacal))
-        sn = tf.ensure_shape(sn, shape=(n_pix, n_z_metacal))
-        dg = tf.ensure_shape(dg, shape=(n_pix, n_z_maglim))
         cosmo = tf.ensure_shape(cosmo, shape=(n_params,))
+    data_vectors["cosmo"] = cosmo
+
+    if with_lensing:
+        # parse
+        kg = tf.io.parse_tensor(data["kg"], out_type=tf.float32)
+        sn = tf.io.parse_tensor(data[f"sn_{i_noise}"], out_type=tf.float32)
+
+        # reshape
+        if (n_pix is None) or (n_z_metacal is None):
+            kg = tf.reshape(kg, shape=(data["n_pix"], data["n_z_metacal"]))
+            sn = tf.reshape(sn, shape=(data["n_pix"], data["n_z_metacal"]))
+        else:
+            kg = tf.ensure_shape(kg, shape=(n_pix, n_z_metacal))
+            sn = tf.ensure_shape(sn, shape=(n_pix, n_z_metacal))
+
+        data_vectors["kg"] = kg
+        data_vectors["sn"] = sn
+
+    if with_clustering:
+        # parse
+        dg = tf.io.parse_tensor(data["dg"], out_type=tf.int16)
+
+        # reshape
+        if (n_pix is None) or (n_z_maglim is None):
+            dg = tf.reshape(dg, shape=(data["n_pix"], data["n_z_maglim"]))
+        else:
+            dg = tf.ensure_shape(dg, shape=(n_pix, n_z_maglim))
+
+        data_vectors["dg"] = dg
 
     index = (data["i_sobol"], i_noise)
 
-    return kg, sn, dg, cosmo, index
+    return data_vectors, index
 
 
 def parse_forward_fiducial(pert_labels, kg_perts, dg_perts, ia_pert_labels, ia_perts, sn_realz, i_example):
@@ -239,20 +271,17 @@ def parse_inverse_fiducial(
     # output container
     data_vectors = {}
 
-    if with_lensing and with_clustering:
-        map_types = ["kg", "dg"]
-        z_bin_numbers = [n_z_metacal, n_z_maglim]
-        z_bin_labels = ["n_z_metacal", "n_z_maglim"]
-    elif with_lensing:
-        map_types = ["kg"]
-        z_bin_numbers = [n_z_metacal]
-        z_bin_labels = ["n_z_metacal"]
-    elif with_clustering:
-        map_types = ["dg"]
-        z_bin_numbers = [n_z_maglim]
-        z_bin_labels = ["n_z_maglim"]
-    else:
-        raise ValueError(f"At least either of the lensing or clustering maps need to be selected")
+    map_types = []
+    z_bin_numbers = []
+    z_bin_labels = []
+    if with_lensing:
+        map_types.append("kg")
+        z_bin_numbers.append(n_z_metacal)
+        z_bin_labels.append("n_z_metacal")
+    if with_clustering:
+        map_types.append("dg")
+        z_bin_numbers.append(n_z_maglim)
+        z_bin_labels.append("n_z_maglim")
 
     # parse the cosmological perturbations
     for map_type, n_z_bins, str_z_bins in zip(map_types, z_bin_numbers, z_bin_labels):
