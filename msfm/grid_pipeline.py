@@ -21,14 +21,15 @@ LOGGER = logger.get_logger(__file__)
 
 
 def dset_augmentations(
-    kg: tf.constant,
-    sn: tf.constant,
-    dg: tf.constant,
-    cosmo: tf.constant,
+    data_vectors: dict,
     index: tuple,
-    noise_scale: float = 1.0,
+    # kg
+    with_lensing: bool = True,
+    shape_noise_scale: float = 1.0,
     masks_metacal: tf.constant = None,
-    mask_maglim: tf.constant = None,
+    # dg
+    with_clustering: bool = True,
+    masks_maglim: tf.constant = None,
 ):
     """Applies random augmentations and general pre-processing to the maps. This includes in order:
         lensing
@@ -57,48 +58,55 @@ def dset_augmentations(
         (batch_size, n_pix, n_z_metacal + n_z_maglim), cosmo is a label distributed on the Sobol sequence and index is
         a tuple containing (i_sobol, i_noise).
     """
-
     LOGGER.warning(f"Tracing dset_augmentations")
+    LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
 
-    """ lensing """
+    cosmo = data_vectors.pop("cosmo")
 
-    # shape noise
-    if noise_scale is not None:
-        kg += noise_scale * sn
-    else:
-        LOGGER.warning(f"No shape noise is added")
+    if with_lensing:
+        # shape noise
+        if shape_noise_scale is not None:
+            data_vectors["kg"] += shape_noise_scale * data_vectors["sn"]
+        else:
+            LOGGER.warning(f"No shape noise is added")
 
-    # masking
-    if masks_metacal is not None:
-        kg *= masks_metacal
-    else:
-        LOGGER.warning(f"No masking is applied to metacal")
+        # masking
+        if masks_metacal is not None:
+            data_vectors["kg"] *= masks_metacal
+        else:
+            LOGGER.warning(f"No masking is applied to metacal")
 
-    """ clustering """
+        out_tensor = data_vectors["kg"]
 
-    dg = tf.cast(dg, tf.float32)
+    if with_clustering:
+        data_vectors["dg"] = tf.cast(data_vectors["dg"], tf.float32)
 
-    # masking
-    if mask_maglim is not None:
-        dg *= mask_maglim
-    else:
-        LOGGER.warning(f"No masking is applied to maglim")
+        # masking
+        if masks_maglim is not None:
+            data_vectors["dg"] *= masks_maglim
+        else:
+            LOGGER.warning(f"No masking is applied to maglim")
 
-    # concatenate the tomography axis
-    data_vectors = tf.concat([kg, dg], axis=-1)
+        out_tensor = data_vectors["dg"]
 
-    return data_vectors, cosmo, index
+    if with_lensing and with_clustering:
+        # concatenate along the tomography axis
+        out_tensor = tf.concat([data_vectors["kg"], data_vectors["dg"]], axis=-1)
+
+    return out_tensor, cosmo, index
 
 
 def get_grid_dset(
     tfr_pattern: str,
     local_batch_size: int,
     # configuration
-    n_params: int = None,
     conf: dict = None,
+    n_params: int = None,
+    with_lensing: bool = True,
+    with_clustering: bool = True,
     # shape noise settings
     i_noise: int = 0,
-    noise_scale: float = 1.0,
+    shape_noise_scale: float = 1.0,
     # performance
     n_readers: int = 8,
     n_prefetch: int = tf.data.AUTOTUNE,
@@ -109,15 +117,17 @@ def get_grid_dset(
 
     Args:
         tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
-        batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
-        n_params (list): Number of the cosmological parameters stored in the .tfrecords, this is typically all of them.
-            The value is used to reshape the stored tensors, and for nothing else.
+        local_batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). Defaults to None.
+        n_params (list): Number of the cosmological parameters stored in the .tfrecords, this is typically all of them.
+            The value is used to reshape the stored tensors, and for nothing else.
+        with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
+        with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
         i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
             other tensor (like randomly sampled).
-        noise_scale (float): Factor by which to multiply the shape noise. This could also be a tf.Variable to change
-            it according to a schedule during training
+        shape_noise_scale (float): Factor by which to multiply the shape noise. This could also be a tf.Variable to
+            change it according to a schedule during training
         n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
             concurrently. This should be roughly less than a tenth of the number of files. Defaults to 8.
         n_prefetch (int, optional): Number of dataset elements to prefetch.
@@ -159,7 +169,7 @@ def get_grid_dset(
     # masking
     masks_dict = analysis.get_tomo_masks(conf)
     masks_metacal = tf.constant(masks_dict["metacal"], dtype=tf.float32)
-    mask_maglim = tf.constant(masks_dict["maglim"], dtype=tf.float32)
+    masks_maglim = tf.constant(masks_dict["maglim"], dtype=tf.float32)
 
     # get the file names and dataset them
     dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=False)
@@ -181,10 +191,10 @@ def get_grid_dset(
         deterministic=True,
     )
 
-    # parse, output signature (kg, sn, dg, cosmo, index)
+    # parse, output signature (data_vectors, index), where data_vectors is a dict
     dset = dset.map(
         lambda serialized_example: tfrecords.parse_inverse_grid(
-            serialized_example, i_noise, n_pix, n_z_metacal, n_z_maglim, n_params
+            serialized_example, i_noise, n_pix, n_z_metacal, n_z_maglim, n_params, with_lensing, with_clustering
         ),
         num_parallel_calls=tf.data.AUTOTUNE,
     )
@@ -195,15 +205,16 @@ def get_grid_dset(
 
     # augmentations (all in one function, to make parallelization faster)
     dset = dset.map(
-        lambda kg, sn, dg, cosmo, index: dset_augmentations(
-            kg,
-            sn,
-            dg,
-            cosmo,
+        lambda data_vectors, index: dset_augmentations(
+            data_vectors,
             index,
-            noise_scale,
+            # kg
+            with_lensing,
+            shape_noise_scale,
             masks_metacal,
-            mask_maglim,
+            # dg
+            with_clustering,
+            masks_maglim,
         ),
         num_parallel_calls=tf.data.AUTOTUNE,
     )

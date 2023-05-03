@@ -235,12 +235,12 @@ def main(indices, args):
 
                     # check correctness
                     i_noise = 0
-                    inv_kg, inv_sn, inv_dg, inv_cosmo, inv_index = tfrecords.parse_inverse_grid(serialized, i_noise)
+                    inv_data_vectors, inv_index = tfrecords.parse_inverse_grid(serialized, i_noise)
 
-                    assert np.allclose(inv_kg, kg)
-                    assert np.allclose(inv_sn, sn_realz[i_noise])
-                    assert np.allclose(inv_dg, dg)
-                    assert np.allclose(inv_cosmo, cosmo)
+                    assert np.allclose(inv_data_vectors["kg"], kg)
+                    assert np.allclose(inv_data_vectors["sn"], sn_realz[i_noise])
+                    assert np.allclose(inv_data_vectors["dg"], dg)
+                    assert np.allclose(inv_data_vectors["cosmo"], cosmo)
                     assert np.allclose(inv_index[0], i_sobol)
                     assert np.allclose(inv_index[1], i_noise)
 

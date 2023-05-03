@@ -68,7 +68,16 @@ def parse_forward_grid(kg, sn_realz, dg, cosmo, i_sobol):
     return example
 
 
-def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_metacal=None, n_z_maglim=None, n_params=None):
+def parse_inverse_grid(
+    serialized_example,
+    i_noise=0,
+    n_pix=None,
+    n_z_metacal=None,
+    n_z_maglim=None,
+    n_params=None,
+    with_lensing=True,
+    with_clustering=True,
+):
     """Use the same structure as in in the forward pass above. Note that n_pix, n_z_bins and n_params have to be passed
     as function arguments to ensure that the function can be converted to a graph.
 
@@ -89,42 +98,65 @@ def parse_inverse_grid(serialized_example, i_noise=0, n_pix=None, n_z_metacal=No
     features = {
         # tensor shapes
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
-        "n_z_metacal": tf.io.FixedLenFeature([], tf.int64),
-        "n_z_maglim": tf.io.FixedLenFeature([], tf.int64),
         "n_params": tf.io.FixedLenFeature([], tf.int64),
-        # lensing, metacal
-        "kg": tf.io.FixedLenFeature([], tf.string),
         f"sn_{i_noise}": tf.io.FixedLenFeature([], tf.string),
-        # clustering, maglim
-        "dg": tf.io.FixedLenFeature([], tf.string),
         # labels
         "cosmo": tf.io.FixedLenFeature([], tf.string),
         "i_sobol": tf.io.FixedLenFeature([], tf.int64),
     }
 
+    if with_lensing:
+        features["n_z_metacal"] = tf.io.FixedLenFeature([], tf.int64)
+        features["kg"] = tf.io.FixedLenFeature([], tf.string)
+        features[f"sn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
+
+    if with_clustering:
+        features["n_z_maglim"] = tf.io.FixedLenFeature([], tf.int64)
+        features["dg"] = tf.io.FixedLenFeature([], tf.string)
+
     data = tf.io.parse_single_example(serialized_example, features)
 
-    kg = tf.io.parse_tensor(data["kg"], out_type=tf.float32)
-    sn = tf.io.parse_tensor(data[f"sn_{i_noise}"], out_type=tf.float32)
-    dg = tf.io.parse_tensor(data["dg"], out_type=tf.int16)
-    cosmo = tf.io.parse_tensor(data["cosmo"], out_type=tf.float32)
+    # output container
+    data_vectors = {}
 
-    # defining the shapes like this works too, but is slower than when they are passed as function arguments
-    if (n_pix is None) or (n_z_metacal is None) or (n_z_maglim is None) or (n_params is None):
-        kg = tf.reshape(kg, shape=(data["n_pix"], data["n_z_metacal"]))
-        sn = tf.reshape(sn, shape=(data["n_pix"], data["n_z_metacal"]))
-        dg = tf.reshape(dg, shape=(data["n_pix"], data["n_z_maglim"]))
+    cosmo = tf.io.parse_tensor(data["cosmo"], out_type=tf.float32)
+    if n_params is None:
         cosmo = tf.reshape(cosmo, shape=(data["n_params"],))
-    # tf.ensure_shape fixes the shape inside the graph
     else:
-        kg = tf.ensure_shape(kg, shape=(n_pix, n_z_metacal))
-        sn = tf.ensure_shape(sn, shape=(n_pix, n_z_metacal))
-        dg = tf.ensure_shape(dg, shape=(n_pix, n_z_maglim))
         cosmo = tf.ensure_shape(cosmo, shape=(n_params,))
+    data_vectors["cosmo"] = cosmo
+
+    if with_lensing:
+        # parse
+        kg = tf.io.parse_tensor(data["kg"], out_type=tf.float32)
+        sn = tf.io.parse_tensor(data[f"sn_{i_noise}"], out_type=tf.float32)
+
+        # reshape
+        if (n_pix is None) or (n_z_metacal is None):
+            kg = tf.reshape(kg, shape=(data["n_pix"], data["n_z_metacal"]))
+            sn = tf.reshape(sn, shape=(data["n_pix"], data["n_z_metacal"]))
+        else:
+            kg = tf.ensure_shape(kg, shape=(n_pix, n_z_metacal))
+            sn = tf.ensure_shape(sn, shape=(n_pix, n_z_metacal))
+
+        data_vectors["kg"] = kg
+        data_vectors["sn"] = sn
+
+    if with_clustering:
+        # parse
+        dg = tf.io.parse_tensor(data["dg"], out_type=tf.int16)
+
+        # reshape
+        if (n_pix is None) or (n_z_maglim is None):
+            dg = tf.reshape(dg, shape=(data["n_pix"], data["n_z_maglim"]))
+        else:
+            dg = tf.ensure_shape(dg, shape=(n_pix, n_z_maglim))
+
+        data_vectors["dg"] = dg
 
     index = (data["i_sobol"], i_noise)
 
-    return kg, sn, dg, cosmo, index
+    return data_vectors, index
 
 
 def parse_forward_fiducial(pert_labels, kg_perts, dg_perts, ia_pert_labels, ia_perts, sn_realz, i_example):
@@ -181,7 +213,16 @@ def parse_forward_fiducial(pert_labels, kg_perts, dg_perts, ia_pert_labels, ia_p
     return example
 
 
-def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=None, n_z_metacal=None, n_z_maglim=None):
+def parse_inverse_fiducial(
+    serialized_example,
+    pert_labels,
+    i_noise=0,
+    n_pix=None,
+    n_z_metacal=None,
+    n_z_maglim=None,
+    with_lensing=True,
+    with_clustering=True,
+):
     """Use the same structure as in in the forward pass above. Note that n_pix and n_z_bins have to be passed as
     arguments to ensure that the function can be converted to a graph.
 
@@ -193,6 +234,9 @@ def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=Non
         n_pix (int, optional): Fixes the size of the tensors. Defaults to None.
         n_z_metacal (int, optional): Fixes the size of the tensors. Defaults to None.
         n_z_maglim (int, optional): Fixes the size of the tensors. Defaults to None.
+        with_lensing (bool, optional): Whether the weak lensing maps should be returned or not. Defaults to True.
+        with_clustering (bool, optional): Whether the galaxy clustering maps should be returned or not. Defaults to
+            True.
 
     Returns:
         dict, int: Dictionary of datavectors (fiducial, perturbations and shape noise) and the patch index, consisting
@@ -211,24 +255,36 @@ def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=Non
 
     # cosmological perturbations (kappa and delta)
     for label in pert_labels:
-        features[f"kg_{label}"] = tf.io.FixedLenFeature([], tf.string)
+        if with_lensing:
+            features[f"kg_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
         # no intrinsic alignment perturbations for delta
-        if not "Aia" in label:
+        if (not "Aia" in label) and with_clustering:
             features[f"dg_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
-    # single shape noise realization
-    features[f"sn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
+    if with_lensing:
+        # single shape noise realization
+        features[f"sn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
 
     data = tf.io.parse_single_example(serialized_example, features)
 
     # output container
     data_vectors = {}
 
+    map_types = []
+    z_bin_numbers = []
+    z_bin_labels = []
+    if with_lensing:
+        map_types.append("kg")
+        z_bin_numbers.append(n_z_metacal)
+        z_bin_labels.append("n_z_metacal")
+    if with_clustering:
+        map_types.append("dg")
+        z_bin_numbers.append(n_z_maglim)
+        z_bin_labels.append("n_z_maglim")
+
     # parse the cosmological perturbations
-    for map_type, n_z_bins, n_z_bins_str in zip(
-        ["kg", "dg"], [n_z_metacal, n_z_maglim], ["n_z_metacal", "n_z_maglim"]
-    ):
+    for map_type, n_z_bins, str_z_bins in zip(map_types, z_bin_numbers, z_bin_labels):
         for label in pert_labels:
             # intrinsic alignment perturbations are only stored for kappa
             if not ((map_type == "dg") and ("Aia" in label)):
@@ -237,20 +293,21 @@ def parse_inverse_fiducial(serialized_example, pert_labels, i_noise=0, n_pix=Non
 
                 # reshape allows for None shapes within the graph, but is slower
                 if (n_pix is None) or (n_z_metacal is None) or (n_z_maglim is None):
-                    pert = tf.reshape(pert, shape=(data["n_pix"], data[n_z_bins_str]))
+                    pert = tf.reshape(pert, shape=(data["n_pix"], data[str_z_bins]))
                 # tf.ensure_shape fixes the shape inside the graph
                 else:
                     pert = tf.ensure_shape(pert, shape=(n_pix, n_z_bins))
 
                 data_vectors[key] = pert
 
-    # parse the shape noise separately
-    sn = tf.io.parse_tensor(data[f"sn_{i_noise}"], out_type=tf.float32)
-    if (n_pix is None) or (n_z_metacal is None):
-        sn = tf.reshape(sn, shape=(data["n_pix"], data["n_z_metacal"]))
-    else:
-        sn = tf.ensure_shape(sn, shape=(n_pix, n_z_metacal))
-    data_vectors[f"sn"] = sn
+    if with_lensing:
+        # parse the shape noise separately
+        sn = tf.io.parse_tensor(data[f"sn_{i_noise}"], out_type=tf.float32)
+        if (n_pix is None) or (n_z_metacal is None):
+            sn = tf.reshape(sn, shape=(data["n_pix"], data["n_z_metacal"]))
+        else:
+            sn = tf.ensure_shape(sn, shape=(n_pix, n_z_metacal))
+        data_vectors[f"sn"] = sn
 
     index = (data["i_example"], i_noise)
 
