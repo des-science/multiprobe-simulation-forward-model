@@ -49,7 +49,7 @@ def load_config(conf=None):
     else:
         raise ValueError(f"conf {conf} must be None, a str specifying the path to the .yaml file, or the read dict")
 
-    LOGGER.info(f"Loaded the config")
+    # LOGGER.info(f"Loaded the config")
     return conf
 
 
@@ -78,7 +78,6 @@ def load_pixel_file(conf=None):
     pixel_file = os.path.join(repo_dir, conf["files"]["pixels"])
 
     with h5py.File(pixel_file, "r") as f:
-        print(pixel_file)
         # pixel indices of padded data vector
         data_vec_pix = f["data_vec"][:]
 
@@ -87,12 +86,12 @@ def load_pixel_file(conf=None):
         metacal_tomo_corresponding_pix = []
         for z_bin in conf["survey"]["metacal"]["z_bins"]:
             # shape (4, pix_in_bin)
-            patches_pix_dict = f[f"metacal/patches/{z_bin}"][:]
+            patches_pix = f[f"metacal/patches/{z_bin}"][:]
             # shape (pix_in_bin,)
-            corresponding_pix_dict = f[f"metacal/patch_to_data_vec/{z_bin}"][:]
+            corresponding_pix = f[f"metacal/patch_to_data_vec/{z_bin}"][:]
 
-            metacal_tomo_patches_pix.append(patches_pix_dict)
-            metacal_tomo_corresponding_pix.append(corresponding_pix_dict)
+            metacal_tomo_patches_pix.append(patches_pix)
+            metacal_tomo_corresponding_pix.append(corresponding_pix)
 
         # to correct the shear for patch cut outs that have been mirrored
         gamma2_signs = f["metacal/gamma_2_sign"][:]
@@ -101,7 +100,7 @@ def load_pixel_file(conf=None):
         maglim_patches_pix = f["maglim/patches"][:]
         maglim_corresponding_pix = f["maglim/patch_to_data_vec"][:]
 
-    LOGGER.info(f"Loaded the pixel file")
+    LOGGER.info(f"Loaded the pixel file {pixel_file}")
 
     # package into dictionaries
     patches_pix_dict = {}
@@ -113,6 +112,32 @@ def load_pixel_file(conf=None):
     corresponding_pix_dict["maglim"] = maglim_corresponding_pix
 
     return data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs
+
+
+def get_clustering_systematics(conf=None):
+    """Per (maglim) tomographic bin survey systematics maps packaged as data vectors, such that the maps can be
+    multiplied on that level.
+
+    Args:
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
+            passed through) or None (the default config is loaded). Defaults to None.
+
+    Returns:
+        list: len = n_z_maglim
+    """
+
+    conf = load_config(conf)
+
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    pixel_file = os.path.join(repo_dir, conf["files"]["pixels"])
+
+    with h5py.File(pixel_file, "r") as f:
+        maglim_tomo_survey_sys = []
+        for z_bin in conf["survey"]["maglim"]["z_bins"]:
+            maglim_tomo_survey_sys.append(f[f"maglim/systematics/{z_bin}"][:])
+
+    return maglim_tomo_survey_sys
 
 
 def get_tomo_masks(conf=None):
@@ -144,7 +169,7 @@ def get_tomo_masks(conf=None):
 
     masks_dict = {
         "metacal": np.array(masks_metacal).T,
-        "maglim": mask_maglim[:,np.newaxis],
+        "maglim": mask_maglim[:, np.newaxis],
     }
 
     return masks_dict
@@ -196,6 +221,8 @@ def load_redshift_distributions(galaxy_sample, conf=None):
     Returns:
         list: Per redshift bin z an nz values of the distribution.
     """
+    assert galaxy_sample in ["maglim", "metacal"]
+
     conf = load_config(conf)
 
     file_dir = os.path.dirname(__file__)
