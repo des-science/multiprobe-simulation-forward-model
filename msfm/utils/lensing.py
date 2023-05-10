@@ -10,7 +10,7 @@ import healpy as hp
 import tensorflow as tf
 import tensorflow_probability as tfp
 
-from msfm.utils import analysis, logger
+from msfm.utils import analysis, logger, scales
 
 LOGGER = logger.get_logger(__file__)
 
@@ -70,12 +70,8 @@ def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, n_side, l_min, l_m
     # gamma -> kappa
     kappa_alm = gamma_alm_E * gamma2kappa_fac
 
-    # remove large scales (hard cut)
-    l = hp.Alm.getlm(3 * n_side - 1)[0]
-    kappa_alm[l < l_min] = 0.0
-
-    # kappa: alm -> map, remove small scales (Gaussian smoothing)
-    kappa_patch = hp.alm2map(kappa_alm, nside=n_side, fwhm=np.pi/l_max)
+    # kappa: alm -> map
+    kappa_patch = scales.alm_to_smoothed_map(kappa_alm, l_min, l_max, n_side)
 
     return kappa_patch
 

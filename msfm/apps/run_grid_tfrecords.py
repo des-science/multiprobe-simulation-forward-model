@@ -23,7 +23,19 @@ import os, argparse, warnings, h5py
 
 from sobol_seq import i4_sobol
 
-from msfm.utils import logger, input_output, cosmogrid, tfrecords, analysis, parameters, shear, filenames, redshift
+from msfm.utils import (
+    lensing,
+    logger,
+    input_output,
+    cosmogrid,
+    tfrecords,
+    analysis,
+    parameters,
+    filenames,
+    redshift,
+    clustering,
+    scales,
+)
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -67,6 +79,7 @@ def setup(args):
         default="configs/config.yaml",
         help="configuration yaml file",
     )
+    parser.add_argument("--include_maglim_systematics", action="store_true", help="Whether to apply the")
     parser.add_argument("--np_seed", type=int, default=7, help="random seed to shuffle the patches")
     parser.add_argument("--debug", action="store_true", help="activate debug mode")
 
@@ -78,6 +91,9 @@ def setup(args):
     args.config = os.path.abspath(args.config)
 
     logger.set_all_loggers_level(args.verbosity)
+
+    if args.include_maglim_systematics:
+        LOGGER.debug(f"Including the Maglim systematics maps")
 
     return args
 
@@ -103,10 +119,14 @@ def main(indices, args):
 
     # constants
     n_side = conf["analysis"]["n_side"]
-    tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
     sobol_priors = parameters.get_prior_intervals(
         conf["analysis"]["params"]["sobol"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
     )
+
+    # maglim
+    tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
+    tomo_l_min_maglim = conf["analysis"]["scale_cuts"]["maglim"]["l_min"]
+    tomo_l_max_maglim = conf["analysis"]["scale_cuts"]["maglim"]["l_max"]
 
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
@@ -114,8 +134,8 @@ def main(indices, args):
     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo * n_noise_per_example
 
-    # shear bias distribution, NOTE fixing this in the .tfrecords simplifies reproducibility
-    m_bias_dist = shear.get_m_bias_distribution(conf)
+    # shear bias distribution, as fixing this in the .tfrecords simplifies reproducibility
+    m_bias_dist = lensing.get_m_bias_distribution(conf)
 
     # redshift evolution
     z0 = conf["analysis"]["z0"]
@@ -227,9 +247,19 @@ def main(indices, args):
                     kg *= 1.0 + m_bias
 
                     # apply the galaxy bias and Poisson noise, broadcast (data_vec_len, n_z_maglim) and (n_z_maglim,)
-                    dg = tomo_n_gal_maglim * (1 + tomo_bg * dg)
-                    dg = np.where(0 < dg, dg, 0)
-                    dg = np.random.poisson(dg).astype(np.int16)
+                    dg = clustering.galaxy_density_to_number(
+                        dg,
+                        tomo_n_gal_maglim,
+                        tomo_bg,
+                        include_systematics=args.include_maglim_systematics,
+                        conf=conf,
+                    )
+
+                    # smoothing, different scale per redshift bin
+                    # for i_tomo, (l_min, l_max) in enumerate(zip(tomo_l_min_maglim, tomo_l_max_maglim)):
+                    #     dg[..., i_tomo] = scales.map_to_smoothed_map(dg[..., i_tomo], l_min, l_max)
+
+                    dg = scales.map_to_smoothed_map(dg, tomo_l_min_maglim, tomo_l_max_maglim, n_side)
 
                     serialized = tfrecords.parse_forward_grid(kg, sn_realz, dg, cosmo, i_sobol).SerializeToString()
 

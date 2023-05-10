@@ -15,7 +15,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import os, argparse, warnings, h5py, time, logging, yaml
 
-from msfm.utils import analysis, logger, input_output, maps, shear, cosmogrid
+from msfm.utils import analysis, lensing, logger, input_output, maps, cosmogrid, clustering
 from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -93,6 +93,9 @@ def setup(args):
 
     args.config = os.path.abspath(args.config)
 
+    if not os.path.isdir(args.dir_out):
+        input_output.robust_makedirs(args.dir_out)
+
     return args
 
 
@@ -135,7 +138,7 @@ def main(indices, args):
     tomo_n_gal_metacal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
     # alm
-    kappa2gamma_fac, gamma2kappa_fac, _ = shear.get_kaiser_squires_factors(3 * n_side - 1)
+    kappa2gamma_fac, gamma2kappa_fac, _ = lensing.get_kaiser_squires_factors(3 * n_side - 1)
 
     # pixel file
     data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs = analysis.load_pixel_file(conf)
@@ -175,8 +178,11 @@ def main(indices, args):
         data_vec_file = get_filename_data_vectors(cosmo_dir_out, args.with_bary)
         LOGGER.info(f"Index {index} takes input from {cosmo_dir_in} and writes to {data_vec_file}")
 
-        # for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Loop over permutations\n", at_level="info"):
-        for i_perm in LOGGER.progressbar(range(4), desc="Loop over permutations\n", at_level="info"):
+        for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Loop over permutations\n", at_level="info"):
+            if args.debug and i_perm > 5:
+                LOGGER.warning("Debug mode, aborting after 5 permutations")
+                break
+
             LOGGER.timer.start("permutation")
             LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
@@ -283,7 +289,7 @@ def main(indices, args):
                                     gamma2_patch *= gamma2_sign
 
                                     # kappa_patch is a full sky map, but only the patch is occupied
-                                    kappa_patch = shear.mode_removal(
+                                    kappa_patch = lensing.mode_removal(
                                         gamma1_patch,
                                         gamma2_patch,
                                         gamma2kappa_fac,
@@ -323,16 +329,19 @@ def main(indices, args):
                                 delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
 
                                 # number of galaxies per pixel
-                                counts_full = n_bar * (1 + bias * delta_full)
-                                counts_full = np.where(0 < counts_full, counts_full, 0)
-                                counts_full = np.random.poisson(counts_full)
+                                counts_full = clustering.galaxy_density_to_number(
+                                    delta_full, n_bar, bias, include_systematics=False, apply_normalization=False
+                                )
+                                # counts_full = n_bar * (1 + bias * delta_full)
+                                # counts_full = np.where(0 < counts_full, counts_full, 0)
+                                # counts_full = np.random.poisson(counts_full)
 
                                 for i_patch, patch_pix in enumerate(patches_pix):
                                     # not a full healpy map, just the patch with no zeros
                                     counts = counts_full[patch_pix]
 
                                     # vectorized sampling, shape (len(counts), n_noise_per_example)
-                                    gamma1, gamma2 = shear.noise_gen(counts, cat_dist, n_noise_per_example)
+                                    gamma1, gamma2 = lensing.noise_gen(counts, cat_dist, n_noise_per_example)
 
                                     # not vectorized because of the healpy alm transform
                                     for i_noise in range(n_noise_per_example):
@@ -343,7 +352,7 @@ def main(indices, args):
                                         gamma2_patch = np.zeros(n_pix, dtype=np.float32)
                                         gamma2_patch[base_patch_pix] = gamma2[:, i_noise]
 
-                                        kappa_patch = shear.mode_removal(
+                                        kappa_patch = lensing.mode_removal(
                                             gamma1_patch,
                                             gamma2_patch,
                                             gamma2kappa_fac,
@@ -390,17 +399,17 @@ def main(indices, args):
                                 delta_patch = np.zeros(n_pix, dtype=np.float32)
                                 delta_patch[base_patch_pix] = delta_full[patch_pix]
 
-                                # remove large scales (hard cut)
-                                delta_alm = hp.map2alm(
-                                    delta_patch,
-                                    use_pixel_weights=True,
-                                    datapath=hp_datapath,
-                                )
-                                l = hp.Alm.getlm(3 * n_side - 1)[0]
-                                delta_alm[l < l_min] = 0.0
+                                # # remove large scales (hard cut)
+                                # delta_alm = hp.map2alm(
+                                #     delta_patch,
+                                #     use_pixel_weights=True,
+                                #     datapath=hp_datapath,
+                                # )
+                                # l = hp.Alm.getlm(3 * n_side - 1)[0]
+                                # delta_alm[l < l_min] = 0.0
 
-                                # remove small scales (Gaussian smoothing)
-                                delta_patch = hp.alm2map(delta_alm, nside=n_side, fwhm=np.pi/l_max)
+                                # # remove small scales (Gaussian smoothing)
+                                # delta_patch = hp.alm2map(delta_alm, nside=n_side, fwhm=np.pi/l_max)
 
                                 # cut out padded data vector
                                 delta_dv = maps.map_to_data_vec(
