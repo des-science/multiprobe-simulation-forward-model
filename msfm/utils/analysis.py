@@ -10,7 +10,7 @@ Functions to handle the configuration and read in the survey files on the data v
 import os, h5py, warnings
 import numpy as np
 
-from msfm.utils import logger, input_output, filenames
+from msfm.utils import logger, input_output, filenames, scales
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -114,17 +114,20 @@ def load_pixel_file(conf=None):
     return data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs
 
 
-def get_clustering_systematics(conf=None):
+def get_clustering_systematics(conf=None, pixel_type="map", apply_smoothing=False):
     """Per (maglim) tomographic bin survey systematics maps packaged as data vectors, such that the maps can be
     multiplied on that level.
 
     Args:
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). Defaults to None.
+        pixel_type (str, optional): Either "map" or "data_vector", determines whether the systematics map is returned
+            as a full sky healpy map or in data vector format.
 
     Returns:
         list: len = n_z_maglim
     """
+    assert pixel_type in ["map", "data_vector"]
 
     conf = load_config(conf)
 
@@ -133,11 +136,34 @@ def get_clustering_systematics(conf=None):
     pixel_file = os.path.join(repo_dir, conf["files"]["pixels"])
 
     with h5py.File(pixel_file, "r") as f:
-        maglim_tomo_survey_sys = []
+        tomo_sys = []
         for z_bin in conf["survey"]["maglim"]["z_bins"]:
-            maglim_tomo_survey_sys.append(f[f"maglim/systematics/{z_bin}"][:])
+            tomo_sys.append(f[f"maglim/systematics/{pixel_type}/{z_bin}"][:])
 
-    return maglim_tomo_survey_sys
+    if apply_smoothing:
+        # constants
+        data_vec_pix, patches_pix_dict, _, _ = load_pixel_file(conf)
+        n_side = conf["analysis"]["n_side"]
+        n_pix = conf["analysis"]["n_pix"]
+        tomo_l_min = conf["analysis"]["scale_cuts"]["maglim"]["l_min"]
+        tomo_l_max = conf["analysis"]["scale_cuts"]["maglim"]["l_max"]
+
+        for sys, l_min, l_max in zip(tomo_sys, tomo_l_min, tomo_l_max):
+            if pixel_type == "map":
+                # populate the survey footprint
+                base_patch_pix = patches_pix_dict["maglim"][0]
+                sys_map = np.zeros(n_pix)
+                sys_map[base_patch_pix] = sys
+                sys = scales.map_to_smoothed_map(sys_map, l_min, l_max, n_side)
+
+            elif pixel_type == "data_vector":
+                sys = scales.data_vector_to_smoothed_data_vector(sys, l_min, l_max, n_side, data_vec_pix)
+
+            else:
+                raise ValueError(f"Unsupported pixel_type = {pixel_type}")
+
+    # shape (n_pix, n_z_maglim)
+    return np.stack(tomo_sys, axis=-1)
 
 
 def get_tomo_masks(conf=None):
