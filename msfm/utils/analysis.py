@@ -114,7 +114,7 @@ def load_pixel_file(conf=None):
     return data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs
 
 
-def get_clustering_systematics(conf=None, pixel_type="map", apply_smoothing=False):
+def get_clustering_systematics(conf=None, pixel_type="data_vector", apply_smoothing=False):
     """Per (maglim) tomographic bin survey systematics maps packaged as data vectors, such that the maps can be
     multiplied on that level.
 

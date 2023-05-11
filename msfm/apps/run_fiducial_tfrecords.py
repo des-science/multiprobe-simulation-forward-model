@@ -32,7 +32,7 @@ LOGGER = logger.get_logger(__file__)
 
 
 def resources(args):
-    return dict(main_memory=8192, main_time=4, main_scratch=0, main_n_cores=1)
+    return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=8)
 
 
 def setup(args):
@@ -67,7 +67,12 @@ def setup(args):
         default="configs/config.yaml",
         help="configuration yaml file",
     )
-    parser.add_argument("--include_maglim_systematics", action="store_true", help="Whether to apply the")
+    parser.add_argument(
+        "--file_suffix",
+        type=str,
+        default="",
+        help="Optional suffix to be appended to the end of the filename, for example to distinguish different runs",
+    )
     parser.add_argument("--np_seed", type=int, default=7, help="random seed to shuffle the patches")
     parser.add_argument("--debug", action="store_true", help="activate debug mode")
 
@@ -98,43 +103,43 @@ def main(indices, args):
     meta_info_file = os.path.join(repo_dir, conf["files"]["meta_info"])
     cosmo_params_info = cosmogrid.get_cosmo_params_info(meta_info_file, "fiducial")
 
-    # constants
+    # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["fiducial"]["n_perms_per_cosmo"]
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo
+
     data_vec_pix, _, _, _ = analysis.load_pixel_file()
 
-    # intrinsic alignment
+    # lensing (intrinsic alignment)
     tomo_Aia_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("Aia", conf)
 
-    # linear galaxy bias
+    def lensing_transform(kg, ia, label):
+        # important not to use +=, since then the array is transformed in place
+        kg = kg + tomo_Aia_perts_dict[label] * ia
+
+        return kg
+
+    # clustering (linear galaxy bias)
     tomo_n_gal_maglim = tf.constant(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(
         conf["analysis"]["n_side"], degrees=True
     )
     tomo_bg_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg", conf)
 
-    def transform_clustering(dg, label, is_fiducial=False, noise_fac=None):
+    def clustering_transform(dg, label, is_fiducial=False, noise_fac=None):
         galaxy_counts = clustering.galaxy_density_to_number(
             dg,
             tomo_n_gal_maglim,
             tomo_bg_perts_dict[label],
             conf=conf,
-            include_systematics=args.include_maglim_systematics,
+            include_systematics=conf["analysis"]["systematics"]["maglim_survey_systematics_map"],
+            sys_pixel_type="data_vector",
         )
-
-        # ic("after galaxy_density_to_number", galaxy_counts.dtype)
 
         # only draw the noise for the fiducial, not the perturbations
         if is_fiducial:
-            galaxy_counts, noise_fac = clustering.galaxy_number_add_noise(
-                galaxy_counts, noise_fac=None, return_noise_fac=True
-            )
+            galaxy_counts, noise_fac = clustering.galaxy_number_add_noise(galaxy_counts, return_noise_fac=True)
         else:
-            galaxy_counts = clustering.galaxy_number_add_noise(
-                galaxy_counts, noise_fac=noise_fac, return_noise_fac=False
-            )
-
-        # ic("after galaxy_number_add_noise", galaxy_counts.dtype)
+            galaxy_counts = clustering.galaxy_number_add_noise(galaxy_counts, noise_fac=noise_fac)
 
         galaxy_counts = scales.data_vector_to_smoothed_data_vector(
             galaxy_counts,
@@ -142,18 +147,16 @@ def main(indices, args):
             l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
             n_side=conf["analysis"]["n_side"],
             data_vec_pix=data_vec_pix,
+            nest=True,
+            # conf=conf,
+            # galaxy_sample="maglim"
         )
-
-        # ic("after data_vector_to_smoothed_data_vector", galaxy_counts.dtype)
 
         if is_fiducial:
             # shape (n_pix, n_z_maglim)
             return galaxy_counts, noise_fac
         else:
             return galaxy_counts
-
-    # tomo_l_min_maglim = conf["analysis"]["scale_cuts"]["maglim"]["l_min"]
-    # tomo_l_max_maglim = conf["analysis"]["scale_cuts"]["maglim"]["l_max"]
 
     # set up the paths
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
@@ -186,8 +189,8 @@ def main(indices, args):
         i_examples = rng.permutation(n_examples_per_cosmo)
 
     # CosmoGrid perturbations in cosmological parameters
-    pert_labels = [label.split("cosmo_")[1].replace("/", "") for label in cosmo_dirs_in]
-    LOGGER.info(f"There's {len(pert_labels)} cosmological labels = {pert_labels}")
+    cosmo_pert_labels = [label.split("cosmo_")[1].replace("/", "") for label in cosmo_dirs_in]
+    LOGGER.info(f"There's {len(cosmo_pert_labels)} cosmological labels = {cosmo_pert_labels}")
 
     # separate label lists for astrophysics perturbations
     ia_pert_labels = parameters.get_fiducial_perturbation_labels(conf["analysis"]["params"]["ia"])[1:]
@@ -201,7 +204,7 @@ def main(indices, args):
         LOGGER.timer.start("index")
 
         tfr_file = filenames.get_filename_tfrecords(
-            args.dir_out, tag=conf["survey"]["name"], index=index, simset="fiducial"
+            args.dir_out, tag=conf["survey"]["name"] + args.file_suffix, index=index, simset="fiducial"
         )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
@@ -228,71 +231,44 @@ def main(indices, args):
                 bg_perts = []
                 # (2 * n_cosmos + 1,) iterations
                 for cosmo_dir_in in cosmo_dirs_in:
+                    # ic(cosmo_dir_in)
                     file_cosmo = filenames.get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
                     LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
 
                     (kg, ia, dg) = load_example(file_cosmo, i_example, ["kg", "ia", "dg"])
 
                     # add the fiducial intrinsic alignment
-                    kg_perts.append(kg + tomo_Aia_perts_dict["fiducial"] * ia)
+                    kg_perts.append(lensing_transform(kg, ia, "fiducial"))
 
-                    # # add the fiducial galaxy biasing, only draw the poisson noise here
-                    # dg, noise_fac = transform_clustering(dg, "fiducial", is_fiducial=True)
-                    # dg_perts.append(dg)
-
-                    # dg = clustering.galaxy_density_to_number(
-                    #     dg,
-                    #     tomo_n_gal_maglim,
-                    #     tomo_bg_perts_dict["fiducial"],
-                    #     include_systematics=args.include_maglim_systematics,
-                    #     conf=conf,
-                    # )
-
-                    # # smoothing, different scale per redshift bin
-                    # for i_tomo, (l_min, l_max) in enumerate(zip(tomo_l_min_maglim, tomo_l_max_maglim)):
-                    #     dg[..., i_tomo] = scales.map_to_smoothed_map(dg[..., i_tomo], l_min, l_max)
-
-                    # dg_perts.apppend(dg)
-
-                    # TODO galaxy bias and Poisson noise is only applied later
-                    # dg_perts.append(dg)
-
-                    # add the perturbations to the two intrinsic alignment parameters
+                    # astrophysics perturbations are calculated with respect to the fiducial cosmo params
                     if "cosmo_fiducial" in cosmo_dir_in:
                         # load the shape noise realization
                         (sn_realz,) = load_example(file_cosmo, i_example, ["sn"])
 
                         # draw the poisson noise realization
-                        dg, poisson_noise_fac = transform_clustering(dg, "fiducial", is_fiducial=True)
+                        dg_noisy, poisson_noise_fac = clustering_transform(dg, "fiducial", is_fiducial=True)
 
-                        # Aia perturbations
-                        ia_perts.append(kg + tomo_Aia_perts_dict["delta_Aia_m"] * ia)
-                        ia_perts.append(kg + tomo_Aia_perts_dict["delta_Aia_p"] * ia)
+                        # intrinsic alignment perturbations
+                        for label in ia_pert_labels:
+                            ia_perts.append(lensing_transform(kg, ia, label))
 
-                        # n_Aia perturbations
-                        ia_perts.append(kg + tomo_Aia_perts_dict["delta_n_Aia_m"] * ia)
-                        ia_perts.append(kg + tomo_Aia_perts_dict["delta_n_Aia_p"] * ia)
+                        # galaxy clustering perturbations
+                        for label in bg_pert_labels:
+                            bg_perts.append(clustering_transform(dg, label, noise_fac=poisson_noise_fac))
 
-                        # bg perturbations
-                        bg_perts.append(transform_clustering(dg, "delta_bg_m", noise_fac=poisson_noise_fac))
-                        bg_perts.append(transform_clustering(dg, "delta_bg_p", noise_fac=poisson_noise_fac))
-
-                        # n_bg perturbations
-                        bg_perts.append(transform_clustering(dg, "delta_n_bg_m", noise_fac=poisson_noise_fac))
-                        bg_perts.append(transform_clustering(dg, "delta_n_bg_p", noise_fac=poisson_noise_fac))
+                        # store the noisy map
+                        dg = dg_noisy
 
                     else:
-                        dg = transform_clustering(dg, "fiducial", noise_fac=poisson_noise_fac)
+                        # apply the precomputed Poisson noise
+                        dg = clustering_transform(dg, "fiducial", noise_fac=poisson_noise_fac)
 
                     # here for consistent poisson noise
                     dg_perts.append(dg)
 
-                    # ic(dg.dtype)
-                    # ic(kg.dtype)
-
                 # serialize the lists of tensors of shape (n_pix, n_z_bins)
                 serialized = tfrecords.parse_forward_fiducial(
-                    pert_labels,
+                    cosmo_pert_labels,
                     kg_perts,
                     dg_perts,
                     # lensing
@@ -308,13 +284,17 @@ def main(indices, args):
                 # check correctness
                 i_noise = 0
                 inv_data_vectors, inv_index = tfrecords.parse_inverse_fiducial(
-                    serialized, pert_labels + ia_pert_labels + bg_pert_labels, i_noise=i_noise
+                    serialized, cosmo_pert_labels + ia_pert_labels + bg_pert_labels, i_noise=i_noise
                 )
-                inv_kg_perts = tf.stack([inv_data_vectors[f"kg_{pert_label}"] for pert_label in pert_labels], axis=0)
+                inv_kg_perts = tf.stack(
+                    [inv_data_vectors[f"kg_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0
+                )
                 inv_ia_perts = tf.stack(
                     [inv_data_vectors[f"kg_{pert_label}"] for pert_label in ia_pert_labels], axis=0
                 )
-                inv_dg_perts = tf.stack([inv_data_vectors[f"dg_{pert_label}"] for pert_label in pert_labels], axis=0)
+                inv_dg_perts = tf.stack(
+                    [inv_data_vectors[f"dg_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0
+                )
                 inv_bg_perts = tf.stack(
                     [inv_data_vectors[f"dg_{pert_label}"] for pert_label in bg_pert_labels], axis=0
                 )
@@ -326,8 +306,6 @@ def main(indices, args):
                 assert np.allclose(inv_bg_perts, bg_perts)
                 assert np.allclose(inv_sn, sn_realz[i_noise])
                 assert np.allclose(inv_index[0], i_example)
-
-                LOGGER.debug("decoded successfully")
 
                 file_writer.write(serialized)
 

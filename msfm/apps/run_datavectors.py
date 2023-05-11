@@ -15,7 +15,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import os, argparse, warnings, h5py, time, logging, yaml
 
-from msfm.utils import analysis, lensing, logger, input_output, maps, cosmogrid, clustering
+from msfm.utils import analysis, lensing, logger, input_output, maps, cosmogrid, clustering, scales
 from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -30,6 +30,7 @@ except AttributeError:
     LOGGER.debug(f"os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
     n_cpus = os.cpu_count()
 os.environ["OMP_NUM_THREADS"] = str(n_cpus)
+LOGGER.info(f"Setting up healpy to run on {n_cpus} CPUs")
 
 import healpy as hp
 
@@ -245,16 +246,12 @@ def main(indices, args):
                         l_max = tomo_l_max[i_z]
                         LOGGER.debug(f"Only keeping ell in [{l_min}, {l_max}] for bin {z_bin}")
 
-                        # kappa2gamma_fac, gamma2kappa_fac, _ = shear.get_kaiser_squires_factors(l_max)
-
                         # lensing, metacal sample #####################################################################
                         if sample == "metacal":
                             # only consider this tomographic bin
                             patches_pix = all_patches_pix[i_z]
                             corresponding_pix = all_corresponding_pix[i_z]
                             base_patch_pix = patches_pix[0]
-
-                            # kappa2gamma_fac, gamma2kappa_fac, _ = shear.get_kaiser_squires_factors(l_max)
 
                             if in_map_type in ["kg", "ia"]:
                                 kappa_full = map_full
@@ -330,11 +327,8 @@ def main(indices, args):
 
                                 # number of galaxies per pixel
                                 counts_full = clustering.galaxy_density_to_number(
-                                    delta_full, n_bar, bias, include_systematics=False, apply_normalization=False
-                                )
-                                # counts_full = n_bar * (1 + bias * delta_full)
-                                # counts_full = np.where(0 < counts_full, counts_full, 0)
-                                # counts_full = np.random.poisson(counts_full)
+                                    delta_full, n_bar, bias, conf=conf, include_systematics=False
+                                ).astype(int)
 
                                 for i_patch, patch_pix in enumerate(patches_pix):
                                     # not a full healpy map, just the patch with no zeros
@@ -399,17 +393,12 @@ def main(indices, args):
                                 delta_patch = np.zeros(n_pix, dtype=np.float32)
                                 delta_patch[base_patch_pix] = delta_full[patch_pix]
 
-                                # # remove large scales (hard cut)
-                                # delta_alm = hp.map2alm(
-                                #     delta_patch,
-                                #     use_pixel_weights=True,
-                                #     datapath=hp_datapath,
-                                # )
-                                # l = hp.Alm.getlm(3 * n_side - 1)[0]
-                                # delta_alm[l < l_min] = 0.0
+                                # # apply survey systematics map, has to happen before smoothing
+                                # if conf["analysis"]["systematics"]["maglim"]["maglim_survey_systematics_map"]:
+                                #     delta_patch[base_patch_pix] *= tomo_survey_sys_maps[:, i_z]
 
-                                # # remove small scales (Gaussian smoothing)
-                                # delta_patch = hp.alm2map(delta_alm, nside=n_side, fwhm=np.pi/l_max)
+                                # # remove large and small scales
+                                # delta_patch = scales.map_to_smoothed_map(delta_patch, l_min, l_max, n_side)
 
                                 # cut out padded data vector
                                 delta_dv = maps.map_to_data_vec(

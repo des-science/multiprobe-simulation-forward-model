@@ -37,11 +37,20 @@ def get_kaiser_squires_factors(l_max):
 
 
 def get_m_bias_distribution(conf=None):
+    """Return a tensorflow probability distribution from which the (shear) multiplicative bias can be sampled.
+
+    Args:
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
+            passed through) or None (the default config is loaded). Defaults to None.
+
+    Returns:
+        tfp.distribution: Multiplicative bias.s
+    """
     conf = analysis.load_config(conf)
 
     m_bias_dist = tfp.distributions.MultivariateNormalDiag(
-        loc=conf["analysis"]["shear_bias"]["multiplicative"]["mu"],
-        scale_diag=conf["analysis"]["shear_bias"]["multiplicative"]["sigma"],
+        loc=conf["analysis"]["systematics"]["shear_bias"]["multiplicative"]["mu"],
+        scale_diag=conf["analysis"]["systematics"]["shear_bias"]["multiplicative"]["sigma"],
     )
 
     return m_bias_dist

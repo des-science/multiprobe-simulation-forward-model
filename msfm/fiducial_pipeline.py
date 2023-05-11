@@ -9,12 +9,10 @@ https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1
 by Janis Fluri
 """
 
-import healpy as hp  # this import could be avoided easily
 import tensorflow as tf
-import tensorflow_probability as tfp
 import warnings
 
-from msfm.utils import analysis, lensing, logger, tfrecords, parameters
+from msfm.utils import logger, tfrecords, parameters
 from msfm.utils.base_pipeline import MSFMpipeline
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -25,7 +23,7 @@ LOGGER = logger.get_logger(__file__)
 
 class FiducialPipeline(MSFMpipeline):
     """
-    A tensorflow pipeline for the fiducial cosmology and its (finite difference) derivatives.
+    A tensorflow pipeline for the fiducial cosmology and its per parameter perturbations.
     """
 
     def __init__(
@@ -36,10 +34,24 @@ class FiducialPipeline(MSFMpipeline):
         with_clustering: bool = True,
         apply_norm: bool = True,
         # noise
-        shape_noise_scale: float = 1.0,
         apply_m_bias: bool = True,
+        shape_noise_scale: float = 1.0,
     ):
-        super(MSFMpipeline, self).__init__(
+        """Set up the physics parameters of the pipeline.
+
+        Args:
+            conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
+                passed through) or None (the default config is loaded). Defaults to None.
+            params (list): List of the cosmological parameters of interest. Fiducial: perturbations, grid: labels.
+            with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
+            with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
+            apply_norm (bool, optional): Whether to rescale the maps to approximate unit range. Defaults to True.
+            apply_m_bias (bool, optional): Whether to include the multiplicative shear bias. Defaults to True.
+            shape_noise_scale (float, optional): Factor by which to multiply the shape noise. This could also be a
+                tf.Variable to change it according to a schedule during training. Set to None to not include any shape
+                noise. Defaults to 1.0.
+        """
+        super().__init__(
             conf=conf,
             params=params,
             with_lensing=with_lensing,
@@ -71,26 +83,14 @@ class FiducialPipeline(MSFMpipeline):
         # distribution
         input_context: tf.distribute.InputContext = None,
     ) -> tf.data.Dataset:
-        """Builds the training dataset from the given file name pattern
+        """Builds the tf.data.Dataset from the given file name pattern and performance related parameters.
 
         Args:
-            tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
-            local_batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
-            conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
-                passed through) or None (the default config is loaded). Defaults to None.
-            params (list): List of the cosmological parameters with respect to which the perturbations to be used in
-                training are returned, see the config for all possibilities. Defaults to None, then all are included
-                according to the config.
-            with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
-            with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
+            tfr_pattern (str): Glob pattern of the fiducial .tfrecord files.
+            local_batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch
+                size.
             i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
                 other tensor (like randomly sampled).
-            shape_noise_scale (float, optional): Factor by which to multiply the shape noise. This could also be a
-                tf.Variable to change it according to a schedule during training. Set to None to not include any shape
-                noise. Defaults to 1.0.
-            with_m_bias (bool, optional): Whether to include the multiplicative shear bias. Defaults to True.
-            poisson_noise_scale (float, optional): Rescales the Poisson noise, could be used in a noise schedule like
-                the shape_noise_scale. Defaults to 1.0.
             is_cached (bool): Whether to cache on the level on the deserialized tensors. This is only feasible if all of
                 the fiducial .tfrecords fit into RAM. Defaults to False.
             n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
@@ -101,8 +101,8 @@ class FiducialPipeline(MSFMpipeline):
             examples_shuffle_buffer (int, optional): Defaults to 128.
             file_name_shuffle_seed (int, optional): Defaults to 17.
             examples_shuffle_seed (int, optional): Defaults to 67.
-            is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can go
-                through it deterministically exactly once. Defaults to False.
+            is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can
+                go through it deterministically exactly once. Defaults to False.
             eval_seed (int, optional): Fixed seed for evaluation. Defaults to 32.
             input_context (tf.distribute.InputContext, optional): For distributed training, this is passed to the
                 dataset_fn like in
@@ -119,8 +119,8 @@ class FiducialPipeline(MSFMpipeline):
                         )
 
         Returns:
-            tf.data.Dataset: A dataset that returns samples with a given batchsize in the right ordering for the delta loss
-                The index label consists of (i_example, i_noise)
+            tf.data.Dataset: A dataset that returns samples with a given batchsize in the right ordering for the delta
+            loss. The index label consists of (i_example, i_noise)
         """
 
         if is_eval:
@@ -203,7 +203,83 @@ class FiducialPipeline(MSFMpipeline):
         )
         return dset
 
-    def _augmentations(self, data_vectors: dict, index: tuple):
+    def get_multi_noise_dset(
+        self,
+        tfr_pattern: str,
+        local_batch_size: int,
+        n_noise: int = 1,
+        # performance
+        is_cached: bool = False,
+        n_readers: int = 8,
+        n_prefetch: int = None,
+        file_name_shuffle_buffer: int = 128,
+        examples_shuffle_buffer: int = 128,
+        # random seeds
+        file_name_shuffle_seed: int = 17,
+        examples_shuffle_seed: int = 67,
+        # distribution
+        input_context: tf.distribute.InputContext = None,
+    ) -> tf.data.Dataset:
+        """Like get_dset, but for a random noise realization.
+
+        Args:
+            n_noise (int, optional): Number of noise indices to include.
+
+        Returns:
+            tf.data.Dataset: A dataset that returns samples with a given batchsize in the right ordering for the delta
+            loss. The index label consists of (i_example, i_noise)
+        """
+
+        if file_name_shuffle_buffer is not None:
+            file_name_shuffle_buffer = file_name_shuffle_buffer // n_noise
+
+        if examples_shuffle_buffer is not None:
+            examples_shuffle_buffer = examples_shuffle_buffer // n_noise
+
+        dset = tf.data.Dataset.sample_from_datasets(
+            [
+                self.get_dset(
+                    tfr_pattern=tfr_pattern,
+                    local_batch_size=local_batch_size,
+                    i_noise=i_noise,
+                    is_cached=is_cached,
+                    n_readers=n_readers,
+                    n_prefetch=0,
+                    file_name_shuffle_buffer=file_name_shuffle_buffer,
+                    examples_shuffle_buffer=examples_shuffle_buffer,
+                    file_name_shuffle_seed=file_name_shuffle_seed + i_noise,
+                    examples_shuffle_seed=examples_shuffle_seed + i_noise,
+                    input_context=input_context,
+                )
+                for i_noise in range(n_noise)
+            ]
+        )
+
+        # prefetch
+        if n_prefetch is None:
+            n_prefetch = tf.data.AUTOTUNE
+        dset = dset.prefetch(n_prefetch)
+
+        LOGGER.info(
+            f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for i_noise in"
+            f" [0, {n_noise}]"
+        )
+        return dset
+
+    def _augmentations(self, data_vectors: dict, index: tuple) -> tf.Tensor:
+        """This function wraps _lensing_augmentations and _clustering_augmentations and implements the appropriate case
+        distinction.
+
+        Args:
+            data_vectors (dict): Full dictionary containing all kg and dg perturbations.
+            index (tuple): Label (i_example, i_noise), which is only passed through.
+
+        Raises:
+            ValueError: If neither lensing nor clustering maps are selected.
+
+        Returns:
+            tuple: (out_tensor, index) the elements of the dataset.
+        """
         LOGGER.warning(f"Tracing dset_augmentations")
         LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
 
@@ -227,21 +303,25 @@ class FiducialPipeline(MSFMpipeline):
 
         return out_tensor, index
 
-    def _lensing_augmentations(self, data_vectors: dict):
-        """Applies random augmentations and general pre-processing to the weak lensing maps (kg). This includes in order:
-            - Adds random multiplicative shear bias (the additive one is negligible) to the kappa maps
-            - Adds the chosen shape noise realization to the kappa maps
-            - Masks the resulting data vector (this is only required if an addition like an additive shear bias is applied)
-            - Concatenates the batch and perturbations along axis 0 (for compatibility with the delta loss)
+    def _lensing_augmentations(self, data_vectors: dict) -> tf.Tensor:
+        """Applies random augmentations and general pre-processing to the weak lensing maps (kg). This includes in
+        order:
+            - Load the fiducial for galaxy clustering perturbations
+            - Add random multiplicative shear bias (the additive one is negligible) to the kappa maps
+            - Add the chosen shape noise realization to the kappa maps
+            - Reversibly normalize to roughly unit values
+            - Mask the resulting data vector (this is only required if an addition like an additive shear bias is
+                applied)
+            - Concatenate the batch and perturbations along axis 0 (for compatibility with the delta loss)
 
         Args:
             data_vectors (dict): Has keys "kg_{pert_label}" and "sn", which contain tensors of shape
                 (batch_size, n_pix, n_z_metacal).
 
         Returns:
-            tf.tensor: data_vectors of shape (n_perts * batch_size, n_pix, n_z_metacal). The first
-                batch_size elements correspond to the fiducial value, the second to the first perturbation, the third to
-                the second perturbation, etc. (for compatibility with the delta loss).
+            tf.tensor: data_vectors of shape (n_perts * batch_size, n_pix, n_z_metacal). The first batch_size elements
+                correspond to the fiducial value, the second to the first perturbation, the third to the second
+                perturbation, etc. (for compatibility with the delta loss).
         """
         # shape noise
         sn = data_vectors.pop("sn")
@@ -252,12 +332,13 @@ class FiducialPipeline(MSFMpipeline):
             if "bg" in label:
                 # doesn't affect the convergence map
                 data_vector = data_vectors[f"kg_fiducial"]
-            # cosmology perturbations
+
+            # cosmology + intrinsic alignment perturbations
             else:
                 data_vector = data_vectors[f"kg_{label}"]
 
             # shear bias
-            if self.m_bias_dist is not None:
+            if self.apply_m_bias and (self.m_bias_dist is not None):
                 # only sample at the fiducial (which always comes first)
                 if "fiducial" in label:
                     # shape (n_z_bins,)
@@ -274,27 +355,27 @@ class FiducialPipeline(MSFMpipeline):
             else:
                 LOGGER.warning(f"No shape noise is added")
 
-            # masking
-            data_vector *= self.masks_metacal
-
             # normalization
             if self.apply_norm:
-                data_vector /= self.tomo_kappa_std
+                data_vector = self.normalize_lensing(data_vector)
+
+            # masking
+            data_vector *= self.masks_metacal
 
             out_data_vectors.append(data_vector)
 
         # concatenate the perturbation axis
         return tf.concat(out_data_vectors, axis=0)
 
-    def _clustering_augmentations(self, data_vectors: dict):
+    def _clustering_augmentations(self, data_vectors: dict) -> tf.Tensor:
         """Applies random augmentations and general pre-processing to the clustering maps (dg). This includes in order:
-            - Convert from galaxy density contrast to galaxy number map
-            - Sample corresponding Poisson noise at the fiducial and multiplicatively apply to all maps
-            - Masks the resulting data vector (just to be safe)
-            - Concatenates the batch and perturbations along axis 0 (for compatibility with the delta loss)
+            - Load the fiducial for intrinsic alignment perturbations
+            - Mask the resulting data vector (just to be safe)
+            - Concatenate the batch and perturbations along axis 0 (for compatibility with the delta loss)
 
         Args:
-            data_vectors (dict): Has keys "dg_{pert_label}", which contain tensors of shape (batch_size, n_pix, n_z_maglim).
+            data_vectors (dict): Has keys "dg_{pert_label}", which contain tensors of shape
+                (batch_size, n_pix, n_z_maglim).
 
         Returns:
             tf.tensor: data_vectors of shape (n_perts * batch_size, n_pix, n_z_maglim). The first batch_size elements
@@ -312,552 +393,14 @@ class FiducialPipeline(MSFMpipeline):
             else:
                 data_vector = data_vectors[f"dg_{label}"]
 
-            # masking
-            data_vector *= self.masks_maglim
-
             # normalization
             if self.apply_norm:
-                data_vector = data_vector / self.tomo_n_gal_maglim - 1.0
+                data_vector = self.normalize_clustering(data_vector)
+
+            # masking
+            data_vector *= self.masks_maglim
 
             out_data_vectors.append(data_vector)
 
         # concatenate the perturbation axis
         return tf.concat(out_data_vectors, axis=0)
-
-
-def lensing_augmentations(
-    data_vectors: dict,
-    pert_labels: list,
-    # lensing specific
-    m_bias_dist: tfp.distributions.Distribution = None,
-    noise_scale: float = 1.0,
-    masks: tf.constant = None,
-):
-    """Applies random augmentations and general pre-processing to the weak lensing maps (kg). This includes in order:
-        - Adds random multiplicative shear bias (the additive one is negligible) to the kappa maps
-        - Adds the chosen shape noise realization to the kappa maps
-        - Masks the resulting data vector (this is only required if an addition like an additive shear bias is applied)
-        - Concatenates the batch and perturbations along axis 0 (for compatibility with the delta loss)
-
-    Args:
-        data_vectors (dict): Has keys "kg_{pert_label}" and "sn", which contain tensors of shape
-            (batch_size, n_pix, n_z_metacal).
-        pert_labels (list): The labels of the perturbations to loop through. This should contain both cosmological and
-            intrinsic alignment parameters.
-        m_bias_dist (tfp.distributions.Distribution, optional): TensorFlow probability distribution from which the bias
-            is sampled. The samples have to be drawn within this function for randomness. Defaults to None, then the
-            bias is always equal to one.
-        noise_scale (float): Multiplicative factor applied to the shape noise before it is added. Defaults to 1.0,
-            for a value of None, no shape noise is added to the kappa maps.
-        masks (tf.tensor): Tensor of shape (n_pix, n_z_metacal) only containing zeros and ones.
-
-    Returns:
-        tf.tensor: data_vectors of shape (n_perts * batch_size, n_pix, n_z_metacal). The first
-            batch_size elements correspond to the fiducial value, the second to the first perturbation, the third to
-            the second perturbation, etc. (for compatibility with the delta loss).
-    """
-    # shape noise
-    sn = data_vectors.pop("sn")
-
-    out_data_vectors = []
-    for label in pert_labels:
-        # galaxy bias perturbations
-        if "bg" in label:
-            # doesn't affect the convergence map
-            data_vector = data_vectors[f"kg_fiducial"]
-        # cosmology perturbations
-        else:
-            data_vector = data_vectors[f"kg_{label}"]
-
-        # shear bias
-        if m_bias_dist is not None:
-            # only sample at the fiducial (which always comes first)
-            if "fiducial" in label:
-                # shape (n_z_bins,)
-                m_bias = m_bias_dist.sample()
-
-            # broadcast axis 0 of size n_pix
-            data_vector *= 1.0 + m_bias
-        else:
-            LOGGER.warning(f"No multiplicative shear bias is applied")
-
-        # shape noise
-        if noise_scale is not None:
-            data_vector += noise_scale * sn
-        else:
-            LOGGER.warning(f"No shape noise is added")
-
-        # masking
-        if masks is not None:
-            data_vector *= masks
-        else:
-            LOGGER.warning(f"No masking is applied to metacal")
-
-        out_data_vectors.append(data_vector)
-
-    # concatenate the perturbation axis
-    return tf.concat(out_data_vectors, axis=0)
-
-
-def clustering_augmentations(
-    data_vectors: dict,
-    pert_labels: list,
-    # clustering specific
-    tomo_n_gal: tf.constant,
-    tomo_bg_perts_dict: dict,
-    noise_scale: float = 1.0,
-    masks: tf.constant = None,
-):
-    """Applies random augmentations and general pre-processing to the clustering maps (dg). This includes in order:
-        - Convert from galaxy density contrast to galaxy number map
-        - Sample corresponding Poisson noise at the fiducial and multiplicatively apply to all maps
-        - Masks the resulting data vector (just to be safe)
-        - Concatenates the batch and perturbations along axis 0 (for compatibility with the delta loss)
-
-    Args:
-        data_vectors (dict): Has keys "dg_{pert_label}", which contain tensors of shape (batch_size, n_pix, n_z_maglim).
-        pert_labels (list): The labels of the perturbations to loop through. This should contain cosmological
-            parameters only (as the galaxy clustering parameters are added here in this function and not stored).
-        tomo_n_gal (tf.tensor): Average number of galaxies per pixel for the given nside of shape (n_z_maglim,).
-        tomo_bg_perts_dict (dict): Dict of arrays of shape (n_z_maglim,) which contains one galaxy biasing amplitude
-            per tomographic bin. The dictionary keys are the perturbation labels.
-        noise_scale (float): Multiplicative factor applied to the Poisson noise before. Defaults to 1.0, for a value of
-            None, no Poisson noise is sampled.
-        masks (tf.tensor): Tensor of shape (n_pix, 1) only containing zeros and ones. The mask is identical for
-            all tomographic bins.
-
-    Returns:
-        tf.tensor: data_vectors of shape (n_perts * batch_size, n_pix, n_z_maglim). The first batch_size elements
-            correspond to the fiducial value, the second to the first perturbation, the third to the second
-            perturbation, etc. (for compatibility with the delta loss).
-    """
-
-    out_data_vectors = []
-    for label in pert_labels:
-        # intrinsic alignemnt perturbations
-        if "Aia" in label:
-            # doesn't affect the clustering map
-            data_vector = data_vectors[f"dg_fiducial"]
-
-            tomo_bg = tomo_bg_perts_dict["fiducial"]
-        # galaxy bias perturbations
-        elif "bg" in label:
-            # the perturbation comes in the per bin bias parameter
-            data_vector = data_vectors[f"dg_fiducial"]
-
-            tomo_bg = tomo_bg_perts_dict[label]
-        # cosmology perturbations
-        else:
-            data_vector = data_vectors[f"dg_{label}"]
-
-            tomo_bg = tomo_bg_perts_dict["fiducial"]
-
-        # galaxy density contrast to galaxy number map conversion
-        data_vector = tomo_n_gal * (1 + tomo_bg * data_vector)
-        data_vector = tf.where(0 < data_vector, data_vector, 0)
-
-        # Poisson noise, only sample at the fiducial (which always comes first)
-        if noise_scale is not None:
-            if "fiducial" in label:
-                noisy_fiducial = tf.random.poisson(shape=[], lam=data_vector)
-                poisson_noise_fac = noisy_fiducial / data_vector
-                poisson_noise_fac *= noise_scale
-
-            # apply the "fiducial Poisson noise" to the perturbations
-            data_vector *= poisson_noise_fac
-        else:
-            LOGGER.warning(f"No Poisson noise is added")
-
-        # masking
-        if masks is not None:
-            data_vector *= masks
-        else:
-            LOGGER.warning(f"No masking is applied to maglim")
-
-        out_data_vectors.append(data_vector)
-
-    # concatenate the perturbation axis
-    return tf.concat(out_data_vectors, axis=0)
-
-
-def dset_augmentations(
-    data_vectors: dict,
-    index: tuple,
-    pert_labels: list,
-    # kg
-    with_lensing: bool = True,
-    m_bias_dist: tfp.distributions.Distribution = None,
-    shape_noise_scale: float = 1.0,
-    masks_metacal: tf.constant = None,
-    # dg
-    with_clustering: bool = True,
-    tomo_n_gal_maglim: tf.constant = None,
-    tomo_bg_perts_dict: dict = None,
-    poisson_noise_scale: float = 1.0,
-    masks_maglim: tf.constant = None,
-):
-    """This function wraps lensing_augmentations and clustering_augmentations and implements the appropriate case
-        distinction.
-
-    Args:
-        data_vectors (dict): Dict of tensors of shape (batch_size, n_pix, n_z_bins).
-        index (tf.tensor): Tuple of integers (i_example, i_noise) that is only passed through.
-        pert_labels (list): The labels of the perturbations to loop through.
-        with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
-        m_bias_dist (tfp.distributions.Distribution, optional): TensorFlow probability distribution from which the bias
-            is sampled. The samples have to be drawn within this function for randomness. Defaults to None, then the
-            bias is always equal to one.
-        shape_noise_scale (float, optional): Multiplicative factor applied to the shape noise before it is added.
-            Defaults to 1.0, for a value of None, no shape noise is added to the kappa maps.
-        masks_metacal (tf.constant, optional): Tensor of shape (n_pix, n_z_metacal) only containing zeros and ones.
-            Defaults to None, then no masking is applied.
-        with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
-        tomo_n_gal (tf.tensor): Average number of galaxies per pixel for the given nside of shape (n_z_maglim,).
-        tomo_bg_perts_dict (dict): Dict of arrays of shape (n_z_maglim,) which contains one galaxy biasing amplitude
-            per tomographic bin. The dictionary keys are the perturbation labels.
-        poisson_noise_scale (float): Multiplicative factor applied to the Poisson noise before. Defaults to 1.0, for a
-            value of None, no Poisson noise is sampled.
-        masks_maglim (tf.tensor): Tensor of shape (n_pix, 1) only containing zeros and ones. The mask is identical for
-            all tomographic bins.
-
-    Raises:
-        ValueError: If both with_lensing and with_clustering are False.
-
-    Returns:
-        Tuple: (data_tensor, index)
-    """
-    LOGGER.warning(f"Tracing dset_augmentations")
-    LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
-
-    if with_lensing and with_clustering:
-        kg_tensor = lensing_augmentations(data_vectors, pert_labels, m_bias_dist, shape_noise_scale, masks_metacal)
-        dg_tensor = clustering_augmentations(
-            data_vectors, pert_labels, tomo_n_gal_maglim, tomo_bg_perts_dict, poisson_noise_scale, masks_maglim
-        )
-
-        # concatenate along the tomography axis
-        out_tensor = tf.concat([kg_tensor, dg_tensor], axis=-1)
-
-    elif with_lensing:
-        assert not any(param in pert_labels for param in ["bg", "n_bg"])
-        out_tensor = lensing_augmentations(data_vectors, pert_labels, m_bias_dist, shape_noise_scale, masks_metacal)
-
-    elif with_clustering:
-        assert not any(param in pert_labels for param in ["Aia", "n_Aia"])
-        out_tensor = clustering_augmentations(
-            data_vectors, pert_labels, tomo_n_gal_maglim, tomo_bg_perts_dict, poisson_noise_scale, masks_maglim
-        )
-
-    else:
-        raise ValueError(f"At least one of 'lensing' or 'clustering' maps need to be selected")
-
-    return out_tensor, index
-
-
-def get_fiducial_dset(
-    tfr_pattern: str,
-    local_batch_size: int,
-    # configuration
-    conf: dict = None,
-    params: list = None,
-    with_lensing: bool = True,
-    with_clustering: bool = True,
-    rescale: bool = True,
-    # noise
-    i_noise: int = 0,
-    shape_noise_scale: float = 1.0,
-    with_m_bias: bool = True,
-    poisson_noise_scale: float = 1.0,
-    # performance
-    is_cached: bool = False,
-    n_readers: int = 8,
-    n_prefetch: int = None,
-    file_name_shuffle_buffer: int = 128,
-    examples_shuffle_buffer: int = 128,
-    # random seeds
-    file_name_shuffle_seed: int = 17,
-    examples_shuffle_seed: int = 67,
-    is_eval: bool = False,
-    eval_seed: int = 32,
-    # distribution
-    input_context: tf.distribute.InputContext = None,
-) -> tf.data.Dataset:
-    """Builds the training dataset from the given file name pattern
-
-    Args:
-        tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
-        local_batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
-        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
-            passed through) or None (the default config is loaded). Defaults to None.
-        params (list): List of the cosmological parameters with respect to which the perturbations to be used in
-            training are returned, see the config for all possibilities. Defaults to None, then all are included
-            according to the config.
-        with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
-        with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
-        i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
-            other tensor (like randomly sampled).
-        shape_noise_scale (float, optional): Factor by which to multiply the shape noise. This could also be a
-            tf.Variable to change it according to a schedule during training. Set to None to not include any shape
-            noise. Defaults to 1.0.
-        with_m_bias (bool, optional): Whether to include the multiplicative shear bias. Defaults to True.
-        poisson_noise_scale (float, optional): Rescales the Poisson noise, could be used in a noise schedule like
-            the shape_noise_scale. Defaults to 1.0.
-        is_cached (bool): Whether to cache on the level on the deserialized tensors. This is only feasible if all of
-            the fiducial .tfrecords fit into RAM. Defaults to False.
-        n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
-            concurrently. This should be roughly less than a tenth of the number of files. Defaults to 8.
-        n_prefetch (int, optional): Number of dataset elements to prefetch. Defaults to None, then tf.data.AUTOTUNE
-            is used.
-        file_name_shuffle_buffer (int, optional): Defaults to 128.
-        examples_shuffle_buffer (int, optional): Defaults to 128.
-        file_name_shuffle_seed (int, optional): Defaults to 17.
-        examples_shuffle_seed (int, optional): Defaults to 67.
-        is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can go
-            through it deterministically exactly once. Defaults to False.
-        eval_seed (int, optional): Fixed seed for evaluation. Defaults to 32.
-        input_context (tf.distribute.InputContext, optional): For distributed training, this is passed to the
-            dataset_fn like in
-            https://www.tensorflow.org/tutorials/distribute/input#tfdistributestrategydistribute_datasets_from_function
-            Then, the dataset is sharded. Defaults to None for a non distributed dataset.
-
-            Example usage:
-                def dataset_fn(input_context):
-                    dset = fiducial_pipeline.get_fiducial_dset(
-                        tfr_pattern,
-                        params,
-                        batch_size,
-                        input_context=input_context,
-                    )
-
-    Returns:
-        tf.data.Dataset: A dataset that returns samples with a given batchsize in the right ordering for the delta loss
-            The index label consists of (i_example, i_noise)
-    """
-    LOGGER.info(f"Starting to generate the fiducial training set for i_noise = {i_noise}")
-
-    # constants
-    conf = analysis.load_config(conf)
-    n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
-    n_z_maglim = len(conf["survey"]["maglim"]["z_bins"])
-
-    pert_labels = parameters.get_fiducial_perturbation_labels(params)
-    no_bg_pert_labels = [pert_label for pert_label in pert_labels if not "bg" in pert_label]
-
-    # load the pixel file to get the size of the data vector
-    data_vec_pix, _, _, _ = analysis.load_pixel_file(conf)
-    n_pix = len(data_vec_pix)
-    masks_dict = analysis.get_tomo_masks(conf)
-
-    # lensing specific
-    masks_metacal = tf.constant(masks_dict["metacal"], dtype=tf.float32)
-    if with_m_bias:
-        m_bias_dist = lensing.get_m_bias_distribution(conf)
-    else:
-        m_bias_dist = None
-
-    # clustering specific
-    masks_maglim = tf.constant(masks_dict["maglim"], dtype=tf.float32)
-    tomo_n_gal_maglim = tf.constant(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(
-        conf["analysis"]["n_side"], degrees=True
-    )
-    tomo_bg_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg", conf)
-
-    if is_eval:
-        LOGGER.warning(f"Evaluation mode is activated, the random seed is fixed and the dataset is not repeated")
-        tf.random.set_seed(eval_seed)
-
-    # get the file names
-    dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=False)
-
-    # shard for distributed training
-    if input_context is not None:
-        # NOTE Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2. This is black magic since
-        # print(input_context.num_input_pipelines) yields 1, so I don't know how the sharding happens, but it does, see
-        # distributed_sharding.ipynb
-        dset = dset.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
-        LOGGER.info(f"Sharding the dataset according to the input_context")
-
-    # repeat and shuffle the files
-    if not is_eval and not is_cached:
-        LOGGER.info(f"Shuffling file names")
-        dset = dset.repeat()
-        dset = dset.shuffle(file_name_shuffle_buffer, seed=file_name_shuffle_seed)
-
-    # interleave, block_length is the number of files every reader reads
-    if is_eval:
-        dset = dset.interleave(tf.data.TFRecordDataset, cycle_length=n_readers, block_length=1)
-    else:
-        dset = dset.interleave(
-            tf.data.TFRecordDataset,
-            cycle_length=n_readers,
-            block_length=1,
-            num_parallel_calls=tf.data.AUTOTUNE,
-            deterministic=False,
-        )
-
-    # parse, output signature (data_vectors, (i_example, i_noise))
-    dset = dset.map(
-        lambda serialized_example: tfrecords.parse_inverse_fiducial(
-            serialized_example,
-            no_bg_pert_labels,
-            i_noise,
-            # dimensions
-            n_pix,
-            n_z_metacal,
-            n_z_maglim,
-            # map types
-            with_lensing,
-            with_clustering,
-        ),
-        num_parallel_calls=tf.data.AUTOTUNE,
-    )
-
-    if is_cached:
-        LOGGER.warning(f"Caching the dataset")
-        dset = dset.cache()
-        dset = dset.repeat()
-
-    # shuffle the tensors
-    if not is_eval and examples_shuffle_buffer is not None:
-        dset = dset.shuffle(examples_shuffle_buffer, seed=examples_shuffle_seed)
-
-    # batch (first, for vectorization)
-    dset = dset.batch(local_batch_size, drop_remainder=True)
-    LOGGER.info(f"Batching into {local_batch_size} elements locally")
-
-    # augmentations (all in one function, to make parallelization faster)
-    dset = dset.map(
-        lambda data_vectors, index: dset_augmentations(
-            data_vectors,
-            index,
-            pert_labels,
-            # kg
-            with_lensing,
-            m_bias_dist,
-            shape_noise_scale,
-            masks_metacal,
-            # dg
-            with_clustering,
-            tomo_n_gal_maglim,
-            tomo_bg_perts_dict,
-            poisson_noise_scale,
-            masks_maglim,
-        ),
-        num_parallel_calls=tf.data.AUTOTUNE,
-    )
-
-    # prefetch
-    if n_prefetch is None:
-        n_prefetch = tf.data.AUTOTUNE
-    dset = dset.prefetch(n_prefetch)
-
-    LOGGER.info(
-        f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for"
-        f" i_noise = {i_noise}"
-    )
-    return dset
-
-
-def get_fiducial_multi_noise_dset(
-    tfr_pattern: str,
-    local_batch_size: int,
-    # configuration
-    params: list = None,
-    conf: dict = None,
-    # shape noise settings
-    n_noise: int = 1,
-    noise_scale: float = 1.0,
-    # performance
-    is_cached: bool = False,
-    n_readers: int = 8,
-    n_prefetch: int = None,
-    file_name_shuffle_buffer: int = 128,
-    examples_shuffle_buffer: int = 128,
-    # random seeds
-    file_name_shuffle_seed: int = 17,
-    examples_shuffle_seed: int = 67,
-    # distribution
-    input_context: tf.distribute.InputContext = None,
-) -> tf.data.Dataset:
-    """A dataset made up of the above datasets, but for different i_noise (index of the shape noise realization). The
-    sampling is uniform.
-
-        tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
-        local_batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
-        params (list): List of the cosmological parameters with respect to which the perturbations to be used in
-            training are returned, see the config for all possibilities. Defaults to None, then all are included
-            according to the config.
-        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
-            passed through) or None (the default config is loaded). Defaults to None.
-        n_noise (int): Number of noise indices to include.
-        noise_scale (float): Factor by which to multiply the shape noise. This could also be a tf.Variable to change
-            it according to a schedule during training. Set to None to not include any shape noise. Defaults to 1.0.
-        is_cached (bool): Whether to cache on the level on the deserialized tensors. This is only feasible if all of
-            the fiducial .tfrecords fit into RAM. Defaults to False.
-        n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
-            concurrently. This should be roughly less than a tenth of the number of files. Defaults to 8.
-        n_prefetch (int, optional): Number of dataset elements to prefetch. Defaults to None, then tf.data.AUTOTUNE
-            is used.
-        file_name_shuffle_buffer (int, optional): Defaults to 128.
-        examples_shuffle_buffer (int, optional): Defaults to 128.
-        file_name_shuffle_seed (int, optional): Defaults to 17.
-        examples_shuffle_seed (int, optional): Defaults to 67.
-        is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can go
-            through it deterministically exactly once. Defaults to False.
-        eval_seed (int, optional): Fixed seed for evaluation. Defaults to 32.
-        input_context (tf.distribute.InputContext, optional): For distributed training, this is passed to the
-            dataset_fn like in
-            https://www.tensorflow.org/tutorials/distribute/input#tfdistributestrategydistribute_datasets_from_function
-            Then, the dataset is sharded. Defaults to None for a non distributed dataset.
-
-            Example usage:
-                def dataset_fn(input_context):
-                    dset = fiducial_pipeline.get_fiducial_dset(
-                        tfr_pattern,
-                        params,
-                        batch_size,
-                        input_context=input_context,
-                    )
-
-    Returns:
-        tf.data.Dataset: A dataset that returns samples with a given batchsize in the right ordering for the delta loss
-            The label consists of (i_example, i_noise)
-    """
-    if file_name_shuffle_buffer is not None:
-        file_name_shuffle_buffer = file_name_shuffle_buffer // n_noise
-
-    if examples_shuffle_buffer is not None:
-        examples_shuffle_buffer = examples_shuffle_buffer // n_noise
-
-    dset = tf.data.Dataset.sample_from_datasets(
-        [
-            get_fiducial_dset(
-                tfr_pattern=tfr_pattern,
-                local_batch_size=local_batch_size,
-                params=params,
-                conf=conf,
-                i_noise=i_noise,
-                shape_noise_scale=noise_scale,
-                is_cached=is_cached,
-                n_readers=n_readers,
-                n_prefetch=0,
-                file_name_shuffle_buffer=file_name_shuffle_buffer,
-                examples_shuffle_buffer=examples_shuffle_buffer,
-                file_name_shuffle_seed=file_name_shuffle_seed + i_noise,
-                examples_shuffle_seed=examples_shuffle_seed + i_noise,
-                input_context=input_context,
-            )
-            for i_noise in range(n_noise)
-        ]
-    )
-
-    # prefetch
-    if n_prefetch is None:
-        n_prefetch = tf.data.AUTOTUNE
-    dset = dset.prefetch(n_prefetch)
-
-    LOGGER.info(
-        f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for i_noise in"
-        f" [0, {n_noise}]"
-    )
-    return dset
