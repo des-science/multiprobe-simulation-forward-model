@@ -42,11 +42,20 @@ class MSFMpipeline:
                 noise. Defaults to 1.0.
         """
         # general constants
-        self.params = params
+        self.conf = analysis.load_config(conf)
+
+        if params is None:
+            self.params = (
+                self.conf["analysis"]["params"]["cosmo"]
+                + self.conf["analysis"]["params"]["ia"]
+                + self.conf["analysis"]["params"]["bg"]
+            )
+        else:
+            self.params = params
+
         self.apply_norm = apply_norm
         self.shape_noise_scale = shape_noise_scale
 
-        self.conf = analysis.load_config(conf)
         self.n_z_metacal = len(self.conf["survey"]["metacal"]["z_bins"])
         self.n_z_maglim = len(self.conf["survey"]["maglim"]["z_bins"])
 

@@ -44,7 +44,7 @@ LOGGER = logger.get_logger(__file__)
 
 
 def resources(args):
-    return dict(main_memory=8192, main_time=4, main_scratch=0, main_n_cores=1)
+    return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=8)
 
 
 def setup(args):
@@ -122,11 +122,7 @@ def main(indices, args):
     sobol_priors = parameters.get_prior_intervals(
         conf["analysis"]["params"]["sobol"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
     )
-
-    # maglim
-    tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
-    tomo_l_min_maglim = conf["analysis"]["scale_cuts"]["maglim"]["l_min"]
-    tomo_l_max_maglim = conf["analysis"]["scale_cuts"]["maglim"]["l_max"]
+    z0 = conf["analysis"]["systematics"]["z0"]
 
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
@@ -134,13 +130,54 @@ def main(indices, args):
     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo * n_noise_per_example
 
-    # shear bias distribution, as fixing this in the .tfrecords simplifies reproducibility
+    data_vec_pix, _, _, _ = analysis.load_pixel_file()
+
+    # lensing (intrinsic alignment)
+    tomo_z_metacal, tomo_nz_metacal = analysis.load_redshift_distributions("metacal", conf)
     m_bias_dist = lensing.get_m_bias_distribution(conf)
 
-    # redshift evolution
-    z0 = conf["analysis"]["z0"]
-    tomo_z_metacal, tomo_nz_metacal = analysis.load_redshift_distributions("metacal", conf)
+    def lensing_transform(kg, ia, Aia, n_Aia):
+        # intrinsic alignment
+        tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+        LOGGER.debug(f"Per z bin Aia = {tomo_Aia}")
+
+        kg += tomo_Aia * ia
+
+        # fixing this in the .tfrecords simplifies reproducibility
+        m_bias = m_bias_dist.sample()
+        kg *= 1.0 + m_bias
+
+        return kg
+
+    # clustering (linear galaxy bias)
     tomo_z_maglim, tomo_nz_maglim = analysis.load_redshift_distributions("maglim", conf)
+    tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
+
+    def clustering_transform(dg, bg, n_bg):
+        # linear galaxy biasing
+        tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+        LOGGER.debug(f"Per z bin bg = {tomo_bg}")
+
+        galaxy_counts = clustering.galaxy_density_to_number(
+            dg,
+            tomo_n_gal_maglim,
+            tomo_bg,
+            conf=conf,
+            include_systematics=conf["analysis"]["systematics"]["maglim_survey_systematics_map"],
+        )
+
+        galaxy_counts = clustering.galaxy_number_add_noise(galaxy_counts)
+
+        galaxy_counts = scales.data_vector_to_smoothed_data_vector(
+            galaxy_counts,
+            l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+            l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+            n_side=conf["analysis"]["n_side"],
+            data_vec_pix=data_vec_pix,
+            nest=True,
+        )
+
+        return galaxy_counts
 
     # set up the paths
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
@@ -213,11 +250,9 @@ def main(indices, args):
                 n_bg = sobol_params[9]
                 cosmo = np.concatenate((cosmo, np.array([Aia, n_Aia, bg, n_bg])))
 
-                # redshift evolution
-                tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
-                tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
-                LOGGER.debug(f"Aia = {tomo_Aia}")
-                LOGGER.debug(f"bg = {tomo_bg}")
+                # redshift evolution, only calculate the integrals once here
+                current_lensing_transform = lambda kg, ia: lensing_transform(kg, ia, Aia, n_Aia)
+                current_clustering_transform = lambda dg: clustering_transform(dg, bg, n_bg)
 
                 # verify that the Sobol sequences are identical (the parameters are ordered differently)
                 assert np.allclose(sobol_params[0], cosmo[0], rtol=1e-3, atol=1e-5)  # Om
@@ -239,27 +274,8 @@ def main(indices, args):
                     desc="Looping through the examples of one cosmology",
                     total=n_examples_per_cosmo,
                 ):
-                    # intrinsic alignment (on kappa level), broadcast (data_vec_len, n_z_metacal) and (n_z_metacal,)
-                    kg += tomo_Aia * ia
-
-                    # multiplicative shear bias, broadcast (data_vec_len, n_z_metacal) and (n_z_metacal,)
-                    m_bias = m_bias_dist.sample()
-                    kg *= 1.0 + m_bias
-
-                    # apply the galaxy bias and Poisson noise, broadcast (data_vec_len, n_z_maglim) and (n_z_maglim,)
-                    dg = clustering.galaxy_density_to_number(
-                        dg,
-                        tomo_n_gal_maglim,
-                        tomo_bg,
-                        include_systematics=args.include_maglim_systematics,
-                        conf=conf,
-                    )
-
-                    # smoothing, different scale per redshift bin
-                    # for i_tomo, (l_min, l_max) in enumerate(zip(tomo_l_min_maglim, tomo_l_max_maglim)):
-                    #     dg[..., i_tomo] = scales.map_to_smoothed_map(dg[..., i_tomo], l_min, l_max)
-
-                    dg = scales.map_to_smoothed_map(dg, tomo_l_min_maglim, tomo_l_max_maglim, n_side)
+                    kg = current_lensing_transform(kg, ia)
+                    dg = current_clustering_transform(dg)
 
                     serialized = tfrecords.parse_forward_grid(kg, sn_realz, dg, cosmo, i_sobol).SerializeToString()
 

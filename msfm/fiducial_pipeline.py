@@ -23,7 +23,7 @@ LOGGER = logger.get_logger(__file__)
 
 class FiducialPipeline(MSFMpipeline):
     """
-    A tensorflow pipeline for the fiducial cosmology and its per parameter perturbations.
+    Sets up a tf.data.Dataset for the fiducial cosmology and its per parameter perturbations.
     """
 
     def __init__(
@@ -220,7 +220,7 @@ class FiducialPipeline(MSFMpipeline):
         # distribution
         input_context: tf.distribute.InputContext = None,
     ) -> tf.data.Dataset:
-        """Like get_dset, but for a random noise realization.
+        """Like get_dset, but for one of n random noise realizations (instead of fixed one).
 
         Args:
             n_noise (int, optional): Number of noise indices to include.
@@ -280,7 +280,7 @@ class FiducialPipeline(MSFMpipeline):
         Returns:
             tuple: (out_tensor, index) the elements of the dataset.
         """
-        LOGGER.warning(f"Tracing dset_augmentations")
+        LOGGER.warning(f"Tracing _augmentations")
         LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
 
         if self.with_lensing and self.with_clustering:
@@ -323,6 +323,8 @@ class FiducialPipeline(MSFMpipeline):
                 correspond to the fiducial value, the second to the first perturbation, the third to the second
                 perturbation, etc. (for compatibility with the delta loss).
         """
+        LOGGER.warning(f"Tracing _lensing_augmentations")
+
         # shape noise
         sn = data_vectors.pop("sn")
 
@@ -382,6 +384,7 @@ class FiducialPipeline(MSFMpipeline):
                 correspond to the fiducial value, the second to the first perturbation, the third to the second
                 perturbation, etc. (for compatibility with the delta loss).
         """
+        LOGGER.warning(f"Tracing _clustering_augmentations")
 
         out_data_vectors = []
         for label in self.pert_labels:

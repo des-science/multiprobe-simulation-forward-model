@@ -148,8 +148,6 @@ def main(indices, args):
             n_side=conf["analysis"]["n_side"],
             data_vec_pix=data_vec_pix,
             nest=True,
-            # conf=conf,
-            # galaxy_sample="maglim"
         )
 
         if is_fiducial:
