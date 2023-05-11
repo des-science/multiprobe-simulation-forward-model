@@ -6,7 +6,7 @@
   cmd: esub msfm/apps/run_datavectors.py --simset=fiducial --dir_in=/cluster/scratch/athomsen/CosmoGrid/fiducial --dir_out=/cluster/scratch/athomsen/CosmoGrid/v2/fiducial --mode=jobarray --function=all --n_jobs=12 --tasks="1>13" --job_name=dv_pert --system=slurm
 
 - name: grid_dv
-  cmd: esub msfm/apps/run_datavectors.py --simset=grid --dir_in=/cluster/scratch/athomsen/CosmoGrid/grid --dir_out=/cluster/work/refregier/athomsen/CosmoGrid/DESY3/v2/grid --repo_dir=. --config=configs/config.yaml --mode=jobarray --function=all --n_jobs=2500 --tasks="0>2500" --job_name=dv_grid --system=slurm
+  cmd: esub msfm/apps/run_datavectors.py --simset=grid --dir_in=/cluster/scratch/athomsen/CosmoGrid/grid --dir_out=/cluster/work/refregier/athomsen/CosmoGrid/DESY3/v2/grid --mode=jobarray --function=all --n_jobs=2500 --tasks="0>2500" --job_name=dv_grid --system=slurm
 
 # .tfrecord
 - name: fiducial_tfr
