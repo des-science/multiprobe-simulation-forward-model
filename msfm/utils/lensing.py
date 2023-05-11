@@ -80,7 +80,7 @@ def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, n_side, l_min, l_m
     kappa_alm = gamma_alm_E * gamma2kappa_fac
 
     # kappa: alm -> map
-    kappa_patch = scales.alm_to_smoothed_map(kappa_alm, l_min, l_max, n_side)
+    kappa_patch = scales.alm_to_smoothed_map(kappa_alm, l_min, l_max, n_side, nest=False)
 
     return kappa_patch
 
