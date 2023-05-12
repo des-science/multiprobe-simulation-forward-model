@@ -5,6 +5,7 @@ dirs:
     root: "/global/cfs/cdirs/des/cosmogrid/DESY3"
     grid: "/global/cfs/cdirs/des/cosmogrid/DESY3/grid"
     fiducial: "/global/cfs/cdirs/des/cosmogrid/DESY3/fiducial"
+  # relative to the root of this repository
   redshift_distributions: "data/redshift_distributions"
 
 files:
@@ -38,34 +39,18 @@ survey:
       input: ["dg"]
       output: ["dg"]
     # from Table 1 in https://arxiv.org/pdf/2105.13540.pdf, in units of galaxies/deg^2
-    n_gal: [540.0, 385.2, 392.4, 525.6, 381.6, 360.0]
+    n_gal: [540.0, 385.2, 392.4, 525.6] # , 381.6, 360.0]
     # from Table 2 in https://arxiv.org/pdf/2011.03411.pdf
-    z_lims:
-      [
-        [0.15, 0.35],
-        [0.35, 0.50],
-        [0.50, 0.65],
-        [0.65, 0.80],
-        [0.80, 0.95],
-        [0.95, 1.05],
-      ]
-    z_bins:
-      [
-        "desy3maglim1",
-        "desy3maglim2",
-        "desy3maglim3",
-        "desy3maglim4",
-        "desy3maglim5",
-        "desy3maglim6",
-      ]
+    z_lims: [[0.15, 0.35], [0.35, 0.50], [0.50, 0.65], [0.65, 0.80]] # , [0.80, 0.95], [0.95, 1.05]]
+    z_bins: ["desy3maglim1", "desy3maglim2", "desy3maglim3", "desy3maglim4"] # , "desy3maglim5", "desy3maglim6"]
     # from Table 2 in https://arxiv.org/pdf/2105.13546.pdf, normal distribution parameters
     z_errors:
       shift:
-        mu: [-0.009, -0.035, -0.005, -0.007, 0.002, 0.002]
-        sigma: [0.007, 0.011, 0.006, 0.006, 0.007, 0.008]
+        mu: [-0.009, -0.035, -0.005, -0.007] # , 0.002, 0.002]
+        sigma: [0.007, 0.011, 0.006, 0.006] # , 0.007, 0.008]
       scale:
-        mu: [0.975, 1.306, 0.870, 0.918, 1.08, 0.845]
-        sigma: [0.062, 0.093, 0.053, 0.051, 0.067, 0.073]
+        mu: [0.975, 1.306, 0.870, 0.918] # , 1.08, 0.845]
+        sigma: [0.062, 0.093, 0.053, 0.051] # , 0.067, 0.073]
 
 analysis:
   # the six cosmological parameters of the CosmoGrid have to be listed first
@@ -89,9 +74,9 @@ analysis:
       l_max: [723, 1054, 1408, 1535]
     clustering:
       # from 6.1 in https://arxiv.org/pdf/2110.10135.pdf
-      l_min: [30, 30, 30, 30, 30, 30]
+      l_min: [30, 30, 30, 30] # , 30, 30]
       # 8 Mpc/h transverse comoving scale TODO adapt from VI.A in https://arxiv.org/pdf/2105.13546.pdf instead?
-      l_max: [328, 478, 621, 739, 824, 880]
+      l_max: [328, 478, 621, 739] # , 824, 880]
   systematics:
     # pivot redshift from https://arxiv.org/pdf/2105.13543.pdf (Y3) and https://journals.aps.org/prd/pdf/10.1103/PhysRevD.98.043528 (Y1)
     z0: 0.62
