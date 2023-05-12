@@ -81,4 +81,5 @@ class MSFMpipeline:
         self.tomo_n_gal_maglim = tf.constant(self.conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(
             self.conf["analysis"]["n_side"], degrees=True
         )
-        self.normalize_clustering = lambda clustering_dv: clustering_dv / self.tomo_n_gal_maglim - 1.0
+        self.normalize_clustering = lambda clustering_dv: clustering_dv
+        # self.normalize_clustering = lambda clustering_dv: clustering_dv / self.tomo_n_gal_maglim - 1.0

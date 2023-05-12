@@ -115,7 +115,7 @@ def map_to_smoothed_map(full_map, l_min, l_max, n_side, nest=False):
     return full_map
 
 
-def data_vector_to_smoothed_data_vector(data_vector, l_min, l_max, n_side, data_vec_pix, nest=True):
+def data_vector_to_smoothed_data_vector(data_vector, l_min, l_max, n_side, data_vec_pix):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been 
     smoothed according to l_min and l_max. The input can either be a single map, or a stack of multiple tomographic 
     bins along axis = 1 = -1.
@@ -150,6 +150,6 @@ def data_vector_to_smoothed_data_vector(data_vector, l_min, l_max, n_side, data_
     else:
         raise ValueError(f"Unknown dtype for l_min or l_max")
 
-    data_vector = map_to_smoothed_map(full_map, l_min, l_max, n_side, nest=nest)[data_vec_pix]
+    data_vector = map_to_smoothed_map(full_map, l_min, l_max, n_side, nest=True)[data_vec_pix]
 
     return data_vector

@@ -174,7 +174,6 @@ def main(indices, args):
             l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
             n_side=conf["analysis"]["n_side"],
             data_vec_pix=data_vec_pix,
-            nest=True,
         )
 
         return galaxy_counts
