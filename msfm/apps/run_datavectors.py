@@ -15,7 +15,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import os, argparse, warnings, h5py, time, logging, yaml
 
-from msfm.utils import analysis, lensing, logger, input_output, maps, cosmogrid, clustering, scales
+from msfm.utils import files, lensing, logger, input_output, maps, cosmogrid, clustering, scales
 from msfm.utils.filenames import *
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -119,7 +119,7 @@ def main(indices, args):
     time.sleep(sleep_sec)
 
     # args.config is a string to the file
-    conf = analysis.load_config(args.config)
+    conf = files.load_config(args.config)
 
     # save the config
     with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
@@ -142,11 +142,11 @@ def main(indices, args):
     kappa2gamma_fac, gamma2kappa_fac, _ = lensing.get_kaiser_squires_factors(3 * n_side - 1)
 
     # pixel file
-    data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs = analysis.load_pixel_file(conf)
+    data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs = files.load_pixel_file(conf)
     data_vec_len = len(data_vec_pix)
 
     # noise file
-    tomo_gamma_cat, _ = analysis.load_noise_file(conf)
+    tomo_gamma_cat, _ = files.load_noise_file(conf)
 
     # set up general directories
     file_dir = os.path.dirname(__file__)

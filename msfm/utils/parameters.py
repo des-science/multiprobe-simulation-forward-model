@@ -10,7 +10,7 @@ Functions to read in the parameter values stored in the config
 import numpy as np
 import healpy as hp
 
-from msfm.utils import analysis, redshift
+from msfm.utils import files, redshift
 
 
 def get_prior_intervals(params=None, conf=None):
@@ -27,7 +27,7 @@ def get_prior_intervals(params=None, conf=None):
         np.ndarray: shape (n_params, 2) where [:,0] contains the lower and [:,1] the upper bounds for the parameters
             in the ordering specified by the params list.
     """
-    conf = analysis.load_config(conf)
+    conf = files.load_config(conf)
 
     if params is None:
         params = (
@@ -51,7 +51,7 @@ def get_fiducials(params=None, conf=None):
     Returns:
         np.ndarray: shape (n_params,) in the ordering specified by the params list.
     """
-    conf = analysis.load_config(conf)
+    conf = files.load_config(conf)
 
     if params is None:
         params = (
@@ -75,7 +75,7 @@ def get_fiducial_perturbations(params=None, conf=None):
     Returns:
         np.ndarray: shape (n_params,) in the ordering specified by the params list.
     """
-    conf = analysis.load_config(conf)
+    conf = files.load_config(conf)
 
     if params is None:
         params = (
@@ -98,7 +98,7 @@ def get_fiducial_perturbation_labels(params=None):
         pert_labels: list of strings denoting the fiducial perturbations. These are used in the .tfrecord files.
     """
     if params is None:
-        conf = analysis.load_config()
+        conf = files.load_config()
         params = (
             conf["analysis"]["params"]["cosmo"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
         )
@@ -127,14 +127,14 @@ def get_tomo_amplitude_perturbations_dict(param, conf=None):
         dict: Dictionary containing the per bin amplitude values for either Aia or bg and the perturbations.
     """
     if conf is None:
-        conf = analysis.load_config()
+        conf = files.load_config()
         
     # redshift
     z0 = conf["analysis"]["systematics"]["z0"]
     if param == "Aia":
-        tomo_z, tomo_nz = analysis.load_redshift_distributions("metacal", conf)
+        tomo_z, tomo_nz = files.load_redshift_distributions("metacal", conf)
     elif param == "bg":
-        tomo_z, tomo_nz = analysis.load_redshift_distributions("maglim", conf)
+        tomo_z, tomo_nz = files.load_redshift_distributions("maglim", conf)
     else:
         raise ValueError(f"param {param} needs to be either 'bg' or 'Aia'")
 

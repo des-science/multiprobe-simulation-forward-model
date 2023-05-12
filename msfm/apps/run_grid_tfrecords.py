@@ -24,12 +24,12 @@ import os, argparse, warnings, h5py
 from sobol_seq import i4_sobol
 
 from msfm.utils import (
+    files,
     lensing,
     logger,
     input_output,
     cosmogrid,
     tfrecords,
-    analysis,
     parameters,
     filenames,
     redshift,
@@ -108,7 +108,7 @@ def main(indices, args):
     except AttributeError:
         pass
 
-    conf = analysis.load_config(args.config)
+    conf = files.load_config(args.config)
 
     # setup up directories
     file_dir = os.path.dirname(__file__)
@@ -130,10 +130,10 @@ def main(indices, args):
     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo * n_noise_per_example
 
-    data_vec_pix, _, _, _ = analysis.load_pixel_file()
+    data_vec_pix, _, _, _ = files.load_pixel_file()
 
     # lensing (intrinsic alignment)
-    tomo_z_metacal, tomo_nz_metacal = analysis.load_redshift_distributions("metacal", conf)
+    tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
     m_bias_dist = lensing.get_m_bias_distribution(conf)
 
     def lensing_transform(kg, ia, Aia, n_Aia):
@@ -150,7 +150,7 @@ def main(indices, args):
         return kg
 
     # clustering (linear galaxy bias)
-    tomo_z_maglim, tomo_nz_maglim = analysis.load_redshift_distributions("maglim", conf)
+    tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
     tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
     def clustering_transform(dg, bg, n_bg):

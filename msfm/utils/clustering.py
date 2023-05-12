@@ -11,7 +11,7 @@ import healpy as hp
 import tensorflow as tf
 import logging
 
-from msfm.utils import analysis
+from msfm.utils import files
 
 hp_LOGGER = logging.getLogger("healpy")
 hp_LOGGER.disabled = True
@@ -38,7 +38,7 @@ def galaxy_density_to_number(dg, n_gal, bg, conf=None, include_systematics=False
     Returns:
         ng: Galaxy number count map.
     """
-    tomo_sys_dv = analysis.get_clustering_systematics(conf, pixel_type=sys_pixel_type)
+    tomo_sys_dv = files.get_clustering_systematics(conf, pixel_type=sys_pixel_type)
 
     if isinstance(dg, np.ndarray):
         ng = n_gal * (1 + bg * dg)

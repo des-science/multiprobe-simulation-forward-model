@@ -10,7 +10,7 @@ import healpy as hp
 import tensorflow as tf
 import tensorflow_probability as tfp
 
-from msfm.utils import analysis, logger, scales
+from msfm.utils import files, logger, scales
 
 LOGGER = logger.get_logger(__file__)
 
@@ -46,7 +46,7 @@ def get_m_bias_distribution(conf=None):
     Returns:
         tfp.distribution: Multiplicative bias.s
     """
-    conf = analysis.load_config(conf)
+    conf = files.load_config(conf)
 
     m_bias_dist = tfp.distributions.MultivariateNormalDiag(
         loc=conf["analysis"]["systematics"]["shear_bias"]["multiplicative"]["mu"],

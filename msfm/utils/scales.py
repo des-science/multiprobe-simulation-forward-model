@@ -8,7 +8,7 @@ Tools to handle the scale cuts/Gaussian smoothing.
 import numpy as np
 import os
 
-from msfm.utils import analysis, logger
+from msfm.utils import files, logger
 
 LOGGER = logger.get_logger(__file__)
 
@@ -71,7 +71,7 @@ def map_to_smoothed_map(full_map, l_min, l_max, n_side, nest=False):
     """
 
     # healpy path
-    conf = analysis.load_config()
+    conf = files.load_config()
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
     hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])

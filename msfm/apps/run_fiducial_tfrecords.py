@@ -23,7 +23,7 @@ import os, argparse, warnings, h5py
 
 from numpy.random import default_rng
 
-from msfm.utils import logger, input_output, cosmogrid, tfrecords, analysis, filenames, parameters, clustering, scales
+from msfm.utils import files, logger, input_output, cosmogrid, tfrecords, filenames, parameters, clustering, scales
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -95,7 +95,7 @@ def main(indices, args):
     LOGGER.info(f"Got index set of size {len(indices)}")
     LOGGER.info(f"Running on {len(os.sched_getaffinity(0))} cores")
 
-    conf = analysis.load_config(args.config)
+    conf = files.load_config(args.config)
 
     # setup up directories
     file_dir = os.path.dirname(__file__)
@@ -108,7 +108,7 @@ def main(indices, args):
     n_perms_per_cosmo = conf["analysis"]["fiducial"]["n_perms_per_cosmo"]
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo
 
-    data_vec_pix, _, _, _ = analysis.load_pixel_file()
+    data_vec_pix, _, _, _ = files.load_pixel_file()
 
     # lensing (intrinsic alignment)
     tomo_Aia_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("Aia", conf)

@@ -10,7 +10,7 @@ Parent class of the fiducial and grid pipelines
 import tensorflow as tf
 import healpy as hp
 
-from msfm.utils import analysis, lensing
+from msfm.utils import files, lensing
 
 
 class MSFMpipeline:
@@ -42,7 +42,7 @@ class MSFMpipeline:
                 noise. Defaults to 1.0.
         """
         # general constants
-        self.conf = analysis.load_config(conf)
+        self.conf = files.load_config(conf)
 
         if params is None:
             self.params = (
@@ -60,9 +60,9 @@ class MSFMpipeline:
         self.n_z_maglim = len(self.conf["survey"]["maglim"]["z_bins"])
 
         # pixel file
-        self.data_vec_pix, _, _, _ = analysis.load_pixel_file(self.conf)
+        self.data_vec_pix, _, _, _ = files.load_pixel_file(self.conf)
         self.n_pix = len(self.data_vec_pix)
-        self.masks_dict = analysis.get_tomo_masks(self.conf)
+        self.masks_dict = files.get_tomo_masks(self.conf)
         self.masks_metacal = tf.constant(self.masks_dict["metacal"], dtype=tf.float32)
         self.masks_maglim = tf.constant(self.masks_dict["maglim"], dtype=tf.float32)
 
