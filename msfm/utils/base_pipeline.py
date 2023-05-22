@@ -62,7 +62,7 @@ class MSFMpipeline:
         # pixel file
         self.data_vec_pix, _, _, _ = files.load_pixel_file(self.conf)
         self.n_pix = len(self.data_vec_pix)
-        self.masks_dict = files.get_tomo_masks(self.conf)
+        self.masks_dict = files.get_tomo_dv_masks(self.conf)
         self.masks_metacal = tf.constant(self.masks_dict["metacal"], dtype=tf.float32)
         self.masks_maglim = tf.constant(self.masks_dict["maglim"], dtype=tf.float32)
 

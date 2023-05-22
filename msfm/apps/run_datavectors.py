@@ -42,7 +42,7 @@ hp_LOGGER.disabled = True
 
 
 def resources(args):
-    return dict(main_memory=1000, main_time=4, main_scratch=0, main_n_cores=8)
+    return dict(main_memory=2048, main_time=1, main_scratch=0, main_n_cores=4)
 
 
 def setup(args):
