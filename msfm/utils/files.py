@@ -166,8 +166,8 @@ def get_clustering_systematics(conf=None, pixel_type="data_vector", apply_smooth
     return np.stack(tomo_sys, axis=-1)
 
 
-def get_tomo_masks(conf=None):
-    """Masks the data vectors for the different tomographic bins.
+def get_tomo_dv_masks(conf=None):
+    """Masks the data vectors for the different tomographic bins. (NEST ordering)
 
     Args:
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is

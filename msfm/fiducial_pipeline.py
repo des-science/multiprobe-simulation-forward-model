@@ -29,10 +29,13 @@ class FiducialPipeline(MSFMpipeline):
     def __init__(
         self,
         conf: dict = None,
+        # cosmology
         params: list = None,
         with_lensing: bool = True,
         with_clustering: bool = True,
+        # format
         apply_norm: bool = True,
+        with_padding: bool = True,
         # noise
         apply_m_bias: bool = True,
         shape_noise_scale: float = 1.0,
@@ -46,6 +49,8 @@ class FiducialPipeline(MSFMpipeline):
             with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
             with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
             apply_norm (bool, optional): Whether to rescale the maps to approximate unit range. Defaults to True.
+            with_padding (bool, optional): Whether to include the padding of the data vectors (the healpy DeepSphere \
+                networks) need this. Defaults to True.
             apply_m_bias (bool, optional): Whether to include the multiplicative shear bias. Defaults to True.
             shape_noise_scale (float, optional): Factor by which to multiply the shape noise. This could also be a
                 tf.Variable to change it according to a schedule during training. Set to None to not include any shape
@@ -57,6 +62,7 @@ class FiducialPipeline(MSFMpipeline):
             with_lensing=with_lensing,
             with_clustering=with_clustering,
             apply_norm=apply_norm,
+            with_padding=with_padding,
             apply_m_bias=apply_m_bias,
             shape_noise_scale=shape_noise_scale,
         )
@@ -163,7 +169,7 @@ class FiducialPipeline(MSFMpipeline):
                 self.pert_labels,
                 i_noise,
                 # dimensions
-                self.n_pix,
+                self.n_dv_pix,
                 self.n_z_metacal,
                 self.n_z_maglim,
                 # map types
@@ -300,6 +306,10 @@ class FiducialPipeline(MSFMpipeline):
 
         else:
             raise ValueError(f"At least one of 'lensing' or 'clustering' maps need to be selected")
+
+        if not self.with_padding:
+            LOGGER.info(f"Removing the padding")
+            out_tensor = tf.boolean_mask(out_tensor, self.mask_total, axis=1)
 
         return out_tensor, index
 

@@ -19,10 +19,13 @@ class MSFMpipeline:
     def __init__(
         self,
         conf: dict,
+        # cosmology
         params: list = None,
         with_lensing: bool = True,
         with_clustering: bool = True,
+        # format
         apply_norm: bool = True,
+        with_padding: bool = True,
         # noise
         apply_m_bias: bool = True,
         shape_noise_scale: float = 1.0,
@@ -36,6 +39,8 @@ class MSFMpipeline:
             with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
             with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
             apply_norm (bool, optional): Whether to rescale the maps to approximate unit range. Defaults to True.
+            with_padding (bool, optional): Whether to include the padding of the data vectors (the healpy DeepSphere \
+                networks) need this. Defaults to True.
             apply_m_bias (bool, optional): Whether to include the multiplicative shear bias. Defaults to True.
             shape_noise_scale (float, optional): Factor by which to multiply the shape noise. This could also be a
                 tf.Variable to change it according to a schedule during training. Set to None to not include any shape
@@ -55,16 +60,25 @@ class MSFMpipeline:
 
         self.apply_norm = apply_norm
         self.shape_noise_scale = shape_noise_scale
+        self.with_padding = with_padding
 
         self.n_z_metacal = len(self.conf["survey"]["metacal"]["z_bins"])
         self.n_z_maglim = len(self.conf["survey"]["maglim"]["z_bins"])
 
         # pixel file
         self.data_vec_pix, _, _, _ = files.load_pixel_file(self.conf)
-        self.n_pix = len(self.data_vec_pix)
-        self.masks_dict = files.get_tomo_dv_masks(self.conf)
-        self.masks_metacal = tf.constant(self.masks_dict["metacal"], dtype=tf.float32)
-        self.masks_maglim = tf.constant(self.masks_dict["maglim"], dtype=tf.float32)
+        self.n_dv_pix = len(self.data_vec_pix)
+
+        masks_dict = files.get_tomo_dv_masks(self.conf)
+        self.masks_metacal = tf.constant(masks_dict["metacal"], dtype=tf.float32)
+        self.masks_maglim = tf.constant(masks_dict["maglim"], dtype=tf.float32)
+
+        if not self.with_padding:
+            # only keep indices that are in all (per tomographic bin and galaxy sample) masks
+            self.mask_total = tf.reduce_prod(tf.concat([self.masks_metacal, self.masks_maglim], axis=-1), axis=-1)
+            self.mask_total = tf.cast(self.mask_total, dtype=tf.bool)
+            self.patch_pix = tf.boolean_mask(self.data_vec_pix, self.mask_total, axis=0)
+            self.n_patch_pix = len(self.patch_pix)
 
         # lensing
         self.with_lensing = with_lensing
@@ -83,3 +97,10 @@ class MSFMpipeline:
         )
         self.normalize_clustering = lambda clustering_dv: clustering_dv
         # self.normalize_clustering = lambda clustering_dv: clustering_dv / self.tomo_n_gal_maglim - 1.0
+
+    def padded_dv_to_non_padded_patch(self, data_vector):
+        nest_patch = tf.gather(
+            data_vector, hp.ring2nest(nside=self.conf["analysis"]["n_side"], ipix=self.base_patch_pix), axis=1
+        )
+
+        return nest_patch

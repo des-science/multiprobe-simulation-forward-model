@@ -29,9 +29,12 @@ class GridPipeline(MSFMpipeline):
     def __init__(
         self,
         conf: dict = None,
+        # cosmology
         params: list = None,
         with_lensing: bool = True,
         with_clustering: bool = True,
+        with_padding: bool = True,
+        # format
         apply_norm: bool = True,
         # noise
         shape_noise_scale: float = 1.0,
@@ -56,6 +59,7 @@ class GridPipeline(MSFMpipeline):
             with_lensing=with_lensing,
             with_clustering=with_clustering,
             apply_norm=apply_norm,
+            with_padding=with_padding,
             apply_m_bias=False,
             shape_noise_scale=shape_noise_scale,
         )
@@ -135,7 +139,7 @@ class GridPipeline(MSFMpipeline):
                 serialized_example,
                 i_noise,
                 # dimensions
-                self.n_pix,
+                self.n_dv_pix,
                 self.n_z_metacal,
                 self.n_z_maglim,
                 self.n_all_params,
@@ -274,5 +278,9 @@ class GridPipeline(MSFMpipeline):
         if self.with_lensing and self.with_clustering:
             # concatenate along the tomography axis
             out_tensor = tf.concat([data_vectors["kg"], data_vectors["dg"]], axis=-1)
+
+        if not self.with_padding:
+            LOGGER.info(f"Removing the padding")
+            out_tensor = tf.boolean_mask(out_tensor, self.mask_total, axis=1)
 
         return out_tensor, cosmo, index
