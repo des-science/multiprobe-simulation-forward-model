@@ -186,10 +186,14 @@ class FiducialPipeline(MSFMpipeline):
 
         # shuffle the tensors
         if not is_eval and examples_shuffle_buffer is not None:
+            LOGGER.info(f"Shuffling examples")
             dset = dset.shuffle(examples_shuffle_buffer, seed=examples_shuffle_seed)
 
         # batch (first, for vectorization)
-        dset = dset.batch(local_batch_size, drop_remainder=True)
+        if not is_eval:
+            dset = dset.batch(local_batch_size, drop_remainder=True)
+        if is_eval:
+            dset = dset.batch(local_batch_size, drop_remainder=False)
         LOGGER.info(f"Batching into {local_batch_size} elements locally")
 
         # augmentations (all in one function, to make parallelization faster)
