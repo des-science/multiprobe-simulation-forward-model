@@ -88,7 +88,8 @@ class GridPipeline(MSFMpipeline):
 
         Args:
             tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
-            local_batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch size.
+            local_batch_size (int): Local batch size. Can also be the string "cosmo". Then, every batch contains all of
+                the realisations of exactly one cosmology.  
             i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
                 other tensor (like randomly sampled).
             n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
@@ -151,6 +152,12 @@ class GridPipeline(MSFMpipeline):
         )
 
         # batch (first, for vectorization)
+        if local_batch_size == "cosmo":
+            n_patches = self.conf["analysis"]["n_patches"]
+            n_perms_per_cosmo = self.conf["analysis"]["grid"]["n_perms_per_cosmo"]
+            n_noise_per_example = self.conf["analysis"]["grid"]["n_noise_per_example"]
+            local_batch_size = n_patches * n_perms_per_cosmo * n_noise_per_example
+            LOGGER.info(f"The dset is batched by cosmology")
         dset = dset.batch(local_batch_size, drop_remainder=False)
         LOGGER.info(f"Batching into {local_batch_size} elements locally")
 

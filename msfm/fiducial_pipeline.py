@@ -12,7 +12,7 @@ by Janis Fluri
 import tensorflow as tf
 import warnings
 
-from msfm.utils import logger, tfrecords, parameters
+from msfm.utils import logger, tfrecords, parameters, files
 from msfm.utils.base_pipeline import MSFMpipeline
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -152,7 +152,7 @@ class FiducialPipeline(MSFMpipeline):
 
         # interleave, block_length is the number of files every reader reads
         if is_eval:
-            dset = dset.interleave(tf.data.TFRecordDataset, cycle_length=n_readers, block_length=1)
+            dset = dset.interleave(tf.data.TFRecordDataset, cycle_length=n_readers, block_length=1, deterministic=True)
         else:
             dset = dset.interleave(
                 tf.data.TFRecordDataset,
