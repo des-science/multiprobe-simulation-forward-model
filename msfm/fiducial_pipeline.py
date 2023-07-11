@@ -12,7 +12,7 @@ by Janis Fluri
 import tensorflow as tf
 import warnings
 
-from msfm.utils import logger, tfrecords, parameters
+from msfm.utils import logger, tfrecords, parameters, files
 from msfm.utils.base_pipeline import MSFMpipeline
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -152,7 +152,7 @@ class FiducialPipeline(MSFMpipeline):
 
         # interleave, block_length is the number of files every reader reads
         if is_eval:
-            dset = dset.interleave(tf.data.TFRecordDataset, cycle_length=n_readers, block_length=1)
+            dset = dset.interleave(tf.data.TFRecordDataset, cycle_length=n_readers, block_length=1, deterministic=True)
         else:
             dset = dset.interleave(
                 tf.data.TFRecordDataset,
@@ -186,10 +186,14 @@ class FiducialPipeline(MSFMpipeline):
 
         # shuffle the tensors
         if not is_eval and examples_shuffle_buffer is not None:
+            LOGGER.info(f"Shuffling examples")
             dset = dset.shuffle(examples_shuffle_buffer, seed=examples_shuffle_seed)
 
         # batch (first, for vectorization)
-        dset = dset.batch(local_batch_size, drop_remainder=True)
+        if not is_eval:
+            dset = dset.batch(local_batch_size, drop_remainder=True)
+        if is_eval:
+            dset = dset.batch(local_batch_size, drop_remainder=False)
         LOGGER.info(f"Batching into {local_batch_size} elements locally")
 
         # augmentations (all in one function, to make parallelization faster)
