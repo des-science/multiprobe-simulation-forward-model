@@ -97,6 +97,13 @@ def setup(args):
     if not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
 
+    LOGGER.warning(args)
+    LOGGER.warning(vars(args))
+
+    for key, value in vars(args).items():
+        LOGGER.warning(f"{key} = {value}")
+
+
     return args
 
 
