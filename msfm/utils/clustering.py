@@ -31,7 +31,6 @@ def galaxy_density_to_number(dg, n_gal, bg, conf=None, include_systematics=False
         sys_pixel_type (str, optional): Either "map" or "data_vector", determines whether the systematics map is
             returned as a full sky healpy map or in data vector format.
 
-
     Raises:
         ValueError: If something apart from a numpy array or tensorflow tensor is passed.
 
@@ -40,13 +39,16 @@ def galaxy_density_to_number(dg, n_gal, bg, conf=None, include_systematics=False
     """
     tomo_sys_dv = files.get_clustering_systematics(conf, pixel_type=sys_pixel_type)
 
+    ng = n_gal * (1 + bg * dg)
+
+    # transform like in DeepLSS Appendix E and https://github.com/tomaszkacprzak/deep_lss/blob/3c145cf8fe04c4e5f952dca984c5ce7e163b8753/deep_lss/lss_astrophysics_model_batch.py#L609
     if isinstance(dg, np.ndarray):
-        ng = n_gal * (1 + bg * dg)
-        ng = np.where(0 < ng, ng, 0)
+        ng_clip = np.clip(ng, a_min=0, a_max=None)
+        ng = ng_clip * np.sum(ng) / np.sum(ng_clip)
 
     elif isinstance(dg, tf.Tensor):
-        ng = n_gal * (1 + bg * dg)
-        ng = tf.where(0 < ng, ng, 0)
+        ng_clip = tf.clip_by_value(ng, clip_value_min=0, clip_value_max=1e5)
+        ng = ng_clip * tf.reduce_sum(ng) / tf.reduce_sum(ng_clip)
 
     else:
         raise ValueError(f"Unsupported type {type(dg)} for dg")
