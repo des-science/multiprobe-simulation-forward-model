@@ -39,6 +39,7 @@ class FiducialPipeline(MSFMpipeline):
         # noise
         apply_m_bias: bool = True,
         shape_noise_scale: float = 1.0,
+        poisson_noise_scale: float = 1.0,
     ):
         """Set up the physics parameters of the pipeline.
 
@@ -58,13 +59,17 @@ class FiducialPipeline(MSFMpipeline):
         """
         super().__init__(
             conf=conf,
+            # cosmology
             params=params,
             with_lensing=with_lensing,
             with_clustering=with_clustering,
+            # format
             apply_norm=apply_norm,
             with_padding=with_padding,
+            # noise
             apply_m_bias=apply_m_bias,
             shape_noise_scale=shape_noise_scale,
+            poisson_noise_scale=poisson_noise_scale
         )
 
         # perturbations of cosmo, ia, and bg parameters
@@ -369,7 +374,7 @@ class FiducialPipeline(MSFMpipeline):
             if self.shape_noise_scale is not None:
                 data_vector += self.shape_noise_scale * sn
             else:
-                LOGGER.warning(f"No shape noise is added")
+                LOGGER.warning(f"No shape noise is added to the lensing maps")
 
             # normalization
             if self.apply_norm:
@@ -400,6 +405,9 @@ class FiducialPipeline(MSFMpipeline):
         """
         LOGGER.warning(f"Tracing _clustering_augmentations")
 
+        # poisson noise
+        pn = data_vectors.pop("pn")
+
         out_data_vectors = []
         for label in self.pert_labels:
             # intrinsic alignemnt perturbations
@@ -409,6 +417,12 @@ class FiducialPipeline(MSFMpipeline):
             # cosmology perturbations
             else:
                 data_vector = data_vectors[f"dg_{label}"]
+
+            # poisson noise
+            if self.poisson_noise_scale is not None:
+                data_vector += self.poisson_noise_scale * pn
+            else:
+                LOGGER.warning(f"No poisson noise is added to the clustering maps")
 
             # normalization
             if self.apply_norm:

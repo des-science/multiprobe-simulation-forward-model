@@ -18,7 +18,6 @@ by Janis Fluri
 
 import numpy as np
 import tensorflow as tf
-import healpy as hp
 import os, argparse, warnings, h5py
 
 from numpy.random import default_rng
@@ -30,6 +29,16 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
+# set the environmental variable OMP_NUM_THREADS to the number of logical processors for healpy parallelixation
+try:
+    n_cpus = len(os.sched_getaffinity(0))
+except AttributeError:
+    LOGGER.debug(f"os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
+    n_cpus = os.cpu_count()
+os.environ["OMP_NUM_THREADS"] = str(n_cpus)
+LOGGER.info(f"Setting up healpy to run on {n_cpus} CPUs")
+
+import healpy as hp
 
 def resources(args):
     return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=8)
@@ -107,6 +116,7 @@ def main(indices, args):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["fiducial"]["n_perms_per_cosmo"]
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo
+    n_noise_per_example = conf["analysis"]["fiducial"]["n_noise_per_example"]
 
     data_vec_pix, _, _, _ = files.load_pixel_file()
 
@@ -125,7 +135,18 @@ def main(indices, args):
     )
     tomo_bg_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg", conf)
 
-    def clustering_transform(dg, label, is_fiducial=False, noise_fac=None):
+    def clustering_smoothing(dg):
+        dg = scales.data_vector_to_smoothed_data_vector(
+            dg,
+            l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+            l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+            n_side=conf["analysis"]["n_side"],
+            data_vec_pix=data_vec_pix,
+        )
+
+        return dg
+
+    def clustering_transform(dg, label, draw_noise=False):
         galaxy_counts = clustering.galaxy_density_to_number(
             dg,
             tomo_n_gal_maglim,
@@ -136,22 +157,21 @@ def main(indices, args):
         )
 
         # only draw the noise for the fiducial, not the perturbations
-        if is_fiducial:
-            galaxy_counts, noise_fac = clustering.galaxy_number_add_noise(galaxy_counts, return_noise_fac=True)
-        else:
-            galaxy_counts = clustering.galaxy_number_add_noise(galaxy_counts, noise_fac=noise_fac)
+        if draw_noise:
+            poisson_noises = clustering.galaxy_number_sample_noise(galaxy_counts, n_noise_per_example)
 
-        galaxy_counts = scales.data_vector_to_smoothed_data_vector(
-            galaxy_counts,
-            l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-            l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-            n_side=conf["analysis"]["n_side"],
-            data_vec_pix=data_vec_pix,
-        )
+            smooth_poisson_noises = []
+            for poisson_noise in poisson_noises:
+                smooth_poisson_noises.append(clustering_smoothing(poisson_noise))
 
-        if is_fiducial:
-            # shape (n_pix, n_z_maglim)
-            return galaxy_counts, noise_fac
+            smooth_poisson_noises = np.stack(smooth_poisson_noises, axis=0)
+
+        # noiseless
+        galaxy_counts = clustering_smoothing(galaxy_counts)
+
+        if draw_noise:
+            # shape (n_pix, n_z_maglim) and (n_noise_per_example, n_pix, n_z_maglim)
+            return galaxy_counts, smooth_poisson_noises
         else:
             return galaxy_counts
 
@@ -239,28 +259,25 @@ def main(indices, args):
 
                     # astrophysics perturbations are calculated with respect to the fiducial cosmo params
                     if "cosmo_fiducial" in cosmo_dir_in:
-                        # load the shape noise realization
-                        (sn_realz,) = load_example(file_cosmo, i_example, ["sn"])
-
-                        # draw the poisson noise realization
-                        dg_noisy, poisson_noise_fac = clustering_transform(dg, "fiducial", is_fiducial=True)
-
                         # intrinsic alignment perturbations
                         for label in ia_pert_labels:
                             ia_perts.append(lensing_transform(kg, ia, label))
 
                         # galaxy clustering perturbations
                         for label in bg_pert_labels:
-                            bg_perts.append(clustering_transform(dg, label, noise_fac=poisson_noise_fac))
+                            bg_perts.append(clustering_transform(dg, label))
 
-                        # store the noisy map
-                        dg = dg_noisy
+                        # load the shape noise realization
+                        (sn_realz,) = load_example(file_cosmo, i_example, ["sn"])
+
+                        # convert to galaxy number and draw the poisson noise realization
+                        dg, pn_realz = clustering_transform(dg, "fiducial", draw_noise=True)
 
                     else:
-                        # apply the precomputed Poisson noise
-                        dg = clustering_transform(dg, "fiducial", noise_fac=poisson_noise_fac)
+                        # noiseless
+                        dg = clustering_transform(dg, "fiducial")
 
-                    # here for consistent poisson noise
+                    # down here on purpose
                     dg_perts.append(dg)
 
                 # serialize the lists of tensors of shape (n_pix, n_z_bins)
@@ -275,6 +292,7 @@ def main(indices, args):
                     # clustering
                     bg_pert_labels,
                     bg_perts,
+                    pn_realz,
                     i_example,
                 ).SerializeToString()
 
@@ -296,12 +314,14 @@ def main(indices, args):
                     [inv_data_vectors[f"dg_{pert_label}"] for pert_label in bg_pert_labels], axis=0
                 )
                 inv_sn = inv_data_vectors["sn"]
+                inv_pn = inv_data_vectors["pn"]
 
                 assert np.allclose(inv_kg_perts, kg_perts)
                 assert np.allclose(inv_ia_perts, ia_perts)
                 assert np.allclose(inv_dg_perts, dg_perts)
                 assert np.allclose(inv_bg_perts, bg_perts)
                 assert np.allclose(inv_sn, sn_realz[i_noise])
+                assert np.allclose(inv_pn, pn_realz[i_noise])
                 assert np.allclose(inv_index[0], i_example)
 
                 file_writer.write(serialized)

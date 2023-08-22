@@ -24,7 +24,7 @@ warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
 
-def parse_forward_grid(kg, sn_realz, dg, cosmo, i_sobol):
+def parse_forward_grid(kg, sn_realz, dg, pn_realz, cosmo, i_sobol):
     """The grid cosmologies contain all of the maps and labels.
 
     Args:
@@ -50,18 +50,18 @@ def parse_forward_grid(kg, sn_realz, dg, cosmo, i_sobol):
         "n_z_metacal": _int64_feature(kg.shape[1]),
         "n_z_maglim": _int64_feature(dg.shape[1]),
         "n_params": _int64_feature(cosmo.shape[0]),
-        # lensing, metacal
-        "kg": _bytes_feature(tf.io.serialize_tensor(kg)),
-        # clustering, maglim
-        "dg": _bytes_feature(tf.io.serialize_tensor(dg)),
         # labels
         "cosmo": _bytes_feature(tf.io.serialize_tensor(cosmo)),
         "i_sobol": _int64_feature(i_sobol),
     }
 
-    # shape noise realizations
+    # lensing (metacal), shape noise realizations
     for i, sn in enumerate(sn_realz):
-        features[f"sn_{i}"] = _bytes_feature(tf.io.serialize_tensor(sn))
+        features[f"kg_{i}"] = _bytes_feature(tf.io.serialize_tensor(kg + sn))
+
+    # clustering (maglim), poisson noise realizations
+    for i, pn in enumerate(pn_realz):
+        features[f"dg_{i}"] = _bytes_feature(tf.io.serialize_tensor(dg + pn))
 
     # create an Example, wrapping the single features
     example = tf.train.Example(features=tf.train.Features(feature=features))
@@ -101,7 +101,6 @@ def parse_inverse_grid(
         # tensor shapes
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
         "n_params": tf.io.FixedLenFeature([], tf.int64),
-        f"sn_{i_noise}": tf.io.FixedLenFeature([], tf.string),
         # labels
         "cosmo": tf.io.FixedLenFeature([], tf.string),
         "i_sobol": tf.io.FixedLenFeature([], tf.int64),
@@ -109,12 +108,11 @@ def parse_inverse_grid(
 
     if with_lensing:
         features["n_z_metacal"] = tf.io.FixedLenFeature([], tf.int64)
-        features["kg"] = tf.io.FixedLenFeature([], tf.string)
-        features[f"sn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
+        features[f"kg_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
 
     if with_clustering:
         features["n_z_maglim"] = tf.io.FixedLenFeature([], tf.int64)
-        features["dg"] = tf.io.FixedLenFeature([], tf.string)
+        features[f"dg_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
 
     serialized_data = tf.io.parse_single_example(serialized_example, features)
 
@@ -130,15 +128,12 @@ def parse_inverse_grid(
 
     if with_lensing:
         output_data = _parse_and_reshape_data_vector(
-            output_data, serialized_data, "kg", "kg", n_pix, n_z_metacal, "n_z_metacal"
-        )
-        output_data = _parse_and_reshape_data_vector(
-            output_data, serialized_data, f"sn_{i_noise}", "sn", n_pix, n_z_metacal, "n_z_metacal"
+            output_data, serialized_data, f"kg_{i_noise}", "kg", n_pix, n_z_metacal, "n_z_metacal"
         )
 
     if with_clustering:
         output_data = _parse_and_reshape_data_vector(
-            output_data, serialized_data, "dg", "dg", n_pix, n_z_maglim, "n_z_maglim"
+            output_data, serialized_data, f"dg_{i_noise}", "dg", n_pix, n_z_maglim, "n_z_maglim"
         )
 
     index = (serialized_data["i_sobol"], i_noise)
@@ -157,6 +152,7 @@ def parse_forward_fiducial(
     # clustering
     bg_pert_labels,
     bg_perts,
+    pn_realz,
     # label
     i_example,
 ):
@@ -187,7 +183,9 @@ def parse_forward_fiducial(
 
     # the data vector dimension matches (while n_z does not)
     for kg_pert, dg_pert in zip(kg_perts, dg_perts):
-        assert kg_pert.shape[0] == dg_pert.shape[0] == sn_realz.shape[1]
+        assert kg_pert.shape[0] == dg_pert.shape[0] == sn_realz.shape[1] == pn_realz.shape[1]
+
+    assert len(sn_realz) == len(pn_realz), "the number of noise realizations has to be identical for sn and pn"
 
     # define the structure of a single example
     features = {
@@ -215,6 +213,10 @@ def parse_forward_fiducial(
     # galaxy biasing (delta)
     for label, bg_pert in zip(bg_pert_labels, bg_perts):
         features[f"dg_{label}"] = _bytes_feature(tf.io.serialize_tensor(bg_pert))
+
+    # poisson noise realizations
+    for i, pn in enumerate(pn_realz):
+        features[f"pn_{i}"] = _bytes_feature(tf.io.serialize_tensor(pn))
 
     # create an Example, wrapping the single features
     example = tf.train.Example(features=tf.train.Features(feature=features))
@@ -277,6 +279,10 @@ def parse_inverse_fiducial(
         # single shape noise realization
         features[f"sn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
 
+    if with_clustering:
+        # single poisson noise realization
+        features[f"pn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
+
     serialized_data = tf.io.parse_single_example(serialized_example, features)
 
     # output container
@@ -299,7 +305,13 @@ def parse_inverse_fiducial(
     # shape noise
     if with_lensing:
         output_data = _parse_and_reshape_data_vector(
-            output_data, serialized_data, f"sn_{i_noise}", f"sn", n_pix, n_z_metacal, "n_z_metacal"
+            output_data, serialized_data, f"sn_{i_noise}", "sn", n_pix, n_z_metacal, "n_z_metacal"
+        )
+
+    # poisson noise
+    if with_clustering:
+        output_data = _parse_and_reshape_data_vector(
+            output_data, serialized_data, f"pn_{i_noise}", "pn", n_pix, n_z_maglim, "n_z_maglim"
         )
 
     index = (serialized_data["i_example"], i_noise)

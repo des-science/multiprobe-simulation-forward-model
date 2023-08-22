@@ -60,16 +60,14 @@ def galaxy_density_to_number(dg, n_gal, bg, conf=None, include_systematics=False
     return ng
 
 
-def galaxy_number_add_noise(ng, noise_fac=None, return_noise_fac=False):
-    """Draw Poisson noise according to the galaxy number map, or multiply with a Poisson noise factor (drawn at the
+def galaxy_number_sample_noise(ng, n_noise):
+    """
+    TODO
+    Draw Poisson noise according to the galaxy number map, or multiply with a Poisson noise factor (drawn at the
     fiducial, applied to the perturbations).
 
     Args:
         dg (Union[np.ndarray, tf.Tensor]): Galaxy number count map or datavector. Optionally per tomographic bin.
-        noise_fac (Union[np.ndarray, tf.Tensor, optional): Same shape as dg. This is only used for the fiducial
-            perturbations, that should have the same noise characteristics as the fiducial Poisson noise sample.
-            Defaults to None, then fresh noise is drawn.
-        return_noise_fac (bool, optional): Whether to return the Poisson noise factor. Defaults to False.
 
     Raises:
         ValueError: If something apart from a numpy array or tensorflow tensor is passed.
@@ -78,21 +76,13 @@ def galaxy_number_add_noise(ng, noise_fac=None, return_noise_fac=False):
         ng: Noisy galaxy number count map.
     """
     if isinstance(ng, np.ndarray):
-        # draw noise
-        if noise_fac is None:
-            noisy_dg = np.random.poisson(ng).astype(np.float32)
+        # draw noise, poisson realizations along axis
+        noisy_ngs = np.random.poisson(np.repeat(ng[np.newaxis, :], n_noise, axis=0)).astype(np.float32)
 
-            if return_noise_fac:
-                noise_fac = noisy_dg / ng
-
-        # apply previous noise realization
-        else:
-            noisy_dg = ng * noise_fac
+        # shape (n_noise, n_pix)
+        poisson_noise = noisy_ngs - ng
 
     elif isinstance(ng, tf.Tensor):
         raise NotImplementedError
 
-    if return_noise_fac:
-        return noisy_dg, noise_fac
-    else:
-        return noisy_dg
+    return poisson_noise
