@@ -36,8 +36,6 @@ class GridPipeline(MSFMpipeline):
         with_padding: bool = True,
         # format
         apply_norm: bool = True,
-        # noise
-        shape_noise_scale: float = 1.0,
     ):
         """Set up the physics parameters of the pipeline.
 
@@ -60,8 +58,10 @@ class GridPipeline(MSFMpipeline):
             with_clustering=with_clustering,
             apply_norm=apply_norm,
             with_padding=with_padding,
+            # these are fixed in the .tfrecord files
             apply_m_bias=False,
-            shape_noise_scale=shape_noise_scale,
+            shape_noise_scale=1.0,
+            poisson_noise_scale=1.0,
         )
 
         # used to return the correct labels
@@ -89,7 +89,7 @@ class GridPipeline(MSFMpipeline):
         Args:
             tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
             local_batch_size (int): Local batch size. Can also be the string "cosmo". Then, every batch contains all of
-                the realisations of exactly one cosmology.  
+                the realisations of exactly one cosmology.
             i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
                 other tensor (like randomly sampled).
             n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
@@ -257,12 +257,6 @@ class GridPipeline(MSFMpipeline):
         cosmo = tf.gather(cosmo, [self.all_params.index(param) for param in self.params], axis=1)
 
         if self.with_lensing:
-            # shape noise
-            if self.shape_noise_scale is not None:
-                data_vectors["kg"] += self.shape_noise_scale * data_vectors["sn"]
-            else:
-                LOGGER.warning(f"No shape noise is added")
-
             # normalization
             if self.apply_norm:
                 data_vectors["kg"] = self.normalize_lensing(data_vectors["kg"])

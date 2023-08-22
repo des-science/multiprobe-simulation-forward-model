@@ -17,7 +17,6 @@ by Janis Fluri
 """
 
 import numpy as np
-import healpy as hp
 import tensorflow as tf
 import os, argparse, warnings, h5py
 
@@ -41,6 +40,17 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
+
+# set the environmental variable OMP_NUM_THREADS to the number of logical processors for healpy parallelixation
+try:
+    n_cpus = len(os.sched_getaffinity(0))
+except AttributeError:
+    LOGGER.debug(f"os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
+    n_cpus = os.cpu_count()
+os.environ["OMP_NUM_THREADS"] = str(n_cpus)
+LOGGER.info(f"Setting up healpy to run on {n_cpus} CPUs")
+
+import healpy as hp
 
 
 def resources(args):
@@ -153,6 +163,17 @@ def main(indices, args):
     tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
     tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
+    def clustering_smoothing(dg):
+        dg = scales.data_vector_to_smoothed_data_vector(
+            dg,
+            l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+            l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+            n_side=conf["analysis"]["n_side"],
+            data_vec_pix=data_vec_pix,
+        )
+
+        return dg
+
     def clustering_transform(dg, bg, n_bg):
         # linear galaxy biasing
         tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
@@ -166,17 +187,20 @@ def main(indices, args):
             include_systematics=conf["analysis"]["systematics"]["maglim_survey_systematics_map"],
         )
 
-        galaxy_counts = clustering.galaxy_number_add_noise(galaxy_counts)
+        # draw and smooth noise
+        poisson_noises = clustering.galaxy_number_sample_noise(galaxy_counts, n_noise_per_example)
 
-        galaxy_counts = scales.data_vector_to_smoothed_data_vector(
-            galaxy_counts,
-            l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-            l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-            n_side=conf["analysis"]["n_side"],
-            data_vec_pix=data_vec_pix,
-        )
+        smooth_poisson_noises = []
+        for poisson_noise in poisson_noises:
+            smooth_poisson_noises.append(clustering_smoothing(poisson_noise))
 
-        return galaxy_counts
+        smooth_poisson_noises = np.stack(smooth_poisson_noises, axis=0)
+
+        # noiseless
+        galaxy_counts = clustering_smoothing(galaxy_counts)
+
+        # shape (n_pix, n_z_maglim) and (n_noise_per_example, n_pix, n_z_maglim)
+        return galaxy_counts, smooth_poisson_noises
 
     # set up the paths
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
@@ -274,17 +298,18 @@ def main(indices, args):
                     total=n_examples_per_cosmo,
                 ):
                     kg = current_lensing_transform(kg, ia)
-                    dg = current_clustering_transform(dg)
+                    dg, pn_realz = current_clustering_transform(dg)
 
-                    serialized = tfrecords.parse_forward_grid(kg, sn_realz, dg, cosmo, i_sobol).SerializeToString()
+                    serialized = tfrecords.parse_forward_grid(
+                        kg, sn_realz, dg, pn_realz, cosmo, i_sobol
+                    ).SerializeToString()
 
                     # check correctness
                     i_noise = 0
                     inv_data_vectors, inv_index = tfrecords.parse_inverse_grid(serialized, i_noise)
 
-                    assert np.allclose(inv_data_vectors["kg"], kg)
-                    assert np.allclose(inv_data_vectors["sn"], sn_realz[i_noise])
-                    assert np.allclose(inv_data_vectors["dg"], dg)
+                    assert np.allclose(inv_data_vectors["kg"], kg + sn_realz[i_noise])
+                    assert np.allclose(inv_data_vectors["dg"], dg + pn_realz[i_noise])
                     assert np.allclose(inv_data_vectors["cosmo"], cosmo)
                     assert np.allclose(inv_index[0], i_sobol)
                     assert np.allclose(inv_index[1], i_noise)
