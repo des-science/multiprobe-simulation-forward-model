@@ -17,17 +17,18 @@ hp_LOGGER = logging.getLogger("healpy")
 hp_LOGGER.disabled = True
 
 
-def galaxy_density_to_number(dg, n_gal, bg, conf=None, include_systematics=False, sys_pixel_type="data_vector"):
-    """Transform a galaxy density to a galaxy number map, according to the constants defined in the config file.
+def galaxy_density_to_count(dg, n_gal, bg, conf=None, include_systematics=False, sys_pixel_type="data_vector"):
+    """Transform a galaxy density to a galaxy count map, according to the constants defined in the config file.
+    Negative values are clipped and the maps tranformed to conserve the total number of galaxies like in DeepLSS.
 
     Args:
         dg (Union[np.ndarray, tf.Tensor]): Galaxy density contrast map or datavector. Optionally per tomographic bin.
         n_gal (np.ndarray): Average number of galaxies per pixel (optionally per tomographic bin).
         bg (np.ndarray): Effective linear galaxy biasing parameter (optionally per tomographic bin).
-        with_systematics (list): Whether to multiply with the maglim systematics map. These are in datavector format.
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). The relative paths are stored here. Defaults to
             None.
+        include_systematics (bool): Whether to multiply with the maglim systematics map. Defaults to False.
         sys_pixel_type (str, optional): Either "map" or "data_vector", determines whether the systematics map is
             returned as a full sky healpy map or in data vector format.
 
@@ -60,20 +61,19 @@ def galaxy_density_to_number(dg, n_gal, bg, conf=None, include_systematics=False
     return ng
 
 
-def galaxy_number_sample_noise(ng, n_noise):
+def galaxy_count_to_noise(ng, n_noise):
     """
-    TODO
-    Draw Poisson noise according to the galaxy number map, or multiply with a Poisson noise factor (drawn at the
-    fiducial, applied to the perturbations).
+    Draw Poisson noise according to the given map of galaxy counts.
 
     Args:
-        dg (Union[np.ndarray, tf.Tensor]): Galaxy number count map or datavector. Optionally per tomographic bin.
+        ng (Union[np.ndarray, tf.Tensor]): Galaxy number count map or datavector. Optionally per tomographic bin.
 
     Raises:
         ValueError: If something apart from a numpy array or tensorflow tensor is passed.
 
     Returns:
-        ng: Noisy galaxy number count map.
+        poisson_noise: Pure (e.g. the input galaxy count map has been subtracted) Poisson noise consistent with the
+            input.
     """
     if isinstance(ng, np.ndarray):
         # draw noise, poisson realizations along axis

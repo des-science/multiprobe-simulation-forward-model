@@ -28,10 +28,11 @@ def parse_forward_grid(kg, sn_realz, dg, pn_realz, cosmo, i_sobol):
     """The grid cosmologies contain all of the maps and labels.
 
     Args:
-        kg (np.ndarray): shape(n_pix, n_z_bins), includes the sum of an original kg and ia map.
-        sn_realz (np.ndarray): shape(n_noise, n_pix, n_z_bins), consistent with the kg map.
+        kg (np.ndarray): shape(n_pix, n_z_metacal), includes the sum of an original kg and ia map.
+        sn_realz (np.ndarray): shape(n_noise, n_pix, n_z_metacal), shape noise consistent with the kg map.
         dg (np.ndarray): shape (n_pix, n_z_maglim), a map of galaxy counts (not just density contrast).
-        cosmo (np.ndarray): shape(n_params) can be used as a label.
+        pn_realz (np.ndarray): shape(n_noise, n_pix, n_z_maglim), poisson noise consistent with the dg map.
+        cosmo (np.ndarray): shape(n_params) to be used as a label.
         i_sobol (int): Seed within the Sobol sequence.
 
     Returns:
@@ -86,10 +87,13 @@ def parse_inverse_grid(
     Args:
         serialized_example (tf.train.Example.SerializeToString()): The stored data.
         i_noise (int, optional): Noise index that determines which of the stored shape noise realization to use.
+            Defaults to 0.
         n_pix (int, optional): Fixes the size of the tensors. Defaults to None.
         n_z_metacal (int, optional): Fixes the size of the tensors. Defaults to None.
         n_z_maglim (int, optional): Fixes the size of the tensors. Defaults to None.
         n_params (int, optional): Fixes the size of the tensors. Defaults to None.
+        with_lensing (bool, optional): Whether to return the weak lensing maps. Defaults to True.
+        with_clustering (bool, optional): Whether to return the galaxy clustering maps. Defaults to True.
 
     Returns:
         tf.tensors, int: Tensors containing the different fields, the cosmological parameters and an sobol index label
@@ -169,12 +173,14 @@ def parse_forward_fiducial(
         sn_realz (np.ndarray): Shape noise realizations of shape(n_noise, n_pix, n_z_metacal).
         bg_pert_labels (list): Dictionary keys for the galaxy clustering perturbations, which only affect dg.
         bg_perts (list): Same length as bg_pert_labels, these are the perturbed dg tensors.
+        pn_realz (np.ndarray): Poisson noise realizations of shape(n_noise, n_pix, n_z_maglim).
         i_example (int): example index (comes from simulation run and the patch), there are
             n_perms_per_cosmo * n_patches.
 
     Returns:
         tf.train.Example: Example containing all of these tensors.
     """
+    # LOGGER.warning(f"Tracing parse_forward_fiducial")
 
     # the number of perturbations is the same
     assert len(kg_perts) == len(dg_perts) == len(cosmo_pert_labels)
@@ -254,7 +260,7 @@ def parse_inverse_fiducial(
         dict, int: Dictionary of datavectors (fiducial, perturbations and shape noise) and the patch index, consisting
             of (i_example, i_noise).
     """
-    LOGGER.warning(f"Tracing parse_inverse_fiducial")
+    # LOGGER.warning(f"Tracing parse_inverse_fiducial")
 
     features = {
         # tensor shapes, not recommended as reshaping with respect to them leads to a None shape in tf.function

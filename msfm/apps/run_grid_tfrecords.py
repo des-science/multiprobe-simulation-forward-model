@@ -179,7 +179,7 @@ def main(indices, args):
         tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
         LOGGER.debug(f"Per z bin bg = {tomo_bg}")
 
-        galaxy_counts = clustering.galaxy_density_to_number(
+        galaxy_counts = clustering.galaxy_density_to_count(
             dg,
             tomo_n_gal_maglim,
             tomo_bg,
@@ -188,7 +188,7 @@ def main(indices, args):
         )
 
         # draw and smooth noise
-        poisson_noises = clustering.galaxy_number_sample_noise(galaxy_counts, n_noise_per_example)
+        poisson_noises = clustering.galaxy_count_to_noise(galaxy_counts, n_noise_per_example)
 
         smooth_poisson_noises = []
         for poisson_noise in poisson_noises:

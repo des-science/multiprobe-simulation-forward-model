@@ -147,7 +147,7 @@ def main(indices, args):
         return dg
 
     def clustering_transform(dg, label, draw_noise=False):
-        galaxy_counts = clustering.galaxy_density_to_number(
+        galaxy_counts = clustering.galaxy_density_to_count(
             dg,
             tomo_n_gal_maglim,
             tomo_bg_perts_dict[label],
@@ -158,7 +158,7 @@ def main(indices, args):
 
         # only draw the noise for the fiducial, not the perturbations
         if draw_noise:
-            poisson_noises = clustering.galaxy_number_sample_noise(galaxy_counts, n_noise_per_example)
+            poisson_noises = clustering.galaxy_count_to_noise(galaxy_counts, n_noise_per_example)
 
             smooth_poisson_noises = []
             for poisson_noise in poisson_noises:

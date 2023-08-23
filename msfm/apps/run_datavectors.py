@@ -332,7 +332,7 @@ def main(indices, args):
                                 delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
 
                                 # number of galaxies per pixel
-                                counts_full = clustering.galaxy_density_to_number(
+                                counts_full = clustering.galaxy_density_to_count(
                                     delta_full, n_bar, bias, conf=conf, include_systematics=False
                                 ).astype(int)
 
