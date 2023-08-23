@@ -184,8 +184,6 @@ class GridPipeline(MSFMpipeline):
         # performance
         n_readers: int = 8,
         n_prefetch: int = tf.data.AUTOTUNE,
-        # random seeds
-        tf_seed: int = 31,
         # distribution
         input_context: tf.distribute.InputContext = None,
     ) -> tf.data.Dataset:

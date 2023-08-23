@@ -69,7 +69,7 @@ class FiducialPipeline(MSFMpipeline):
             # noise
             apply_m_bias=apply_m_bias,
             shape_noise_scale=shape_noise_scale,
-            poisson_noise_scale=poisson_noise_scale
+            poisson_noise_scale=poisson_noise_scale,
         )
 
         # perturbations of cosmo, ia, and bg parameters
@@ -85,7 +85,7 @@ class FiducialPipeline(MSFMpipeline):
         n_readers: int = 8,
         n_prefetch: int = None,
         file_name_shuffle_buffer: int = 128,
-        examples_shuffle_buffer: int = 128,
+        examples_shuffle_buffer: int = 16,
         # random seeds
         file_name_shuffle_seed: int = 17,
         examples_shuffle_seed: int = 67,
@@ -138,16 +138,23 @@ class FiducialPipeline(MSFMpipeline):
             LOGGER.warning(f"Evaluation mode is activated, the random seed is fixed and the dataset is not repeated")
             tf.random.set_seed(eval_seed)
 
+            # parameters that are not used
+            file_name_shuffle_seed = None
+            examples_shuffle_buffer = None
+            file_name_shuffle_seed = None
+            examples_shuffle_seed = None
+            LOGGER.warning(f"In evaluation mode, the shuffle arguments are ignored")
+
         # get the file names
         dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=False)
 
         # shard for distributed training
         if input_context is not None:
             # NOTE Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2. This is black magic since
-            # print(input_context.num_input_pipelines) yields 1, so I don't know how the sharding happens, but it does, see
-            # distributed_sharding.ipynb
+            # print(input_context.num_input_pipelines) yields 1, so I don't know how the sharding happens, but it does,
+            # see distributed_sharding.ipynb
             dset = dset.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
-            LOGGER.info(f"Sharding the dataset according to the input_context")
+            LOGGER.info(f"Sharding the dataset over the .tfrecord files according to the input_context")
 
         # repeat and shuffle the files
         if not is_eval and not is_cached:
@@ -229,6 +236,7 @@ class FiducialPipeline(MSFMpipeline):
         n_prefetch: int = None,
         file_name_shuffle_buffer: int = 128,
         examples_shuffle_buffer: int = 128,
+        is_eval: bool = False,
         # random seeds
         file_name_shuffle_seed: int = 17,
         examples_shuffle_seed: int = 67,
@@ -245,30 +253,54 @@ class FiducialPipeline(MSFMpipeline):
             loss. The index label consists of (i_example, i_noise)
         """
 
-        if file_name_shuffle_buffer is not None:
-            file_name_shuffle_buffer = file_name_shuffle_buffer // n_noise
+        dset_kwargs = {
+            "tfr_pattern": tfr_pattern,
+            "local_batch_size": local_batch_size,
+            # performance
+            "is_cached": is_cached,
+            "n_readers": n_readers,
+            "n_prefetch": 0,
+            # random seeds
+            "is_eval": is_eval,
+            # distribution
+            "input_context": input_context,
+        }
 
-        if examples_shuffle_buffer is not None:
-            examples_shuffle_buffer = examples_shuffle_buffer // n_noise
+        # deterministic loop over noise realizations
+        if is_eval:
+            dset = self.get_dset(
+                **dset_kwargs,
+                i_noise=0,
+            )
 
-        dset = tf.data.Dataset.sample_from_datasets(
-            [
-                self.get_dset(
-                    tfr_pattern=tfr_pattern,
-                    local_batch_size=local_batch_size,
+            for i_noise in range(1, n_noise):
+                dset_single = self.get_dset(
+                    **dset_kwargs,
                     i_noise=i_noise,
-                    is_cached=is_cached,
-                    n_readers=n_readers,
-                    n_prefetch=0,
-                    file_name_shuffle_buffer=file_name_shuffle_buffer,
-                    examples_shuffle_buffer=examples_shuffle_buffer,
-                    file_name_shuffle_seed=file_name_shuffle_seed + i_noise,
-                    examples_shuffle_seed=examples_shuffle_seed + i_noise,
-                    input_context=input_context,
                 )
-                for i_noise in range(n_noise)
-            ]
-        )
+                dset = dset.concatenate(dset_single)
+
+        # random noise realization
+        else:
+            if file_name_shuffle_buffer is not None:
+                file_name_shuffle_buffer = file_name_shuffle_buffer // n_noise
+
+            if examples_shuffle_buffer is not None:
+                examples_shuffle_buffer = examples_shuffle_buffer // n_noise
+
+            dset = tf.data.Dataset.sample_from_datasets(
+                [
+                    self.get_dset(
+                        **dset_kwargs,
+                        i_noise=i_noise,
+                        file_name_shuffle_buffer=file_name_shuffle_buffer,
+                        examples_shuffle_buffer=examples_shuffle_buffer,
+                        file_name_shuffle_seed=file_name_shuffle_seed + i_noise,
+                        examples_shuffle_seed=examples_shuffle_seed + i_noise,
+                    )
+                    for i_noise in range(n_noise)
+                ]
+            )
 
         # prefetch
         if n_prefetch is None:
