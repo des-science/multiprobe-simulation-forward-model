@@ -111,7 +111,7 @@ class GridPipeline(MSFMpipeline):
             tf.data.Dataset: A deterministic dataset that goes through the grid cosmologies in the order of the sobol
                 seeds. The output is a tuple like (data_vectors, cosmo, index), where data_vectors is a tensor of shape
             (batch_size, n_pix, n_z_metacal + n_z_maglim), cosmo is a label distributed on the Sobol sequence and index
-            is a tuple containing (i_sobol, i_noise).
+            is a tuple containing (i_sobol, i_noise, i_example).
         """
 
         # get the file names and dataset them
@@ -155,8 +155,7 @@ class GridPipeline(MSFMpipeline):
         if local_batch_size == "cosmo":
             n_patches = self.conf["analysis"]["n_patches"]
             n_perms_per_cosmo = self.conf["analysis"]["grid"]["n_perms_per_cosmo"]
-            n_noise_per_example = self.conf["analysis"]["grid"]["n_noise_per_example"]
-            local_batch_size = n_patches * n_perms_per_cosmo * n_noise_per_example
+            local_batch_size = n_patches * n_perms_per_cosmo
             LOGGER.info(f"The dset is batched by cosmology")
         dset = dset.batch(local_batch_size, drop_remainder=False)
         LOGGER.info(f"Batching into {local_batch_size} elements locally")
@@ -199,23 +198,28 @@ class GridPipeline(MSFMpipeline):
             tf.data.Dataset: A deterministic dataset that goes through the grid cosmologies in the order of the sobol
                 seeds. The output is a tuple like (data_vectors, cosmo, index), where data_vectors is a tensor of shape
             (batch_size, n_pix, n_z_metacal + n_z_maglim), cosmo is a label distributed on the Sobol sequence and index
-            is a tuple containing (i_sobol, i_noise).
+            is a tuple containing (i_sobol, i_noise, i_example).
         """
 
-        dset = tf.data.Dataset.sample_from_datasets(
-            [
-                self.get_dset(
-                    tfr_pattern=tfr_pattern,
-                    local_batch_size=local_batch_size,
-                    i_noise=i_noise,
-                    n_readers=n_readers,
-                    n_prefetch=0,
-                    input_context=input_context,
-                )
-                for i_noise in range(n_noise)
-            ],
-            seed=tf_seed,
+        dset = self.get_dset(
+            tfr_pattern=tfr_pattern,
+            local_batch_size=local_batch_size,
+            i_noise=0,
+            n_readers=n_readers,
+            n_prefetch=0,
+            input_context=input_context,
         )
+
+        for i_noise in range(1, n_noise):
+            dset_single = self.get_dset(
+                tfr_pattern=tfr_pattern,
+                local_batch_size=local_batch_size,
+                i_noise=i_noise,
+                n_readers=n_readers,
+                n_prefetch=0,
+                input_context=input_context,
+            )
+            dset = dset.concatenate(dset_single)
 
         dset = dset.prefetch(n_prefetch)
 

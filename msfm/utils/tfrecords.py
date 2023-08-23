@@ -24,7 +24,7 @@ warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
 
-def parse_forward_grid(kg, sn_realz, dg, pn_realz, cosmo, i_sobol):
+def parse_forward_grid(kg, sn_realz, dg, pn_realz, cosmo, i_sobol, i_example):
     """The grid cosmologies contain all of the maps and labels.
 
     Args:
@@ -54,6 +54,7 @@ def parse_forward_grid(kg, sn_realz, dg, pn_realz, cosmo, i_sobol):
         # labels
         "cosmo": _bytes_feature(tf.io.serialize_tensor(cosmo)),
         "i_sobol": _int64_feature(i_sobol),
+        "i_example": _int64_feature(i_example),
     }
 
     # lensing (metacal), shape noise realizations
@@ -97,7 +98,7 @@ def parse_inverse_grid(
 
     Returns:
         tf.tensors, int: Tensors containing the different fields, the cosmological parameters and an sobol index label
-            (i_sobol, i_noise)
+            (i_sobol, i_noise, i_example)
     """
     # LOGGER.warning(f"Tracing parse_inverse_grid")
 
@@ -108,6 +109,7 @@ def parse_inverse_grid(
         # labels
         "cosmo": tf.io.FixedLenFeature([], tf.string),
         "i_sobol": tf.io.FixedLenFeature([], tf.int64),
+        "i_example": tf.io.FixedLenFeature([], tf.int64),
     }
 
     if with_lensing:
@@ -140,7 +142,7 @@ def parse_inverse_grid(
             output_data, serialized_data, f"dg_{i_noise}", "dg", n_pix, n_z_maglim, "n_z_maglim"
         )
 
-    index = (serialized_data["i_sobol"], i_noise)
+    index = (serialized_data["i_sobol"], i_noise, serialized_data["i_example"])
 
     return output_data, index
 

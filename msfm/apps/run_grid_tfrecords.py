@@ -291,8 +291,8 @@ def main(indices, args):
                 kg_examples, ia_examples, sn_examples, dg_examples = load_data_vecs(file_cosmo)
 
                 # loop over the n_examples_per_cosmo
-                for kg, ia, sn_realz, dg in LOGGER.progressbar(
-                    zip(kg_examples, ia_examples, sn_examples, dg_examples),
+                for i_example, (kg, ia, sn_realz, dg) in LOGGER.progressbar(
+                    enumerate(zip(kg_examples, ia_examples, sn_examples, dg_examples)),
                     at_level="debug",
                     desc="Looping through the examples of one cosmology",
                     total=n_examples_per_cosmo,
@@ -301,7 +301,7 @@ def main(indices, args):
                     dg, pn_realz = current_clustering_transform(dg)
 
                     serialized = tfrecords.parse_forward_grid(
-                        kg, sn_realz, dg, pn_realz, cosmo, i_sobol
+                        kg, sn_realz, dg, pn_realz, cosmo, i_sobol, i_example
                     ).SerializeToString()
 
                     # check correctness
@@ -313,6 +313,7 @@ def main(indices, args):
                     assert np.allclose(inv_data_vectors["cosmo"], cosmo)
                     assert np.allclose(inv_index[0], i_sobol)
                     assert np.allclose(inv_index[1], i_noise)
+                    assert np.allclose(inv_index[2], i_example)
 
                     LOGGER.debug("decoded successfully")
 
