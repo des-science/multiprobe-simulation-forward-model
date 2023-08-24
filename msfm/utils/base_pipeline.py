@@ -29,6 +29,7 @@ class MSFMpipeline:
         # noise
         apply_m_bias: bool = True,
         shape_noise_scale: float = 1.0,
+        poisson_noise_scale: float = 1.0,
     ):
         """Shared parameters are set up here.
 
@@ -60,6 +61,7 @@ class MSFMpipeline:
 
         self.apply_norm = apply_norm
         self.shape_noise_scale = shape_noise_scale
+        self.poisson_noise_scale = poisson_noise_scale
         self.with_padding = with_padding
 
         self.n_z_metacal = len(self.conf["survey"]["metacal"]["z_bins"])

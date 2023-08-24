@@ -42,7 +42,7 @@ hp_LOGGER.disabled = True
 
 
 def resources(args):
-    return dict(main_memory=2048, main_time=1, main_scratch=0, main_n_cores=4)
+    return dict(main_memory=2048, main_time=4, main_scratch=0, main_n_cores=4)
 
 
 def setup(args):
@@ -102,7 +102,6 @@ def setup(args):
 
     for key, value in vars(args).items():
         LOGGER.warning(f"{key} = {value}")
-
 
     return args
 
@@ -333,7 +332,7 @@ def main(indices, args):
                                 delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
 
                                 # number of galaxies per pixel
-                                counts_full = clustering.galaxy_density_to_number(
+                                counts_full = clustering.galaxy_density_to_count(
                                     delta_full, n_bar, bias, conf=conf, include_systematics=False
                                 ).astype(int)
 
@@ -392,24 +391,14 @@ def main(indices, args):
 
                             delta_full = map_full
 
-                            # normalize to number density contrast
-                            delta_full = (delta_full - np.mean(delta_full)) / np.mean(delta_full)
-
                             for i_patch, patch_pix in enumerate(patches_pix):
                                 # always populate the same patch
                                 delta_patch = np.zeros(n_pix, dtype=np.float32)
                                 delta_patch[base_patch_pix] = delta_full[patch_pix]
 
-                                # # apply survey systematics map, has to happen before smoothing
-                                # if conf["analysis"]["systematics"]["maglim"]["maglim_survey_systematics_map"]:
-                                #     delta_patch[base_patch_pix] *= tomo_survey_sys_maps[:, i_z]
-
-                                # # remove large and small scales
-                                # delta_patch = scales.map_to_smoothed_map(delta_patch, l_min, l_max, n_side)
-
                                 # cut out padded data vector
                                 delta_dv = maps.map_to_data_vec(
-                                    delta_patch, data_vec_len, corresponding_pix, base_patch_pix
+                                    delta_patch, data_vec_len, corresponding_pix, base_patch_pix, divide_by_mean=True
                                 )
 
                                 data_vec_container[out_map_type][i_patch, :, i_z] = delta_dv

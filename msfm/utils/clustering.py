@@ -17,20 +17,20 @@ hp_LOGGER = logging.getLogger("healpy")
 hp_LOGGER.disabled = True
 
 
-def galaxy_density_to_number(dg, n_gal, bg, conf=None, include_systematics=False, sys_pixel_type="data_vector"):
-    """Transform a galaxy density to a galaxy number map, according to the constants defined in the config file.
+def galaxy_density_to_count(dg, n_gal, bg, conf=None, include_systematics=False, sys_pixel_type="data_vector"):
+    """Transform a galaxy density to a galaxy count map, according to the constants defined in the config file.
+    Negative values are clipped and the maps tranformed to conserve the total number of galaxies like in DeepLSS.
 
     Args:
         dg (Union[np.ndarray, tf.Tensor]): Galaxy density contrast map or datavector. Optionally per tomographic bin.
         n_gal (np.ndarray): Average number of galaxies per pixel (optionally per tomographic bin).
         bg (np.ndarray): Effective linear galaxy biasing parameter (optionally per tomographic bin).
-        with_systematics (list): Whether to multiply with the maglim systematics map. These are in datavector format.
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). The relative paths are stored here. Defaults to
             None.
+        include_systematics (bool): Whether to multiply with the maglim systematics map. Defaults to False.
         sys_pixel_type (str, optional): Either "map" or "data_vector", determines whether the systematics map is
             returned as a full sky healpy map or in data vector format.
-
 
     Raises:
         ValueError: If something apart from a numpy array or tensorflow tensor is passed.
@@ -40,13 +40,16 @@ def galaxy_density_to_number(dg, n_gal, bg, conf=None, include_systematics=False
     """
     tomo_sys_dv = files.get_clustering_systematics(conf, pixel_type=sys_pixel_type)
 
+    ng = n_gal * (1 + bg * dg)
+
+    # transform like in DeepLSS Appendix E and https://github.com/tomaszkacprzak/deep_lss/blob/3c145cf8fe04c4e5f952dca984c5ce7e163b8753/deep_lss/lss_astrophysics_model_batch.py#L609
     if isinstance(dg, np.ndarray):
-        ng = n_gal * (1 + bg * dg)
-        ng = np.where(0 < ng, ng, 0)
+        ng_clip = np.clip(ng, a_min=0, a_max=None)
+        ng = ng_clip * np.sum(ng) / np.sum(ng_clip)
 
     elif isinstance(dg, tf.Tensor):
-        ng = n_gal * (1 + bg * dg)
-        ng = tf.where(0 < ng, ng, 0)
+        ng_clip = tf.clip_by_value(ng, clip_value_min=0, clip_value_max=1e5)
+        ng = ng_clip * tf.reduce_sum(ng) / tf.reduce_sum(ng_clip)
 
     else:
         raise ValueError(f"Unsupported type {type(dg)} for dg")
@@ -58,39 +61,28 @@ def galaxy_density_to_number(dg, n_gal, bg, conf=None, include_systematics=False
     return ng
 
 
-def galaxy_number_add_noise(ng, noise_fac=None, return_noise_fac=False):
-    """Draw Poisson noise according to the galaxy number map, or multiply with a Poisson noise factor (drawn at the
-    fiducial, applied to the perturbations).
+def galaxy_count_to_noise(ng, n_noise):
+    """
+    Draw Poisson noise according to the given map of galaxy counts.
 
     Args:
-        dg (Union[np.ndarray, tf.Tensor]): Galaxy number count map or datavector. Optionally per tomographic bin.
-        noise_fac (Union[np.ndarray, tf.Tensor, optional): Same shape as dg. This is only used for the fiducial
-            perturbations, that should have the same noise characteristics as the fiducial Poisson noise sample.
-            Defaults to None, then fresh noise is drawn.
-        return_noise_fac (bool, optional): Whether to return the Poisson noise factor. Defaults to False.
+        ng (Union[np.ndarray, tf.Tensor]): Galaxy number count map or datavector. Optionally per tomographic bin.
 
     Raises:
         ValueError: If something apart from a numpy array or tensorflow tensor is passed.
 
     Returns:
-        ng: Noisy galaxy number count map.
+        poisson_noise: Pure (e.g. the input galaxy count map has been subtracted) Poisson noise consistent with the
+            input.
     """
     if isinstance(ng, np.ndarray):
-        # draw noise
-        if noise_fac is None:
-            noisy_dg = np.random.poisson(ng).astype(np.float32)
+        # draw noise, poisson realizations along axis
+        noisy_ngs = np.random.poisson(np.repeat(ng[np.newaxis, :], n_noise, axis=0)).astype(np.float32)
 
-            if return_noise_fac:
-                noise_fac = noisy_dg / ng
-
-        # apply previous noise realization
-        else:
-            noisy_dg = ng * noise_fac
+        # shape (n_noise, n_pix)
+        poisson_noise = noisy_ngs - ng
 
     elif isinstance(ng, tf.Tensor):
         raise NotImplementedError
 
-    if return_noise_fac:
-        return noisy_dg, noise_fac
-    else:
-        return noisy_dg
+    return poisson_noise

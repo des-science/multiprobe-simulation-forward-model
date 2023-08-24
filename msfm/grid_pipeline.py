@@ -36,8 +36,6 @@ class GridPipeline(MSFMpipeline):
         with_padding: bool = True,
         # format
         apply_norm: bool = True,
-        # noise
-        shape_noise_scale: float = 1.0,
     ):
         """Set up the physics parameters of the pipeline.
 
@@ -60,8 +58,10 @@ class GridPipeline(MSFMpipeline):
             with_clustering=with_clustering,
             apply_norm=apply_norm,
             with_padding=with_padding,
+            # these are fixed in the .tfrecord files
             apply_m_bias=False,
-            shape_noise_scale=shape_noise_scale,
+            shape_noise_scale=1.0,
+            poisson_noise_scale=1.0,
         )
 
         # used to return the correct labels
@@ -89,7 +89,7 @@ class GridPipeline(MSFMpipeline):
         Args:
             tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
             local_batch_size (int): Local batch size. Can also be the string "cosmo". Then, every batch contains all of
-                the realisations of exactly one cosmology.  
+                the realisations of exactly one cosmology.
             i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
                 other tensor (like randomly sampled).
             n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
@@ -111,7 +111,7 @@ class GridPipeline(MSFMpipeline):
             tf.data.Dataset: A deterministic dataset that goes through the grid cosmologies in the order of the sobol
                 seeds. The output is a tuple like (data_vectors, cosmo, index), where data_vectors is a tensor of shape
             (batch_size, n_pix, n_z_metacal + n_z_maglim), cosmo is a label distributed on the Sobol sequence and index
-            is a tuple containing (i_sobol, i_noise).
+            is a tuple containing (i_sobol, i_noise, i_example).
         """
 
         # get the file names and dataset them
@@ -133,6 +133,7 @@ class GridPipeline(MSFMpipeline):
             num_parallel_calls=tf.data.AUTOTUNE,
             deterministic=True,
         )
+        LOGGER.info(f"Interleaving with n_readers = {n_readers}")
 
         # parse, output signature (data_vectors, index), where data_vectors is a dict
         dset = dset.map(
@@ -155,8 +156,7 @@ class GridPipeline(MSFMpipeline):
         if local_batch_size == "cosmo":
             n_patches = self.conf["analysis"]["n_patches"]
             n_perms_per_cosmo = self.conf["analysis"]["grid"]["n_perms_per_cosmo"]
-            n_noise_per_example = self.conf["analysis"]["grid"]["n_noise_per_example"]
-            local_batch_size = n_patches * n_perms_per_cosmo * n_noise_per_example
+            local_batch_size = n_patches * n_perms_per_cosmo
             LOGGER.info(f"The dset is batched by cosmology")
         dset = dset.batch(local_batch_size, drop_remainder=False)
         LOGGER.info(f"Batching into {local_batch_size} elements locally")
@@ -168,9 +168,11 @@ class GridPipeline(MSFMpipeline):
         )
 
         # prefetch
-        if n_prefetch is None:
-            n_prefetch = tf.data.AUTOTUNE
-        dset = dset.prefetch(n_prefetch)
+        if n_prefetch != 0:
+            if n_prefetch is None:
+                n_prefetch = tf.data.AUTOTUNE
+            dset = dset.prefetch(n_prefetch)
+            LOGGER.info(f"Prefetching {n_prefetch} elements")
 
         LOGGER.info(
             f"Successfully generated the grid set with element_spec {dset.element_spec} for i_noise = {i_noise}"
@@ -185,39 +187,51 @@ class GridPipeline(MSFMpipeline):
         # performance
         n_readers: int = 8,
         n_prefetch: int = tf.data.AUTOTUNE,
-        # random seeds
-        tf_seed: int = 31,
         # distribution
         input_context: tf.distribute.InputContext = None,
     ) -> tf.data.Dataset:
         """Like get_dset, but for one of n random noise realizations (instead of fixed one).
 
         Args:
-            n_noise (int, optional): Number of noise indices to include.
+            n_noise (int, optional): Number of noise indices to include. This starts at zero, so if it is set to 2 for
+                training, a value of i_noise=2 in self.get_dset would yield an unseen validation set.
 
         Returns:
             tf.data.Dataset: A deterministic dataset that goes through the grid cosmologies in the order of the sobol
                 seeds. The output is a tuple like (data_vectors, cosmo, index), where data_vectors is a tensor of shape
             (batch_size, n_pix, n_z_metacal + n_z_maglim), cosmo is a label distributed on the Sobol sequence and index
-            is a tuple containing (i_sobol, i_noise).
+            is a tuple containing (i_sobol, i_noise, i_example).
         """
 
-        dset = tf.data.Dataset.sample_from_datasets(
-            [
-                self.get_dset(
-                    tfr_pattern=tfr_pattern,
-                    local_batch_size=local_batch_size,
-                    i_noise=i_noise,
-                    n_readers=n_readers,
-                    n_prefetch=0,
-                    input_context=input_context,
-                )
-                for i_noise in range(n_noise)
-            ],
-            seed=tf_seed,
+        # larger values take up more RAM, so when multiple dsets are generated like here, care must be taken
+        n_readers = n_readers // n_noise
+
+        dset = self.get_dset(
+            tfr_pattern=tfr_pattern,
+            local_batch_size=local_batch_size,
+            i_noise=0,
+            n_readers=n_readers,
+            n_prefetch=0,
+            input_context=input_context,
         )
 
-        dset = dset.prefetch(n_prefetch)
+        for i_noise in range(1, n_noise):
+            dset_single = self.get_dset(
+                tfr_pattern=tfr_pattern,
+                local_batch_size=local_batch_size,
+                i_noise=i_noise,
+                n_readers=n_readers,
+                n_prefetch=0,
+                input_context=input_context,
+            )
+            dset = dset.concatenate(dset_single)
+
+        # prefetch
+        if n_prefetch != 0:
+            if n_prefetch is None:
+                n_prefetch = tf.data.AUTOTUNE
+            dset = dset.prefetch(n_prefetch)
+            LOGGER.info(f"Prefetching {n_prefetch} elements")
 
         LOGGER.info(
             f"Successfully generated the grid set with element_spec {dset.element_spec} for i_noise in [0, {n_noise}]"
@@ -252,42 +266,38 @@ class GridPipeline(MSFMpipeline):
         LOGGER.warning(f"Tracing _augmentations")
         LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
 
-        # label, cosmo params
-        cosmo = data_vectors.pop("cosmo")
-        cosmo = tf.gather(cosmo, [self.all_params.index(param) for param in self.params], axis=1)
+        # to be explicit
+        with tf.device("/CPU:0"):
+            # label, cosmo params
+            cosmo = data_vectors.pop("cosmo")
+            cosmo = tf.gather(cosmo, [self.all_params.index(param) for param in self.params], axis=1)
 
-        if self.with_lensing:
-            # shape noise
-            if self.shape_noise_scale is not None:
-                data_vectors["kg"] += self.shape_noise_scale * data_vectors["sn"]
-            else:
-                LOGGER.warning(f"No shape noise is added")
+            if self.with_lensing:
+                # normalization
+                if self.apply_norm:
+                    data_vectors["kg"] = self.normalize_lensing(data_vectors["kg"])
 
-            # normalization
-            if self.apply_norm:
-                data_vectors["kg"] = self.normalize_lensing(data_vectors["kg"])
+                # masking
+                data_vectors["kg"] *= self.masks_metacal
 
-            # masking
-            data_vectors["kg"] *= self.masks_metacal
+                out_tensor = data_vectors["kg"]
 
-            out_tensor = data_vectors["kg"]
+            if self.with_clustering:
+                # normalization
+                if self.apply_norm:
+                    data_vectors["dg"] = self.normalize_clustering(data_vectors["dg"])
 
-        if self.with_clustering:
-            # normalization
-            if self.apply_norm:
-                data_vectors["dg"] = self.normalize_clustering(data_vectors["dg"])
+                # masking
+                data_vectors["dg"] *= self.masks_maglim
 
-            # masking
-            data_vectors["dg"] *= self.masks_maglim
+                out_tensor = data_vectors["dg"]
 
-            out_tensor = data_vectors["dg"]
+            if self.with_lensing and self.with_clustering:
+                # concatenate along the tomography axis
+                out_tensor = tf.concat([data_vectors["kg"], data_vectors["dg"]], axis=-1)
 
-        if self.with_lensing and self.with_clustering:
-            # concatenate along the tomography axis
-            out_tensor = tf.concat([data_vectors["kg"], data_vectors["dg"]], axis=-1)
-
-        if not self.with_padding:
-            LOGGER.info(f"Removing the padding")
-            out_tensor = tf.boolean_mask(out_tensor, self.mask_total, axis=1)
+            if not self.with_padding:
+                LOGGER.info(f"Removing the padding")
+                out_tensor = tf.boolean_mask(out_tensor, self.mask_total, axis=1)
 
         return out_tensor, cosmo, index

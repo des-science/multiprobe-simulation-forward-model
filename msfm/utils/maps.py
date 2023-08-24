@@ -99,7 +99,7 @@ def numba_transfer_map(full_sky, old_pix, new_pix):
 
 
 @njit
-def map_to_data_vec(hp_map, data_vec_len, corresponding_pix, cutout_pix, remove_mean=False):
+def map_to_data_vec(hp_map, data_vec_len, corresponding_pix, cutout_pix, remove_mean=False, divide_by_mean=False):
     """
     This function makes cutouts from full sky maps to a nice data vector that can be fed into a DeepSphere network
 
@@ -108,14 +108,23 @@ def map_to_data_vec(hp_map, data_vec_len, corresponding_pix, cutout_pix, remove_
         data_vec_len (int): length of the full data vec (including padding)
         corresponding_pix (np.ndarray): pixels inside the data vec that should be populated (excludes padding)
         cutout_pix (np.ndarray): pixels that should be cut out from the map (excludes padding)
-        remove_mean (bool): Remove the mean within the footprint, that is without including the padding
+        remove_mean (bool): Remove the mean within the footprint, that is without including the padding. This is
+            applied to weak lensing maps.
+        divide_by_mean (bool): Remove the mean and divide by the mean within the footprint, that is without including 
+            the padding. This is applied to galaxy clustering maps.
 
     Returns:
         np.ndarray: the data vec
     """
+    assert not (remove_mean and divide_by_mean), "Only one of remove_mean and dividie_by_mean can be true"
+
     if remove_mean:
-        # remove mean within the patch (not over the full sky)
+        # within the patch, not over the full sky
         hp_map -= np.mean(hp_map[cutout_pix])
+
+    if divide_by_mean:
+        # within the patch, not over the full sky
+        hp_map = (hp_map - np.mean(hp_map[cutout_pix])) / np.mean(hp_map[cutout_pix])
 
     data_vec = np.zeros(data_vec_len, dtype=np.float32)
     n_indices = corresponding_pix.shape[0]

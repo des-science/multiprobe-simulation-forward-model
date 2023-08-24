@@ -39,6 +39,7 @@ class FiducialPipeline(MSFMpipeline):
         # noise
         apply_m_bias: bool = True,
         shape_noise_scale: float = 1.0,
+        poisson_noise_scale: float = 1.0,
     ):
         """Set up the physics parameters of the pipeline.
 
@@ -58,13 +59,17 @@ class FiducialPipeline(MSFMpipeline):
         """
         super().__init__(
             conf=conf,
+            # cosmology
             params=params,
             with_lensing=with_lensing,
             with_clustering=with_clustering,
+            # format
             apply_norm=apply_norm,
             with_padding=with_padding,
+            # noise
             apply_m_bias=apply_m_bias,
             shape_noise_scale=shape_noise_scale,
+            poisson_noise_scale=poisson_noise_scale,
         )
 
         # perturbations of cosmo, ia, and bg parameters
@@ -79,8 +84,8 @@ class FiducialPipeline(MSFMpipeline):
         is_cached: bool = False,
         n_readers: int = 8,
         n_prefetch: int = None,
-        file_name_shuffle_buffer: int = 128,
-        examples_shuffle_buffer: int = 128,
+        file_name_shuffle_buffer: int = 16,
+        examples_shuffle_buffer: int = 64,
         # random seeds
         file_name_shuffle_seed: int = 17,
         examples_shuffle_seed: int = 67,
@@ -99,12 +104,15 @@ class FiducialPipeline(MSFMpipeline):
                 other tensor (like randomly sampled).
             is_cached (bool): Whether to cache on the level on the deserialized tensors. This is only feasible if all of
                 the fiducial .tfrecords fit into RAM. Defaults to False.
-            n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
-                concurrently. This should be roughly less than a tenth of the number of files. Defaults to 8.
+            n_readers (int, optional): Number of parallel readers, i.e. different input files read concurrently. This
+                should be roughly less than a tenth of the number of files. Large values cost a lot of RAM, especially
+                in the distributed setting. Defaults to 4.
             n_prefetch (int, optional): Number of dataset elements to prefetch. Defaults to None, then tf.data.AUTOTUNE
                 is used.
-            file_name_shuffle_buffer (int, optional): Defaults to 128.
-            examples_shuffle_buffer (int, optional): Defaults to 128.
+            file_name_shuffle_buffer (int, optional): Size of the shuffle buffer for the .tfrecord files. Defaults to
+                128.
+            examples_shuffle_buffer (int, optional): Size of the shuffle buffer for the non-batched examples. Defaults
+                to 128.
             file_name_shuffle_seed (int, optional): Defaults to 17.
             examples_shuffle_seed (int, optional): Defaults to 67.
             is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can
@@ -130,8 +138,18 @@ class FiducialPipeline(MSFMpipeline):
         """
 
         if is_eval:
-            LOGGER.warning(f"Evaluation mode is activated, the random seed is fixed and the dataset is not repeated")
             tf.random.set_seed(eval_seed)
+
+            # parameters that are not used
+            file_name_shuffle_seed = None
+            examples_shuffle_buffer = None
+            file_name_shuffle_seed = None
+            examples_shuffle_seed = None
+
+            LOGGER.warning(
+                f"Evaluation mode is activated: the random seed is fixed, the shuffle arguments ignored, and the "
+                f"dataset is not repeated"
+            )
 
         # get the file names
         dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=False)
@@ -139,16 +157,16 @@ class FiducialPipeline(MSFMpipeline):
         # shard for distributed training
         if input_context is not None:
             # NOTE Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2. This is black magic since
-            # print(input_context.num_input_pipelines) yields 1, so I don't know how the sharding happens, but it does, see
-            # distributed_sharding.ipynb
+            # print(input_context.num_input_pipelines) yields 1, so I don't know how the sharding happens, but it does,
+            # see distributed_sharding.ipynb
             dset = dset.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
-            LOGGER.info(f"Sharding the dataset according to the input_context")
+            LOGGER.info(f"Sharding the dataset over the .tfrecord files according to the input_context")
 
         # repeat and shuffle the files
         if not is_eval and not is_cached:
-            LOGGER.info(f"Shuffling file names")
             dset = dset.repeat()
             dset = dset.shuffle(file_name_shuffle_buffer, seed=file_name_shuffle_seed)
+            LOGGER.info(f"Shuffling file names with shuffle_buffer = {file_name_shuffle_buffer}")
 
         # interleave, block_length is the number of files every reader reads
         if is_eval:
@@ -161,6 +179,7 @@ class FiducialPipeline(MSFMpipeline):
                 num_parallel_calls=tf.data.AUTOTUNE,
                 deterministic=False,
             )
+        LOGGER.info(f"Interleaving with n_readers = {n_readers}")
 
         # parse, output signature (data_vectors, (i_example, i_noise))
         dset = dset.map(
@@ -180,14 +199,14 @@ class FiducialPipeline(MSFMpipeline):
         )
 
         if is_cached:
-            LOGGER.warning(f"Caching the dataset")
             dset = dset.cache()
             dset = dset.repeat()
+            LOGGER.warning(f"Caching the dataset")
 
         # shuffle the tensors
-        if not is_eval and examples_shuffle_buffer is not None:
-            LOGGER.info(f"Shuffling examples")
+        if (not is_eval) and (examples_shuffle_buffer is not None) and (examples_shuffle_buffer != 0):
             dset = dset.shuffle(examples_shuffle_buffer, seed=examples_shuffle_seed)
+            LOGGER.info(f"Shuffling examples with shuffle_buffer = {examples_shuffle_buffer}")
 
         # batch (first, for vectorization)
         if not is_eval:
@@ -203,9 +222,11 @@ class FiducialPipeline(MSFMpipeline):
         )
 
         # prefetch
-        if n_prefetch is None:
-            n_prefetch = tf.data.AUTOTUNE
-        dset = dset.prefetch(n_prefetch)
+        if n_prefetch != 0:
+            if n_prefetch is None:
+                n_prefetch = tf.data.AUTOTUNE
+            dset = dset.prefetch(n_prefetch)
+            LOGGER.info(f"Prefetching {n_prefetch} elements")
 
         LOGGER.info(
             f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for"
@@ -222,8 +243,10 @@ class FiducialPipeline(MSFMpipeline):
         is_cached: bool = False,
         n_readers: int = 8,
         n_prefetch: int = None,
-        file_name_shuffle_buffer: int = 128,
-        examples_shuffle_buffer: int = 128,
+        file_name_shuffle_buffer: int = 16,
+        examples_shuffle_buffer: int = 64,
+        is_eval: bool = False,
+        eval_seed: int = 32,
         # random seeds
         file_name_shuffle_seed: int = 17,
         examples_shuffle_seed: int = 67,
@@ -233,42 +256,74 @@ class FiducialPipeline(MSFMpipeline):
         """Like get_dset, but for one of n random noise realizations (instead of fixed one).
 
         Args:
-            n_noise (int, optional): Number of noise indices to include.
+            n_noise (int, optional): Number of noise indices to include. This starts at zero, so if it is set to 2 for
+                training, a value of i_noise=2 in self.get_dset would yield an unseen validation set.
 
         Returns:
             tf.data.Dataset: A dataset that returns samples with a given batchsize in the right ordering for the delta
             loss. The index label consists of (i_example, i_noise)
         """
 
-        if file_name_shuffle_buffer is not None:
-            file_name_shuffle_buffer = file_name_shuffle_buffer // n_noise
+        # larger values take up more RAM, so when multiple dsets are generated like here, care must be taken
+        n_readers = n_readers // n_noise
 
-        if examples_shuffle_buffer is not None:
-            examples_shuffle_buffer = examples_shuffle_buffer // n_noise
+        dset_kwargs = {
+            "tfr_pattern": tfr_pattern,
+            "local_batch_size": local_batch_size,
+            # performance
+            "is_cached": is_cached,
+            "n_readers": n_readers,
+            "n_prefetch": 0,
+            # random seeds
+            "is_eval": is_eval,
+            # distribution
+            "input_context": input_context,
+        }
 
-        dset = tf.data.Dataset.sample_from_datasets(
-            [
-                self.get_dset(
-                    tfr_pattern=tfr_pattern,
-                    local_batch_size=local_batch_size,
+        # deterministic loop over noise realizations
+        if is_eval:
+            dset = self.get_dset(
+                **dset_kwargs,
+                i_noise=0,
+                eval_seed=eval_seed,
+            )
+
+            for i_noise in range(1, n_noise):
+                dset_single = self.get_dset(
+                    **dset_kwargs,
                     i_noise=i_noise,
-                    is_cached=is_cached,
-                    n_readers=n_readers,
-                    n_prefetch=0,
-                    file_name_shuffle_buffer=file_name_shuffle_buffer,
-                    examples_shuffle_buffer=examples_shuffle_buffer,
-                    file_name_shuffle_seed=file_name_shuffle_seed + i_noise,
-                    examples_shuffle_seed=examples_shuffle_seed + i_noise,
-                    input_context=input_context,
+                    eval_seed=eval_seed,
                 )
-                for i_noise in range(n_noise)
-            ]
-        )
+                dset = dset.concatenate(dset_single)
+
+        # random noise realization
+        else:
+            if file_name_shuffle_buffer is not None:
+                file_name_shuffle_buffer = file_name_shuffle_buffer // n_noise
+
+            if examples_shuffle_buffer is not None:
+                examples_shuffle_buffer = examples_shuffle_buffer // n_noise
+
+            dset = tf.data.Dataset.sample_from_datasets(
+                [
+                    self.get_dset(
+                        **dset_kwargs,
+                        i_noise=i_noise,
+                        file_name_shuffle_buffer=file_name_shuffle_buffer,
+                        examples_shuffle_buffer=examples_shuffle_buffer,
+                        file_name_shuffle_seed=file_name_shuffle_seed + i_noise,
+                        examples_shuffle_seed=examples_shuffle_seed + i_noise,
+                    )
+                    for i_noise in range(n_noise)
+                ]
+            )
 
         # prefetch
-        if n_prefetch is None:
-            n_prefetch = tf.data.AUTOTUNE
-        dset = dset.prefetch(n_prefetch)
+        if n_prefetch != 0:
+            if n_prefetch is None:
+                n_prefetch = tf.data.AUTOTUNE
+            dset = dset.prefetch(n_prefetch)
+            LOGGER.info(f"Prefetching {n_prefetch} elements")
 
         LOGGER.info(
             f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for i_noise in"
@@ -293,27 +348,29 @@ class FiducialPipeline(MSFMpipeline):
         LOGGER.warning(f"Tracing _augmentations")
         LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
 
-        if self.with_lensing and self.with_clustering:
-            kg_tensor = self._lensing_augmentations(data_vectors)
-            dg_tensor = self._clustering_augmentations(data_vectors)
+        # to be explicit
+        with tf.device("/CPU:0"):
+            if self.with_lensing and self.with_clustering:
+                kg_tensor = self._lensing_augmentations(data_vectors)
+                dg_tensor = self._clustering_augmentations(data_vectors)
 
-            # concatenate along the tomography axis
-            out_tensor = tf.concat([kg_tensor, dg_tensor], axis=-1)
+                # concatenate along the tomography axis
+                out_tensor = tf.concat([kg_tensor, dg_tensor], axis=-1)
 
-        elif self.with_lensing:
-            assert not any(param in self.pert_labels for param in ["bg", "n_bg"])
-            out_tensor = self._lensing_augmentations(data_vectors)
+            elif self.with_lensing:
+                assert not any(param in self.pert_labels for param in ["bg", "n_bg"])
+                out_tensor = self._lensing_augmentations(data_vectors)
 
-        elif self.with_clustering:
-            assert not any(param in self.pert_labels for param in ["Aia", "n_Aia"])
-            out_tensor = self._clustering_augmentations(data_vectors)
+            elif self.with_clustering:
+                assert not any(param in self.pert_labels for param in ["Aia", "n_Aia"])
+                out_tensor = self._clustering_augmentations(data_vectors)
 
-        else:
-            raise ValueError(f"At least one of 'lensing' or 'clustering' maps need to be selected")
+            else:
+                raise ValueError(f"At least one of 'lensing' or 'clustering' maps need to be selected")
 
-        if not self.with_padding:
-            LOGGER.info(f"Removing the padding")
-            out_tensor = tf.boolean_mask(out_tensor, self.mask_total, axis=1)
+            if not self.with_padding:
+                LOGGER.info(f"Removing the padding")
+                out_tensor = tf.boolean_mask(out_tensor, self.mask_total, axis=1)
 
         return out_tensor, index
 
@@ -369,7 +426,7 @@ class FiducialPipeline(MSFMpipeline):
             if self.shape_noise_scale is not None:
                 data_vector += self.shape_noise_scale * sn
             else:
-                LOGGER.warning(f"No shape noise is added")
+                LOGGER.warning(f"No shape noise is added to the lensing maps")
 
             # normalization
             if self.apply_norm:
@@ -400,6 +457,9 @@ class FiducialPipeline(MSFMpipeline):
         """
         LOGGER.warning(f"Tracing _clustering_augmentations")
 
+        # poisson noise
+        pn = data_vectors.pop("pn")
+
         out_data_vectors = []
         for label in self.pert_labels:
             # intrinsic alignemnt perturbations
@@ -409,6 +469,12 @@ class FiducialPipeline(MSFMpipeline):
             # cosmology perturbations
             else:
                 data_vector = data_vectors[f"dg_{label}"]
+
+            # poisson noise
+            if self.poisson_noise_scale is not None:
+                data_vector += self.poisson_noise_scale * pn
+            else:
+                LOGGER.warning(f"No poisson noise is added to the clustering maps")
 
             # normalization
             if self.apply_norm:

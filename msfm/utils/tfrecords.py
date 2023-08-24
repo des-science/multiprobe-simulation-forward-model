@@ -24,14 +24,15 @@ warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
 
-def parse_forward_grid(kg, sn_realz, dg, cosmo, i_sobol):
+def parse_forward_grid(kg, sn_realz, dg, pn_realz, cosmo, i_sobol, i_example):
     """The grid cosmologies contain all of the maps and labels.
 
     Args:
-        kg (np.ndarray): shape(n_pix, n_z_bins), includes the sum of an original kg and ia map.
-        sn_realz (np.ndarray): shape(n_noise, n_pix, n_z_bins), consistent with the kg map.
+        kg (np.ndarray): shape(n_pix, n_z_metacal), includes the sum of an original kg and ia map.
+        sn_realz (np.ndarray): shape(n_noise, n_pix, n_z_metacal), shape noise consistent with the kg map.
         dg (np.ndarray): shape (n_pix, n_z_maglim), a map of galaxy counts (not just density contrast).
-        cosmo (np.ndarray): shape(n_params) can be used as a label.
+        pn_realz (np.ndarray): shape(n_noise, n_pix, n_z_maglim), poisson noise consistent with the dg map.
+        cosmo (np.ndarray): shape(n_params) to be used as a label.
         i_sobol (int): Seed within the Sobol sequence.
 
     Returns:
@@ -50,18 +51,19 @@ def parse_forward_grid(kg, sn_realz, dg, cosmo, i_sobol):
         "n_z_metacal": _int64_feature(kg.shape[1]),
         "n_z_maglim": _int64_feature(dg.shape[1]),
         "n_params": _int64_feature(cosmo.shape[0]),
-        # lensing, metacal
-        "kg": _bytes_feature(tf.io.serialize_tensor(kg)),
-        # clustering, maglim
-        "dg": _bytes_feature(tf.io.serialize_tensor(dg)),
         # labels
         "cosmo": _bytes_feature(tf.io.serialize_tensor(cosmo)),
         "i_sobol": _int64_feature(i_sobol),
+        "i_example": _int64_feature(i_example),
     }
 
-    # shape noise realizations
+    # lensing (metacal), shape noise realizations
     for i, sn in enumerate(sn_realz):
-        features[f"sn_{i}"] = _bytes_feature(tf.io.serialize_tensor(sn))
+        features[f"kg_{i}"] = _bytes_feature(tf.io.serialize_tensor(kg + sn))
+
+    # clustering (maglim), poisson noise realizations
+    for i, pn in enumerate(pn_realz):
+        features[f"dg_{i}"] = _bytes_feature(tf.io.serialize_tensor(dg + pn))
 
     # create an Example, wrapping the single features
     example = tf.train.Example(features=tf.train.Features(feature=features))
@@ -86,14 +88,17 @@ def parse_inverse_grid(
     Args:
         serialized_example (tf.train.Example.SerializeToString()): The stored data.
         i_noise (int, optional): Noise index that determines which of the stored shape noise realization to use.
+            Defaults to 0.
         n_pix (int, optional): Fixes the size of the tensors. Defaults to None.
         n_z_metacal (int, optional): Fixes the size of the tensors. Defaults to None.
         n_z_maglim (int, optional): Fixes the size of the tensors. Defaults to None.
         n_params (int, optional): Fixes the size of the tensors. Defaults to None.
+        with_lensing (bool, optional): Whether to return the weak lensing maps. Defaults to True.
+        with_clustering (bool, optional): Whether to return the galaxy clustering maps. Defaults to True.
 
     Returns:
         tf.tensors, int: Tensors containing the different fields, the cosmological parameters and an sobol index label
-            (i_sobol, i_noise)
+            (i_sobol, i_noise, i_example)
     """
     # LOGGER.warning(f"Tracing parse_inverse_grid")
 
@@ -101,20 +106,19 @@ def parse_inverse_grid(
         # tensor shapes
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
         "n_params": tf.io.FixedLenFeature([], tf.int64),
-        f"sn_{i_noise}": tf.io.FixedLenFeature([], tf.string),
         # labels
         "cosmo": tf.io.FixedLenFeature([], tf.string),
         "i_sobol": tf.io.FixedLenFeature([], tf.int64),
+        "i_example": tf.io.FixedLenFeature([], tf.int64),
     }
 
     if with_lensing:
         features["n_z_metacal"] = tf.io.FixedLenFeature([], tf.int64)
-        features["kg"] = tf.io.FixedLenFeature([], tf.string)
-        features[f"sn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
+        features[f"kg_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
 
     if with_clustering:
         features["n_z_maglim"] = tf.io.FixedLenFeature([], tf.int64)
-        features["dg"] = tf.io.FixedLenFeature([], tf.string)
+        features[f"dg_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
 
     serialized_data = tf.io.parse_single_example(serialized_example, features)
 
@@ -130,18 +134,15 @@ def parse_inverse_grid(
 
     if with_lensing:
         output_data = _parse_and_reshape_data_vector(
-            output_data, serialized_data, "kg", "kg", n_pix, n_z_metacal, "n_z_metacal"
-        )
-        output_data = _parse_and_reshape_data_vector(
-            output_data, serialized_data, f"sn_{i_noise}", "sn", n_pix, n_z_metacal, "n_z_metacal"
+            output_data, serialized_data, f"kg_{i_noise}", "kg", n_pix, n_z_metacal, "n_z_metacal"
         )
 
     if with_clustering:
         output_data = _parse_and_reshape_data_vector(
-            output_data, serialized_data, "dg", "dg", n_pix, n_z_maglim, "n_z_maglim"
+            output_data, serialized_data, f"dg_{i_noise}", "dg", n_pix, n_z_maglim, "n_z_maglim"
         )
 
-    index = (serialized_data["i_sobol"], i_noise)
+    index = (serialized_data["i_sobol"], i_noise, serialized_data["i_example"])
 
     return output_data, index
 
@@ -157,6 +158,7 @@ def parse_forward_fiducial(
     # clustering
     bg_pert_labels,
     bg_perts,
+    pn_realz,
     # label
     i_example,
 ):
@@ -173,12 +175,14 @@ def parse_forward_fiducial(
         sn_realz (np.ndarray): Shape noise realizations of shape(n_noise, n_pix, n_z_metacal).
         bg_pert_labels (list): Dictionary keys for the galaxy clustering perturbations, which only affect dg.
         bg_perts (list): Same length as bg_pert_labels, these are the perturbed dg tensors.
+        pn_realz (np.ndarray): Poisson noise realizations of shape(n_noise, n_pix, n_z_maglim).
         i_example (int): example index (comes from simulation run and the patch), there are
             n_perms_per_cosmo * n_patches.
 
     Returns:
         tf.train.Example: Example containing all of these tensors.
     """
+    # LOGGER.warning(f"Tracing parse_forward_fiducial")
 
     # the number of perturbations is the same
     assert len(kg_perts) == len(dg_perts) == len(cosmo_pert_labels)
@@ -187,7 +191,9 @@ def parse_forward_fiducial(
 
     # the data vector dimension matches (while n_z does not)
     for kg_pert, dg_pert in zip(kg_perts, dg_perts):
-        assert kg_pert.shape[0] == dg_pert.shape[0] == sn_realz.shape[1]
+        assert kg_pert.shape[0] == dg_pert.shape[0] == sn_realz.shape[1] == pn_realz.shape[1]
+
+    assert len(sn_realz) == len(pn_realz), "the number of noise realizations has to be identical for sn and pn"
 
     # define the structure of a single example
     features = {
@@ -215,6 +221,10 @@ def parse_forward_fiducial(
     # galaxy biasing (delta)
     for label, bg_pert in zip(bg_pert_labels, bg_perts):
         features[f"dg_{label}"] = _bytes_feature(tf.io.serialize_tensor(bg_pert))
+
+    # poisson noise realizations
+    for i, pn in enumerate(pn_realz):
+        features[f"pn_{i}"] = _bytes_feature(tf.io.serialize_tensor(pn))
 
     # create an Example, wrapping the single features
     example = tf.train.Example(features=tf.train.Features(feature=features))
@@ -252,7 +262,7 @@ def parse_inverse_fiducial(
         dict, int: Dictionary of datavectors (fiducial, perturbations and shape noise) and the patch index, consisting
             of (i_example, i_noise).
     """
-    LOGGER.warning(f"Tracing parse_inverse_fiducial")
+    # LOGGER.warning(f"Tracing parse_inverse_fiducial")
 
     features = {
         # tensor shapes, not recommended as reshaping with respect to them leads to a None shape in tf.function
@@ -277,6 +287,10 @@ def parse_inverse_fiducial(
         # single shape noise realization
         features[f"sn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
 
+    if with_clustering:
+        # single poisson noise realization
+        features[f"pn_{i_noise}"] = tf.io.FixedLenFeature([], tf.string)
+
     serialized_data = tf.io.parse_single_example(serialized_example, features)
 
     # output container
@@ -299,7 +313,13 @@ def parse_inverse_fiducial(
     # shape noise
     if with_lensing:
         output_data = _parse_and_reshape_data_vector(
-            output_data, serialized_data, f"sn_{i_noise}", f"sn", n_pix, n_z_metacal, "n_z_metacal"
+            output_data, serialized_data, f"sn_{i_noise}", "sn", n_pix, n_z_metacal, "n_z_metacal"
+        )
+
+    # poisson noise
+    if with_clustering:
+        output_data = _parse_and_reshape_data_vector(
+            output_data, serialized_data, f"pn_{i_noise}", "pn", n_pix, n_z_maglim, "n_z_maglim"
         )
 
     index = (serialized_data["i_example"], i_noise)
