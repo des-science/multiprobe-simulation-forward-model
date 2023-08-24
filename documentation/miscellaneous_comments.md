@@ -5,3 +5,4 @@
 - Start jupyter on Euler `./start_jupyter_nb.sh -u athomsen -l -W 04:00 --n 16 -m 2048 -s new -w /cluster/home/athomsen/des/repos/multiprobe-simulation-forward-model/notebooks`
 - Run on a set number of cores (for debugging in an interactive session): `taskset --cpu-list 0-16`  
 - Euler interactive session `srun -n 1 --cpus-per-task=8 --time=1:00:00 --mem-per-cpu=2048 --pty bash`
+- Euler `work` to SAN `sbatch -n 4 --cpus-per-task=4 --time=4:00:00 --mem-per-cpu=1024 --wrap="rsync -ahv --include='*/' --include='*.tfrecord' --exclude='*' /cluster/work/refregier/athomsen/CosmoGrid/DESY3/v4/large_scales/tfrecords athomsen@login.phys.ethz.ch:/home/ipa/refreg/experiments/athomsen/CosmoGrid/DESY3/v4/large_scales"` (or Globus)
