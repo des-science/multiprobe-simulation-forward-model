@@ -133,6 +133,7 @@ class GridPipeline(MSFMpipeline):
             num_parallel_calls=tf.data.AUTOTUNE,
             deterministic=True,
         )
+        LOGGER.info(f"Interleaving with n_readers = {n_readers}")
 
         # parse, output signature (data_vectors, index), where data_vectors is a dict
         dset = dset.map(
@@ -167,9 +168,11 @@ class GridPipeline(MSFMpipeline):
         )
 
         # prefetch
-        if n_prefetch is None:
-            n_prefetch = tf.data.AUTOTUNE
-        dset = dset.prefetch(n_prefetch)
+        if n_prefetch != 0:
+            if n_prefetch is None:
+                n_prefetch = tf.data.AUTOTUNE
+            dset = dset.prefetch(n_prefetch)
+            LOGGER.info(f"Prefetching {n_prefetch} elements")
 
         LOGGER.info(
             f"Successfully generated the grid set with element_spec {dset.element_spec} for i_noise = {i_noise}"
@@ -190,7 +193,8 @@ class GridPipeline(MSFMpipeline):
         """Like get_dset, but for one of n random noise realizations (instead of fixed one).
 
         Args:
-            n_noise (int, optional): Number of noise indices to include.
+            n_noise (int, optional): Number of noise indices to include. This starts at zero, so if it is set to 2 for
+                training, a value of i_noise=2 in self.get_dset would yield an unseen validation set.
 
         Returns:
             tf.data.Dataset: A deterministic dataset that goes through the grid cosmologies in the order of the sobol
@@ -198,6 +202,9 @@ class GridPipeline(MSFMpipeline):
             (batch_size, n_pix, n_z_metacal + n_z_maglim), cosmo is a label distributed on the Sobol sequence and index
             is a tuple containing (i_sobol, i_noise, i_example).
         """
+
+        # larger values take up more RAM, so when multiple dsets are generated like here, care must be taken
+        n_readers = n_readers // n_noise
 
         dset = self.get_dset(
             tfr_pattern=tfr_pattern,
@@ -219,7 +226,12 @@ class GridPipeline(MSFMpipeline):
             )
             dset = dset.concatenate(dset_single)
 
-        dset = dset.prefetch(n_prefetch)
+        # prefetch
+        if n_prefetch != 0:
+            if n_prefetch is None:
+                n_prefetch = tf.data.AUTOTUNE
+            dset = dset.prefetch(n_prefetch)
+            LOGGER.info(f"Prefetching {n_prefetch} elements")
 
         LOGGER.info(
             f"Successfully generated the grid set with element_spec {dset.element_spec} for i_noise in [0, {n_noise}]"
@@ -254,36 +266,38 @@ class GridPipeline(MSFMpipeline):
         LOGGER.warning(f"Tracing _augmentations")
         LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
 
-        # label, cosmo params
-        cosmo = data_vectors.pop("cosmo")
-        cosmo = tf.gather(cosmo, [self.all_params.index(param) for param in self.params], axis=1)
+        # to be explicit
+        with tf.device("/CPU:0"):
+            # label, cosmo params
+            cosmo = data_vectors.pop("cosmo")
+            cosmo = tf.gather(cosmo, [self.all_params.index(param) for param in self.params], axis=1)
 
-        if self.with_lensing:
-            # normalization
-            if self.apply_norm:
-                data_vectors["kg"] = self.normalize_lensing(data_vectors["kg"])
+            if self.with_lensing:
+                # normalization
+                if self.apply_norm:
+                    data_vectors["kg"] = self.normalize_lensing(data_vectors["kg"])
 
-            # masking
-            data_vectors["kg"] *= self.masks_metacal
+                # masking
+                data_vectors["kg"] *= self.masks_metacal
 
-            out_tensor = data_vectors["kg"]
+                out_tensor = data_vectors["kg"]
 
-        if self.with_clustering:
-            # normalization
-            if self.apply_norm:
-                data_vectors["dg"] = self.normalize_clustering(data_vectors["dg"])
+            if self.with_clustering:
+                # normalization
+                if self.apply_norm:
+                    data_vectors["dg"] = self.normalize_clustering(data_vectors["dg"])
 
-            # masking
-            data_vectors["dg"] *= self.masks_maglim
+                # masking
+                data_vectors["dg"] *= self.masks_maglim
 
-            out_tensor = data_vectors["dg"]
+                out_tensor = data_vectors["dg"]
 
-        if self.with_lensing and self.with_clustering:
-            # concatenate along the tomography axis
-            out_tensor = tf.concat([data_vectors["kg"], data_vectors["dg"]], axis=-1)
+            if self.with_lensing and self.with_clustering:
+                # concatenate along the tomography axis
+                out_tensor = tf.concat([data_vectors["kg"], data_vectors["dg"]], axis=-1)
 
-        if not self.with_padding:
-            LOGGER.info(f"Removing the padding")
-            out_tensor = tf.boolean_mask(out_tensor, self.mask_total, axis=1)
+            if not self.with_padding:
+                LOGGER.info(f"Removing the padding")
+                out_tensor = tf.boolean_mask(out_tensor, self.mask_total, axis=1)
 
         return out_tensor, cosmo, index
