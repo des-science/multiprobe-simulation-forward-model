@@ -126,6 +126,8 @@ class GridPipeline(MSFMpipeline):
             LOGGER.info(f"Sharding the dataset according to the input_context")
 
         # interleave, block_length is the number of files every reader reads
+        if local_batch_size == "cosmo":
+            assert n_readers == 1, f"Can only read from a single file concurrently when local_batch_size = 'cosmo'"
         dset = dset.interleave(
             tf.data.TFRecordDataset,
             cycle_length=n_readers,

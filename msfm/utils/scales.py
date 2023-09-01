@@ -132,19 +132,21 @@ def data_vector_to_smoothed_data_vector(data_vector, l_min, l_max, n_side, data_
         np.array: Smoothed data vector(s) of shape (len(data_vec_pix),) or (len(data_vec_pix), n_z_bins).
     """
 
+    n_pix = hp.nside2npix(n_side)
+
     # multiple tomographic bins along final axis
     if isinstance(l_min, list) and isinstance(l_max, list):
         assert data_vector.ndim == 2
         assert len(l_min) == len(l_max) == data_vector.shape[1]
 
-        full_map = np.zeros((hp.nside2npix(n_side), data_vector.shape[1]), dtype=np.float32)
+        full_map = np.zeros((n_pix, data_vector.shape[1]), dtype=np.float32)
         full_map[data_vec_pix] = data_vector
 
     # single map
     elif isinstance(l_min, int) and isinstance(l_max, int):
         assert data_vector.ndim == 1
 
-        full_map = np.zeros(hp.nside2npix(n_side), dtype=np.float32)
+        full_map = np.zeros(n_pix, dtype=np.float32)
         full_map[data_vec_pix] = data_vector
 
     else:

@@ -17,13 +17,13 @@ hp_LOGGER = logging.getLogger("healpy")
 hp_LOGGER.disabled = True
 
 
-def galaxy_density_to_count(dg, n_gal, bg, conf=None, include_systematics=False, sys_pixel_type="data_vector"):
+def galaxy_density_to_count(dg, ng_bar, bg, conf=None, include_systematics=False, sys_pixel_type="data_vector"):
     """Transform a galaxy density to a galaxy count map, according to the constants defined in the config file.
     Negative values are clipped and the maps tranformed to conserve the total number of galaxies like in DeepLSS.
 
     Args:
         dg (Union[np.ndarray, tf.Tensor]): Galaxy density contrast map or datavector. Optionally per tomographic bin.
-        n_gal (np.ndarray): Average number of galaxies per pixel (optionally per tomographic bin).
+        ng_bar (np.ndarray): Average number of galaxies per pixel (optionally per tomographic bin).
         bg (np.ndarray): Effective linear galaxy biasing parameter (optionally per tomographic bin).
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). The relative paths are stored here. Defaults to
@@ -40,7 +40,7 @@ def galaxy_density_to_count(dg, n_gal, bg, conf=None, include_systematics=False,
     """
     tomo_sys_dv = files.get_clustering_systematics(conf, pixel_type=sys_pixel_type)
 
-    ng = n_gal * (1 + bg * dg)
+    ng = ng_bar * (1 + bg * dg)
 
     # transform like in DeepLSS Appendix E and https://github.com/tomaszkacprzak/deep_lss/blob/3c145cf8fe04c4e5f952dca984c5ce7e163b8753/deep_lss/lss_astrophysics_model_batch.py#L609
     if isinstance(dg, np.ndarray):
