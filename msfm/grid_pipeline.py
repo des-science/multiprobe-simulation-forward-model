@@ -33,9 +33,10 @@ class GridPipeline(MSFMpipeline):
         params: list = None,
         with_lensing: bool = True,
         with_clustering: bool = True,
-        with_padding: bool = True,
         # format
         apply_norm: bool = True,
+        with_padding: bool = True,
+        z_bin_inds: list = None,
     ):
         """Set up the physics parameters of the pipeline.
 
@@ -46,10 +47,11 @@ class GridPipeline(MSFMpipeline):
             with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
             with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
             apply_norm (bool, optional): Whether to rescale the maps to approximate unit range. Defaults to True.
-            apply_m_bias (bool, optional): Whether to include the multiplicative shear bias. Defaults to True.
-            shape_noise_scale (float, optional): Factor by which to multiply the shape noise. This could also be a
-                tf.Variable to change it according to a schedule during training. Set to None to not include any shape
-                noise. Defaults to 1.0.
+            with_padding (bool, optional): Whether to include the padding of the data vectors (the healpy DeepSphere \
+                networks) need this. Defaults to True.
+            z_bin_inds (list, optional): Specify the indices of the redshift bins to be included. Note that this is
+                mainly meant for testing purposes and is inefficient, since all redshift bins are loaded from the
+                .tfrecords nonetheless. Defaults to None, then all redshift bins are kept.
         """
         super().__init__(
             conf=conf,
@@ -58,6 +60,7 @@ class GridPipeline(MSFMpipeline):
             with_clustering=with_clustering,
             apply_norm=apply_norm,
             with_padding=with_padding,
+            z_bin_inds=z_bin_inds,
             # these are fixed in the .tfrecord files
             apply_m_bias=False,
             shape_noise_scale=1.0,
@@ -206,7 +209,7 @@ class GridPipeline(MSFMpipeline):
         """
 
         # larger values take up more RAM, so when multiple dsets are generated like here, care must be taken
-        n_readers = n_readers // n_noise
+        n_readers = max(1, n_readers // n_noise)
 
         dset = self.get_dset(
             tfr_pattern=tfr_pattern,
@@ -301,5 +304,10 @@ class GridPipeline(MSFMpipeline):
             if not self.with_padding:
                 LOGGER.info(f"Removing the padding")
                 out_tensor = tf.boolean_mask(out_tensor, self.mask_total, axis=1)
+
+        # potentially discard the unwanted redshift bins
+        if self.z_bin_inds is not None:
+            LOGGER.warning(f"Discarding all redshift bins except {self.z_bin_inds}")
+            out_tensor = tf.gather(out_tensor, self.z_bin_inds, axis=-1)
 
         return out_tensor, cosmo, index

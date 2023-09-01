@@ -8,7 +8,9 @@ Parent class of the fiducial and grid pipelines
 """
 
 import tensorflow as tf
+import numpy as np
 import healpy as hp
+import warnings
 
 from msfm.utils import files, lensing
 
@@ -26,6 +28,7 @@ class MSFMpipeline:
         # format
         apply_norm: bool = True,
         with_padding: bool = True,
+        z_bin_inds: list = None,
         # noise
         apply_m_bias: bool = True,
         shape_noise_scale: float = 1.0,
@@ -42,10 +45,16 @@ class MSFMpipeline:
             apply_norm (bool, optional): Whether to rescale the maps to approximate unit range. Defaults to True.
             with_padding (bool, optional): Whether to include the padding of the data vectors (the healpy DeepSphere \
                 networks) need this. Defaults to True.
+            z_bin_inds (list, optional): Specify the indices of the redshift bins to be included. Note that this is
+                mainly meant for testing purposes and is inefficient, since all redshift bins are loaded from the
+                .tfrecords nonetheless. Defaults to None, then all redshift bins are kept.
             apply_m_bias (bool, optional): Whether to include the multiplicative shear bias. Defaults to True.
             shape_noise_scale (float, optional): Factor by which to multiply the shape noise. This could also be a
                 tf.Variable to change it according to a schedule during training. Set to None to not include any shape
                 noise. Defaults to 1.0.
+            poisson_noise_scale (float, optional): Factor by which to multiply the Poisson noise. This could also be a
+                tf.Variable to change it according to a schedule during training. Set to None to not include any 
+                Poisson noise. Defaults to 1.0.
         """
         # general constants
         self.conf = files.load_config(conf)
@@ -63,6 +72,12 @@ class MSFMpipeline:
         self.shape_noise_scale = shape_noise_scale
         self.poisson_noise_scale = poisson_noise_scale
         self.with_padding = with_padding
+        if isinstance(z_bin_inds, (list, np.ndarray, tf.Tensor)):
+            self.z_bin_inds = tf.constant(z_bin_inds, dtype=tf.int32)
+        elif z_bin_inds is None:
+            self.z_bin_inds = z_bin_inds
+        else:
+            raise TypeError(f"z_bin_inds = {z_bin_inds} must be None, a list, array or tensor")
 
         self.n_z_metacal = len(self.conf["survey"]["metacal"]["z_bins"])
         self.n_z_maglim = len(self.conf["survey"]["maglim"]["z_bins"])
