@@ -80,7 +80,7 @@ class GridPipeline(MSFMpipeline):
         self,
         tfr_pattern: str,
         local_batch_size: int,
-        i_noise: int = 0,
+        n_noise: int = 1,
         # performance
         n_readers: int = 8,
         n_prefetch: int = tf.data.AUTOTUNE,
@@ -93,8 +93,8 @@ class GridPipeline(MSFMpipeline):
             tfr_pattern (str): Glob pattern of the .fiducial tfrecord files.
             local_batch_size (int): Local batch size. Can also be the string "cosmo". Then, every batch contains all of
                 the realisations of exactly one cosmology.
-            i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
-                other tensor (like randomly sampled).
+            n_noise (int, optional): Number of noise realizations to return, where the noise index always runs from 0
+                to n_noise - 1. Defaults to 1.
             n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
                 concurrently. This should be roughly less than a tenth of the number of files. Defaults to 8.
             n_prefetch (int, optional): Number of dataset elements to prefetch.
@@ -116,6 +116,7 @@ class GridPipeline(MSFMpipeline):
             (batch_size, n_pix, n_z_metacal + n_z_maglim), cosmo is a label distributed on the Sobol sequence and index
             is a tuple containing (i_sobol, i_noise, i_example).
         """
+        assert n_noise >= 1, f"n_noise = {n_noise} must be >= 1"
 
         # get the file names and dataset them
         dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=False)
@@ -144,7 +145,7 @@ class GridPipeline(MSFMpipeline):
         dset = dset.map(
             lambda serialized_example: tfrecords.parse_inverse_grid(
                 serialized_example,
-                i_noise,
+                n_noise,
                 # dimensions
                 self.n_dv_pix,
                 self.n_z_metacal,
@@ -157,11 +158,20 @@ class GridPipeline(MSFMpipeline):
             num_parallel_calls=tf.data.AUTOTUNE,
         )
 
+        # map a single example to n_noise examples corresponding to different noise realizations
+        dset = dset.interleave(
+            lambda data_vectors: self._split_noise_realizations(data_vectors, n_noise),
+            cycle_length=1,
+            block_length=1,
+            num_parallel_calls=tf.data.AUTOTUNE,
+            deterministic=True,
+        )
+
         # batch (first, for vectorization)
         if local_batch_size == "cosmo":
             n_patches = self.conf["analysis"]["n_patches"]
             n_perms_per_cosmo = self.conf["analysis"]["grid"]["n_perms_per_cosmo"]
-            local_batch_size = n_patches * n_perms_per_cosmo
+            local_batch_size = n_patches * n_perms_per_cosmo * n_noise
             LOGGER.info(f"The dset is batched by cosmology")
         dset = dset.batch(local_batch_size, drop_remainder=False)
         LOGGER.info(f"Batching into {local_batch_size} elements locally")
@@ -180,70 +190,45 @@ class GridPipeline(MSFMpipeline):
             LOGGER.info(f"Prefetching {n_prefetch} elements")
 
         LOGGER.info(
-            f"Successfully generated the grid set with element_spec {dset.element_spec} for i_noise = {i_noise}"
+            f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for i_noise in"
+            f" [0, {n_noise})"
         )
         return dset
 
-    def get_multi_noise_dset(
-        self,
-        tfr_pattern: str,
-        local_batch_size: int,
-        n_noise: int = 1,
-        # performance
-        n_readers: int = 8,
-        n_prefetch: int = tf.data.AUTOTUNE,
-        # distribution
-        input_context: tf.distribute.InputContext = None,
-    ) -> tf.data.Dataset:
-        """Like get_dset, but for one of n random noise realizations (instead of fixed one).
+    def _split_noise_realizations(self, data_vectors: dict, n_noise: int) -> tf.data.Dataset:
+        """Split the dictionary stored within the .tfrecord files into the separate noise realizations stored within.
+        In this way, a single element of the dataset is mapped to a new dataset. Therefore, this function should be
+        applied as flat_map or interleave.
 
         Args:
-            n_noise (int, optional): Number of noise indices to include. This starts at zero, so if it is set to 2 for
-                training, a value of i_noise=2 in self.get_dset would yield an unseen validation set.
+            data_vectors (dict): Full dictionary containing all noisy kg and dg maps, i_sobol and i_example indices.
 
         Returns:
-            tf.data.Dataset: A deterministic dataset that goes through the grid cosmologies in the order of the sobol
-                seeds. The output is a tuple like (data_vectors, cosmo, index), where data_vectors is a tensor of shape
-            (batch_size, n_pix, n_z_metacal + n_z_maglim), cosmo is a label distributed on the Sobol sequence and index
-            is a tuple containing (i_sobol, i_noise, i_example).
+            tf.data.Dataset: Dataset containing the separate noise realizations.
         """
 
-        # larger values take up more RAM, so when multiple dsets are generated like here, care must be taken
-        n_readers = max(1, n_readers // n_noise)
+        # separate the noise realizations
+        kg = []
+        dg = []
+        i_noise = []
+        for i in range(n_noise):
+            kg.append(data_vectors.pop(f"kg_{i}"))
+            dg.append(data_vectors.pop(f"dg_{i}"))
+            i_noise.append(i)
 
-        dset = self.get_dset(
-            tfr_pattern=tfr_pattern,
-            local_batch_size=local_batch_size,
-            i_noise=0,
-            n_readers=n_readers,
-            n_prefetch=0,
-            input_context=input_context,
-        )
+        # repeat the signal as often as there are different noise realizations
+        for key in data_vectors.keys():
+            data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), n_noise, axis=0)
 
-        for i_noise in range(1, n_noise):
-            dset_single = self.get_dset(
-                tfr_pattern=tfr_pattern,
-                local_batch_size=local_batch_size,
-                i_noise=i_noise,
-                n_readers=n_readers,
-                n_prefetch=0,
-                input_context=input_context,
-            )
-            dset = dset.concatenate(dset_single)
+        # update the dictionary
+        data_vectors["kg"] = kg
+        data_vectors["dg"] = dg
+        data_vectors["i_noise"] = i_noise
 
-        # prefetch
-        if n_prefetch != 0:
-            if n_prefetch is None:
-                n_prefetch = tf.data.AUTOTUNE
-            dset = dset.prefetch(n_prefetch)
-            LOGGER.info(f"Prefetching {n_prefetch} elements")
+        # return a dataset containing n_examples elements
+        return tf.data.Dataset.from_tensor_slices(data_vectors)
 
-        LOGGER.info(
-            f"Successfully generated the grid set with element_spec {dset.element_spec} for i_noise in [0, {n_noise}]"
-        )
-        return dset
-
-    def _augmentations(self, data_vectors: dict, index: tuple) -> tf.Tensor:
+    def _augmentations(self, data_vectors: dict) -> tf.Tensor:
         """Applies random augmentations and general pre-processing to the maps. This includes in order:
 
         lensing
@@ -310,4 +295,9 @@ class GridPipeline(MSFMpipeline):
             LOGGER.warning(f"Discarding all redshift bins except {self.z_bin_inds}")
             out_tensor = tf.gather(out_tensor, self.z_bin_inds, axis=-1)
 
-        return out_tensor, cosmo, index
+        # gather the indices
+        i_sobol = data_vectors.pop("i_sobol")
+        i_example = data_vectors.pop("i_example")
+        i_noise = data_vectors.pop("i_noise")
+
+        return out_tensor, cosmo, (i_sobol, i_example, i_noise)

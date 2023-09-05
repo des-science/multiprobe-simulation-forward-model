@@ -12,7 +12,7 @@ by Janis Fluri
 import tensorflow as tf
 import warnings
 
-from msfm.utils import logger, tfrecords, parameters, files
+from msfm.utils import logger, tfrecords, parameters
 from msfm.utils.base_pipeline import MSFMpipeline
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -87,7 +87,7 @@ class FiducialPipeline(MSFMpipeline):
         self,
         tfr_pattern: str,
         local_batch_size: int,
-        i_noise: int = 0,
+        n_noise: int = 1,
         # performance
         is_cached: bool = False,
         n_readers: int = 8,
@@ -108,8 +108,8 @@ class FiducialPipeline(MSFMpipeline):
             tfr_pattern (str): Glob pattern of the fiducial .tfrecord files.
             local_batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch
                 size.
-            i_noise (int): Index for the shape noise realizations. This has to be fixed and can't be a tf.Variable or
-                other tensor (like randomly sampled).
+            n_noise (int, optional): Number of noise realizations to return, where the noise index always runs from 0
+                to n_noise - 1. Defaults to 1.
             is_cached (bool): Whether to cache on the level on the deserialized tensors. This is only feasible if all of
                 the fiducial .tfrecords fit into RAM. Defaults to False.
             n_readers (int, optional): Number of parallel readers, i.e. different input files read concurrently. This
@@ -144,6 +144,7 @@ class FiducialPipeline(MSFMpipeline):
             tf.data.Dataset: A dataset that returns samples with a given batchsize in the right ordering for the delta
             loss. The index label consists of (i_example, i_noise)
         """
+        assert n_noise >= 1, f"n_noise = {n_noise} must be >= 1"
 
         if is_eval:
             tf.random.set_seed(eval_seed)
@@ -189,12 +190,12 @@ class FiducialPipeline(MSFMpipeline):
             )
         LOGGER.info(f"Interleaving with n_readers = {n_readers}")
 
-        # parse, output signature (data_vectors, (i_example, i_noise))
+        # parse, output signature (data_vectors,)
         dset = dset.map(
             lambda serialized_example: tfrecords.parse_inverse_fiducial(
                 serialized_example,
                 self.pert_labels,
-                i_noise,
+                n_noise,
                 # dimensions
                 self.n_dv_pix,
                 self.n_z_metacal,
@@ -211,10 +212,21 @@ class FiducialPipeline(MSFMpipeline):
             dset = dset.repeat()
             LOGGER.warning(f"Caching the dataset")
 
-        # shuffle the tensors
+        # map a single example to n_noise examples corresponding to different noise realizations
+        dset = dset.interleave(
+            lambda data_vectors: self._split_noise_realizations(data_vectors, n_noise),
+            cycle_length=1,
+            block_length=1,
+            num_parallel_calls=tf.data.AUTOTUNE,
+            deterministic=is_eval,
+        )
+
+        # shuffle the examples
         if (not is_eval) and (examples_shuffle_buffer is not None) and (examples_shuffle_buffer != 0):
             dset = dset.shuffle(examples_shuffle_buffer, seed=examples_shuffle_seed)
             LOGGER.info(f"Shuffling examples with shuffle_buffer = {examples_shuffle_buffer}")
+        elif not is_eval:
+            LOGGER.warning(f"Examples are not shuffled, which is underisable for is_eval = {is_eval}")
 
         # batch (first, for vectorization)
         if not is_eval:
@@ -237,121 +249,60 @@ class FiducialPipeline(MSFMpipeline):
             LOGGER.info(f"Prefetching {n_prefetch} elements")
 
         LOGGER.info(
-            f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for"
-            f" i_noise = {i_noise}"
+            f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for i_noise in"
+            f" [0, {n_noise})"
         )
         return dset
 
-    def get_multi_noise_dset(
-        self,
-        tfr_pattern: str,
-        local_batch_size: int,
-        n_noise: int = 1,
-        # performance
-        is_cached: bool = False,
-        n_readers: int = 8,
-        n_prefetch: int = None,
-        file_name_shuffle_buffer: int = 16,
-        examples_shuffle_buffer: int = 64,
-        is_eval: bool = False,
-        eval_seed: int = 32,
-        # random seeds
-        file_name_shuffle_seed: int = 17,
-        examples_shuffle_seed: int = 67,
-        # distribution
-        input_context: tf.distribute.InputContext = None,
-    ) -> tf.data.Dataset:
-        """Like get_dset, but for one of n random noise realizations (instead of fixed one).
+    def _split_noise_realizations(self, data_vectors: dict, n_noise: int) -> tf.data.Dataset:
+        """Split the dictionary stored within the .tfrecord files into the separate noise realizations stored within.
+        For this, the signal maps are copied in memory and paired with the noise realizations. So a single element
+        of the dataset is mapped to a new dataset containing n_noise examples. Therefore, this function should be
+        applied as flat_map or interleave.
 
         Args:
-            n_noise (int, optional): Number of noise indices to include. This starts at zero, so if it is set to 2 for
-                training, a value of i_noise=2 in self.get_dset would yield an unseen validation set.
+            data_vectors (dict): Full dictionary containing all kg perturbations, dg perturbations, i_example and
+                i_noise indices.
 
         Returns:
-            tf.data.Dataset: A dataset that returns samples with a given batchsize in the right ordering for the delta
-            loss. The index label consists of (i_example, i_noise)
+            tf.data.Dataset: Dataset containing the separate noise realizations.
         """
 
-        # larger values take up more RAM, so when multiple dsets are generated like here, care must be taken
-        n_readers = max(1, n_readers // n_noise)
+        # separate the noise realizations
+        sn = []
+        pn = []
+        i_noise = []
+        for i in range(n_noise):
+            sn.append(data_vectors.pop(f"sn_{i}"))
+            pn.append(data_vectors.pop(f"pn_{i}"))
+            i_noise.append(i)
 
-        dset_kwargs = {
-            "tfr_pattern": tfr_pattern,
-            "local_batch_size": local_batch_size,
-            # performance
-            "is_cached": is_cached,
-            "n_readers": n_readers,
-            "n_prefetch": 0,
-            # random seeds
-            "is_eval": is_eval,
-            # distribution
-            "input_context": input_context,
-        }
+        # repeat the signal as often as there are different noise realizations
+        for key in data_vectors.keys():
+            data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), n_noise, axis=0)
 
-        # deterministic loop over noise realizations
-        if is_eval:
-            dset = self.get_dset(
-                **dset_kwargs,
-                i_noise=0,
-                eval_seed=eval_seed,
-            )
+        # update the dictionary
+        data_vectors["sn"] = sn
+        data_vectors["pn"] = pn
+        data_vectors["i_noise"] = i_noise
 
-            for i_noise in range(1, n_noise):
-                dset_single = self.get_dset(
-                    **dset_kwargs,
-                    i_noise=i_noise,
-                    eval_seed=eval_seed,
-                )
-                dset = dset.concatenate(dset_single)
+        # return a dataset containing n_noise elements
+        return tf.data.Dataset.from_tensor_slices(data_vectors)
 
-        # random noise realization
-        else:
-            if file_name_shuffle_buffer is not None:
-                file_name_shuffle_buffer = file_name_shuffle_buffer // n_noise
-
-            if examples_shuffle_buffer is not None:
-                examples_shuffle_buffer = examples_shuffle_buffer // n_noise
-
-            dset = tf.data.Dataset.sample_from_datasets(
-                [
-                    self.get_dset(
-                        **dset_kwargs,
-                        i_noise=i_noise,
-                        file_name_shuffle_buffer=file_name_shuffle_buffer,
-                        examples_shuffle_buffer=examples_shuffle_buffer,
-                        file_name_shuffle_seed=file_name_shuffle_seed + i_noise,
-                        examples_shuffle_seed=examples_shuffle_seed + i_noise,
-                    )
-                    for i_noise in range(n_noise)
-                ]
-            )
-
-        # prefetch
-        if n_prefetch != 0:
-            if n_prefetch is None:
-                n_prefetch = tf.data.AUTOTUNE
-            dset = dset.prefetch(n_prefetch)
-            LOGGER.info(f"Prefetching {n_prefetch} elements")
-
-        LOGGER.info(
-            f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for i_noise in"
-            f" [0, {n_noise}]"
-        )
-        return dset
-
-    def _augmentations(self, data_vectors: dict, index: tuple) -> tf.Tensor:
+    def _augmentations(self, data_vectors: dict) -> tf.Tensor:
         """This function wraps _lensing_augmentations and _clustering_augmentations and implements the appropriate case
         distinction.
 
         Args:
-            data_vectors (dict): Full dictionary containing all kg and dg perturbations.
+            data_vectors (dict): Full dictionary containing all kg perturbations, dg perturbations, i_example and
+                i_noise indices.
             index (tuple): Label (i_example, i_noise), which is only passed through.
 
         Raises:
             ValueError: If neither lensing nor clustering maps are selected.
 
         Returns:
-            tuple: (out_tensor, index) the elements of the dataset.
+            tuple: (out_tensor, index) the elements of the dataset, where index is a tuple (i_example, i_noise).
         """
         LOGGER.warning(f"Tracing _augmentations")
         LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
@@ -385,7 +336,11 @@ class FiducialPipeline(MSFMpipeline):
             LOGGER.warning(f"Discarding all redshift bins except {self.z_bin_inds}")
             out_tensor = tf.gather(out_tensor, self.z_bin_inds, axis=-1)
 
-        return out_tensor, index
+        # gather the indices
+        i_example = data_vectors.pop("i_example")
+        i_noise = data_vectors.pop("i_noise")
+
+        return out_tensor, (i_example, i_noise)
 
     def _lensing_augmentations(self, data_vectors: dict) -> tf.Tensor:
         """Applies random augmentations and general pre-processing to the weak lensing maps (kg). This includes in
