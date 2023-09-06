@@ -7,14 +7,10 @@ or three maps (polarized case), these functions are not vectorized accross the e
 """
 
 import numpy as np
-import healpy as hp
 import tensorflow as tf
 import logging
 
 from msfm.utils import files
-
-hp_LOGGER = logging.getLogger("healpy")
-hp_LOGGER.disabled = True
 
 
 def galaxy_density_to_count(dg, ng_bar, bg, conf=None, include_systematics=False, sys_pixel_type="data_vector"):
@@ -44,7 +40,7 @@ def galaxy_density_to_count(dg, ng_bar, bg, conf=None, include_systematics=False
 
     # transform like in DeepLSS Appendix E and https://github.com/tomaszkacprzak/deep_lss/blob/3c145cf8fe04c4e5f952dca984c5ce7e163b8753/deep_lss/lss_astrophysics_model_batch.py#L609
     if isinstance(dg, np.ndarray):
-        ng_clip = np.clip(ng, a_min=0, a_max=None)
+        ng_clip = np.clip(ng, a_min=0, a_max=None, dtype=np.float32)
         ng = ng_clip * np.sum(ng) / np.sum(ng_clip)
 
     elif isinstance(dg, tf.Tensor):
