@@ -54,7 +54,7 @@ import healpy as hp
 
 
 def resources(args):
-    return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=8)
+    return dict(main_memory=1024, main_time=1, main_scratch=0, main_n_cores=4)
 
 
 def setup(args):
@@ -296,12 +296,12 @@ def main(indices, args):
                 current_clustering_transform = lambda dg: clustering_transform(dg, bg, n_bg)
 
                 # verify that the Sobol sequences are identical (the parameters are ordered differently)
-                assert np.allclose(sobol_params[0], cosmo[0], rtol=1e-3, atol=1e-4)  # Om
-                assert np.allclose(sobol_params[1], cosmo[1], rtol=1e-3, atol=1e-4)  # s8
-                assert np.allclose(sobol_params[2], cosmo[3], rtol=1e-3, atol=1e-4)  # Ob
-                assert np.allclose(sobol_params[3], cosmo[2], rtol=1e-3, atol=1e-4)  # H0
-                assert np.allclose(sobol_params[4], cosmo[4], rtol=1e-3, atol=1e-4)  # ns
-                assert np.allclose(sobol_params[5], cosmo[5], rtol=1e-3, atol=1e-4)  # w0
+                assert np.allclose(sobol_params[0], cosmo[0], rtol=1e-3, atol=1e-5)  # Om
+                assert np.allclose(sobol_params[1], cosmo[1], rtol=1e-3, atol=1e-5)  # s8
+                assert np.allclose(sobol_params[2], cosmo[3], rtol=1e-3, atol=1e-3)  # Ob
+                assert np.allclose(sobol_params[3], cosmo[2], rtol=1e-3, atol=1e-5)  # H0
+                assert np.allclose(sobol_params[4], cosmo[4], rtol=1e-3, atol=1e-5)  # ns
+                assert np.allclose(sobol_params[5], cosmo[5], rtol=1e-3, atol=1e-5)  # w0
 
                 # load the .h5 files
                 file_cosmo = filenames.get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
