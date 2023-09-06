@@ -90,7 +90,9 @@ def setup(args):
         help="configuration yaml file",
     )
     parser.add_argument(
-        "--make_grf", action="store_true", help="Whether to degrade the maps to Gaussian random fields"
+        "--make_clustering_grf",
+        action="store_true",
+        help="Whether to degrade the galaxy clustering maps to Gaussian Random Fields",
     )
     parser.add_argument(
         "--file_suffix",
@@ -113,8 +115,8 @@ def setup(args):
     if args.include_maglim_systematics:
         LOGGER.debug(f"Including the Maglim systematics maps")
 
-    if args.make_grf:
-        LOGGER.warning(f"Degrading the maps to Gaussian Random Fields")
+    if args.make_clustering_grf:
+        LOGGER.warning(f"Degrading the galaxy clustering maps to Gaussian Random Fields")
 
     return args
 
@@ -176,7 +178,7 @@ def main(indices, args):
 
     def clustering_smoothing(dg):
         # Gaussian Random Field
-        if args.make_grf:
+        if args.make_clustering_grf:
             smoothing_func = scales.data_vector_to_grf_data_vector
         # standard smoothing with a Gaussian kernel
         else:

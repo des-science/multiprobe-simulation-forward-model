@@ -78,7 +78,9 @@ def setup(args):
         help="configuration yaml file",
     )
     parser.add_argument(
-        "--make_grf", action="store_true", help="Whether to degrade the maps to Gaussian random fields"
+        "--make_clustering_grf",
+        action="store_true",
+        help="Whether to degrade the galaxy clustering maps to Gaussian Random Fields",
     )
     parser.add_argument(
         "--file_suffix",
@@ -94,8 +96,8 @@ def setup(args):
     if not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
 
-    if args.make_grf:
-        LOGGER.warning(f"Degrading the maps to Gaussian Random Fields")
+    if args.make_clustering_grf:
+        LOGGER.warning(f"Degrading the galaxy clustering maps to Gaussian Random Fields")
 
     args.config = os.path.abspath(args.config)
 
@@ -144,7 +146,7 @@ def main(indices, args):
 
     def clustering_smoothing(dg, np_seed=None):
         # Gaussian Random Field
-        if args.make_grf:
+        if args.make_clustering_grf:
             dg = scales.data_vector_to_grf_data_vector(
                 dg,
                 l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
