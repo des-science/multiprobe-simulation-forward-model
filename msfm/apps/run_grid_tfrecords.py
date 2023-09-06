@@ -89,8 +89,16 @@ def setup(args):
         default="configs/config.yaml",
         help="configuration yaml file",
     )
+    parser.add_argument(
+        "--make_grf", action="store_true", help="Whether to degrade the maps to Gaussian random fields"
+    )
+    parser.add_argument(
+        "--file_suffix",
+        type=str,
+        default="",
+        help="Optional suffix to be appended to the end of the filename, for example to distinguish different runs",
+    )
     parser.add_argument("--include_maglim_systematics", action="store_true", help="Whether to apply the")
-    parser.add_argument("--np_seed", type=int, default=7, help="random seed to shuffle the patches")
     parser.add_argument("--debug", action="store_true", help="activate debug mode")
 
     args, _ = parser.parse_known_args(args)
@@ -104,6 +112,9 @@ def setup(args):
 
     if args.include_maglim_systematics:
         LOGGER.debug(f"Including the Maglim systematics maps")
+
+    if args.make_grf:
+        LOGGER.warning(f"Degrading the maps to Gaussian Random Fields")
 
     return args
 
@@ -164,7 +175,14 @@ def main(indices, args):
     tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
     def clustering_smoothing(dg):
-        dg = scales.data_vector_to_smoothed_data_vector(
+        # Gaussian Random Field
+        if args.make_grf:
+            smoothing_func = scales.data_vector_to_grf_data_vector
+        # standard smoothing with a Gaussian kernel
+        else:
+            smoothing_func = scales.data_vector_to_smoothed_data_vector
+
+        dg = smoothing_func(
             dg,
             l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
             l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
@@ -229,7 +247,7 @@ def main(indices, args):
         LOGGER.timer.start("index")
 
         tfr_file = filenames.get_filename_tfrecords(
-            args.dir_out, tag=conf["survey"]["name"], index=index, simset="grid"
+            args.dir_out, tag=conf["survey"]["name"] + args.file_suffix, index=index, simset="grid"
         )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
@@ -305,15 +323,14 @@ def main(indices, args):
                     ).SerializeToString()
 
                     # check correctness
-                    i_noise = 0
-                    inv_data_vectors, inv_index = tfrecords.parse_inverse_grid(serialized, i_noise)
+                    inv_data_vectors = tfrecords.parse_inverse_grid(serialized, n_noise_per_example)
 
-                    assert np.allclose(inv_data_vectors["kg"], kg + sn_realz[i_noise])
-                    assert np.allclose(inv_data_vectors["dg"], dg + pn_realz[i_noise])
+                    for i_noise in range(n_noise_per_example):
+                        assert np.allclose(inv_data_vectors[f"kg_{i_noise}"], kg + sn_realz[i_noise])
+                        assert np.allclose(inv_data_vectors[f"dg_{i_noise}"], dg + pn_realz[i_noise])
                     assert np.allclose(inv_data_vectors["cosmo"], cosmo)
-                    assert np.allclose(inv_index[0], i_sobol)
-                    assert np.allclose(inv_index[1], i_noise)
-                    assert np.allclose(inv_index[2], i_example)
+                    assert np.allclose(inv_data_vectors["i_sobol"], i_sobol)
+                    assert np.allclose(inv_data_vectors["i_example"], i_example)
 
                     LOGGER.debug("decoded successfully")
 

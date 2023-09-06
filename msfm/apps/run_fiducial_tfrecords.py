@@ -40,6 +40,7 @@ LOGGER.info(f"Setting up healpy to run on {n_cpus} CPUs")
 
 import healpy as hp
 
+
 def resources(args):
     return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=8)
 
@@ -77,6 +78,9 @@ def setup(args):
         help="configuration yaml file",
     )
     parser.add_argument(
+        "--make_grf", action="store_true", help="Whether to degrade the maps to Gaussian random fields"
+    )
+    parser.add_argument(
         "--file_suffix",
         type=str,
         default="",
@@ -89,6 +93,9 @@ def setup(args):
 
     if not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
+
+    if args.make_grf:
+        LOGGER.warning(f"Degrading the maps to Gaussian Random Fields")
 
     args.config = os.path.abspath(args.config)
 
@@ -135,18 +142,31 @@ def main(indices, args):
     )
     tomo_bg_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg", conf)
 
-    def clustering_smoothing(dg):
-        dg = scales.data_vector_to_smoothed_data_vector(
-            dg,
-            l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-            l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-            n_side=conf["analysis"]["n_side"],
-            data_vec_pix=data_vec_pix,
-        )
+    def clustering_smoothing(dg, np_seed=None):
+        # Gaussian Random Field
+        if args.make_grf:
+            dg = scales.data_vector_to_grf_data_vector(
+                dg,
+                l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+                l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+                n_side=conf["analysis"]["n_side"],
+                data_vec_pix=data_vec_pix,
+                np_seed=np_seed,
+            )
+
+        # standard smoothing with a Gaussian kernel
+        else:
+            dg = scales.data_vector_to_smoothed_data_vector(
+                dg,
+                l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+                l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+                n_side=conf["analysis"]["n_side"],
+                data_vec_pix=data_vec_pix,
+            )
 
         return dg
 
-    def clustering_transform(dg, label, draw_noise=False):
+    def clustering_transform(dg, label, draw_noise=False, np_seed=None):
         galaxy_counts = clustering.galaxy_density_to_count(
             dg,
             tomo_n_gal_maglim,
@@ -162,12 +182,12 @@ def main(indices, args):
 
             smooth_poisson_noises = []
             for poisson_noise in poisson_noises:
-                smooth_poisson_noises.append(clustering_smoothing(poisson_noise))
+                smooth_poisson_noises.append(clustering_smoothing(poisson_noise, np_seed=np_seed))
 
             smooth_poisson_noises = np.stack(smooth_poisson_noises, axis=0)
 
         # noiseless
-        galaxy_counts = clustering_smoothing(galaxy_counts)
+        galaxy_counts = clustering_smoothing(galaxy_counts, np_seed=np_seed)
 
         if draw_noise:
             # shape (n_pix, n_z_maglim) and (n_noise_per_example, n_pix, n_z_maglim)
@@ -248,7 +268,6 @@ def main(indices, args):
                 bg_perts = []
                 # (2 * n_cosmos + 1,) iterations
                 for cosmo_dir_in in cosmo_dirs_in:
-                    # ic(cosmo_dir_in)
                     file_cosmo = filenames.get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
                     LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
 
@@ -265,17 +284,17 @@ def main(indices, args):
 
                         # galaxy clustering perturbations
                         for label in bg_pert_labels:
-                            bg_perts.append(clustering_transform(dg, label))
+                            bg_perts.append(clustering_transform(dg, label, np_seed=j))
 
                         # load the shape noise realization
                         (sn_realz,) = load_example(file_cosmo, i_example, ["sn"])
 
                         # convert to galaxy number and draw the poisson noise realization
-                        dg, pn_realz = clustering_transform(dg, "fiducial", draw_noise=True)
+                        dg, pn_realz = clustering_transform(dg, "fiducial", draw_noise=True, np_seed=j)
 
                     else:
                         # noiseless
-                        dg = clustering_transform(dg, "fiducial")
+                        dg = clustering_transform(dg, "fiducial", np_seed=j)
 
                     # down here on purpose
                     dg_perts.append(dg)
@@ -297,9 +316,8 @@ def main(indices, args):
                 ).SerializeToString()
 
                 # check correctness
-                i_noise = 0
-                inv_data_vectors, inv_index = tfrecords.parse_inverse_fiducial(
-                    serialized, cosmo_pert_labels + ia_pert_labels + bg_pert_labels, i_noise=i_noise
+                inv_data_vectors = tfrecords.parse_inverse_fiducial(
+                    serialized, cosmo_pert_labels + ia_pert_labels + bg_pert_labels, n_noise_per_example
                 )
                 inv_kg_perts = tf.stack(
                     [inv_data_vectors[f"kg_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0
@@ -313,16 +331,15 @@ def main(indices, args):
                 inv_bg_perts = tf.stack(
                     [inv_data_vectors[f"dg_{pert_label}"] for pert_label in bg_pert_labels], axis=0
                 )
-                inv_sn = inv_data_vectors["sn"]
-                inv_pn = inv_data_vectors["pn"]
 
                 assert np.allclose(inv_kg_perts, kg_perts)
                 assert np.allclose(inv_ia_perts, ia_perts)
                 assert np.allclose(inv_dg_perts, dg_perts)
                 assert np.allclose(inv_bg_perts, bg_perts)
-                assert np.allclose(inv_sn, sn_realz[i_noise])
-                assert np.allclose(inv_pn, pn_realz[i_noise])
-                assert np.allclose(inv_index[0], i_example)
+                for i_noise in range(n_noise_per_example):
+                    assert np.allclose(inv_data_vectors[f"sn_{i_noise}"], sn_realz[i_noise])
+                    assert np.allclose(inv_data_vectors[f"pn_{i_noise}"], pn_realz[i_noise])
+                assert np.allclose(inv_data_vectors["i_example"], i_example)
 
                 file_writer.write(serialized)
 
