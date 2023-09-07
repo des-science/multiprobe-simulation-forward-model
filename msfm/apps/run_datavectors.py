@@ -372,6 +372,12 @@ def main(indices, args):
                                             l_min,
                                             l_max,
                                             hp_datapath,
+                                            # GRF output
+                                            make_grf=args.make_lensing_grf,
+                                            # identical throughout all tomograhic bins of a single example
+                                            # NOTE is it ok that the same seed is used for the different noise
+                                            # realizations?
+                                            np_seed=i_perm + i_patch,
                                         )
 
                                         # cut out padded data vector
