@@ -160,6 +160,9 @@ def data_vector_to_smoothed_data_vector(data_vector, l_min, l_max, n_side, data_
     return data_vector
 
 
+# Gaussian Random Fields ##############################################################################################
+
+
 def data_vector_to_grf_data_vector(data_vector, l_min, l_max, n_side, data_vec_pix, np_seed=None):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been
     smoothed according to l_min and l_max and transformed to a Gaussian Random Field. This destroys all non-Gaussian
@@ -234,3 +237,34 @@ def data_vector_to_grf_data_vector(data_vector, l_min, l_max, n_side, data_vec_p
         raise ValueError(f"Unknown dtype for l_min or l_max")
 
     return data_vector
+
+
+def alm_to_grf_map(alm, l_min, l_max, n_side, np_seed):
+    """TODO this function has not been tested yet in conjunction with run_datavectors.py
+
+    Take in an alm vector and return a full sky Gaussian Random Field in ring ordering. This is for testing purposes
+    only and enables a comparison of the networks to power spectra. Note that it's important that the different
+    tomographic bins are all generated according to the same np.random.seed, otherwise the tomographic information
+    gets lost too.
+
+    Args:
+        alm (np.ndarray): Vector of complex alm coefficients. Only a single tomographic bin at a time is supported
+            by this function, unlike some of the above in this file.
+        l_min (Union[int, list]): Largest scale(s).
+        l_max (Union[int, list]): Smallest scale(s).
+        n_side (int): Healpix nside of the output map.
+        np_seed (int): A numpy random seed used in the (intrinsically random) generation alm -> map.
+
+    Returns:
+        np.array: Smoothed full sky healpy map for a single tomographic bin of shape (n_pix,).
+    """
+    cl = hp.alm2cl(alm)
+
+    # remove large scales
+    cl[np.arange(0, l_min)] = 0
+
+    # remove small scales and make a Gaussian Random Field
+    np.random.seed(np_seed)
+    grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=np.pi / l_max).astype(np.float32)
+
+    return grf

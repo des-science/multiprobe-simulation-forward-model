@@ -56,15 +56,18 @@ def get_m_bias_distribution(conf=None):
     return m_bias_dist
 
 
-def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, n_side, l_min, l_max, hp_datapath=None):
+def mode_removal(
+    gamma1_patch, gamma2_patch, gamma2kappa_fac, n_side, l_min, l_max, hp_datapath=None, make_grf=False, np_seed=None
+):
     """Takes in survey patches of gamma maps and puts out survey patches of kappa maps that only contain E-modes
 
     Args:
         gamma1_patch (np.ndarray): Array of size n_pix, but only the survey patch is populated
         gamma2_patch (np.ndarray): Same
         gamma2kappa_fac (np.ndarray): Kaiser squires conversion factors
-        l_mask_fac (np.ndarray): Mask l = 0,1
         n_side (int): Resolution of the map
+        l_min (int): Minimal ell, this removes the large scales
+        l_max (int): Maximal ell, this smoothes the small scales
         hp_datapath (str, optional): Path to a healpy pixel weights file. Defaults to None.
 
     Returns:
@@ -80,7 +83,10 @@ def mode_removal(gamma1_patch, gamma2_patch, gamma2kappa_fac, n_side, l_min, l_m
     kappa_alm = gamma_alm_E * gamma2kappa_fac
 
     # kappa: alm -> map
-    kappa_patch = scales.alm_to_smoothed_map(kappa_alm, l_min, l_max, n_side, nest=False)
+    if make_grf:
+        kappa_patch = scales.alm_to_grf_map(kappa_alm, l_min, l_max, n_side, np_seed)
+    else:
+        kappa_patch = scales.alm_to_smoothed_map(kappa_alm, l_min, l_max, n_side, nest=False)
 
     return kappa_patch
 

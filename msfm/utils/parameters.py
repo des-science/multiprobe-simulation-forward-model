@@ -8,7 +8,6 @@ Functions to read in the parameter values stored in the config
 """
 
 import numpy as np
-import healpy as hp
 
 from msfm.utils import files, redshift
 

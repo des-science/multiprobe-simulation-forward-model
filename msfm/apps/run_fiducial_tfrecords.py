@@ -42,7 +42,7 @@ import healpy as hp
 
 
 def resources(args):
-    return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=8)
+    return dict(main_memory=1024, main_time=1, main_scratch=0, main_n_cores=4)
 
 
 def setup(args):
@@ -78,7 +78,9 @@ def setup(args):
         help="configuration yaml file",
     )
     parser.add_argument(
-        "--make_grf", action="store_true", help="Whether to degrade the maps to Gaussian random fields"
+        "--make_clustering_grf",
+        action="store_true",
+        help="Whether to degrade the galaxy clustering maps to Gaussian Random Fields",
     )
     parser.add_argument(
         "--file_suffix",
@@ -94,8 +96,8 @@ def setup(args):
     if not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
 
-    if args.make_grf:
-        LOGGER.warning(f"Degrading the maps to Gaussian Random Fields")
+    if args.make_clustering_grf:
+        LOGGER.warning(f"Degrading the galaxy clustering maps to Gaussian Random Fields")
 
     args.config = os.path.abspath(args.config)
 
@@ -144,7 +146,7 @@ def main(indices, args):
 
     def clustering_smoothing(dg, np_seed=None):
         # Gaussian Random Field
-        if args.make_grf:
+        if args.make_clustering_grf:
             dg = scales.data_vector_to_grf_data_vector(
                 dg,
                 l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
@@ -289,7 +291,7 @@ def main(indices, args):
                         # load the shape noise realization
                         (sn_realz,) = load_example(file_cosmo, i_example, ["sn"])
 
-                        # convert to galaxy number and draw the poisson noise realization
+                        # convert dg to galaxy number and draw the poisson noise realization
                         dg, pn_realz = clustering_transform(dg, "fiducial", draw_noise=True, np_seed=j)
 
                     else:

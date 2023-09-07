@@ -79,13 +79,18 @@ def setup(args):
         default="configs/config.yaml",
         help="configuration yaml file",
     )
-    parser.add_argument("--debug", action="store_true", help="activate debug mode")
     parser.add_argument(
         "--max_sleep",
         type=int,
         default=120,
         help="set the maximal amount of time to sleep before copying to avoid clashes",
     )
+    parser.add_argument(
+        "--make_lensing_grf",
+        action="store_true",
+        help="Whether to degrade the weak lensing maps to Gaussian Random Fields",
+    )
+    parser.add_argument("--debug", action="store_true", help="activate debug mode")
     parser.add_argument("--store_counts", action="store_true", help="whether to store the metacal galaxy count maps")
 
     args, _ = parser.parse_known_args(args)
@@ -102,6 +107,9 @@ def setup(args):
 
     for key, value in vars(args).items():
         LOGGER.warning(f"{key} = {value}")
+
+    if args.make_clustering_grf:
+        LOGGER.warning(f"Degrading the weak lensing maps to Gaussian Random Fields")
 
     return args
 
@@ -300,6 +308,10 @@ def main(indices, args):
                                         l_min,
                                         l_max,
                                         hp_datapath,
+                                        # GRF output
+                                        make_grf=args.make_lensing_grf,
+                                        # identical throughout all tomograhic bins of a single example
+                                        np_seed=i_perm + i_patch,
                                     )
 
                                     # cut out padded data vector
@@ -360,6 +372,12 @@ def main(indices, args):
                                             l_min,
                                             l_max,
                                             hp_datapath,
+                                            # GRF output
+                                            make_grf=args.make_lensing_grf,
+                                            # identical throughout all tomograhic bins of a single example
+                                            # NOTE is it ok that the same seed is used for the different noise
+                                            # realizations?
+                                            np_seed=i_perm + i_patch,
                                         )
 
                                         # cut out padded data vector
