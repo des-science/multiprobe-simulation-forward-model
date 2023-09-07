@@ -291,7 +291,7 @@ def main(indices, args):
                         # load the shape noise realization
                         (sn_realz,) = load_example(file_cosmo, i_example, ["sn"])
 
-                        # convert to galaxy number and draw the poisson noise realization
+                        # convert dg to galaxy number and draw the poisson noise realization
                         dg, pn_realz = clustering_transform(dg, "fiducial", draw_noise=True, np_seed=j)
 
                     else:

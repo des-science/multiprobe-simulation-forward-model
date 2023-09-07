@@ -8,7 +8,6 @@ or three maps (polarized case), these functions are not vectorized accross the e
 
 import numpy as np
 import tensorflow as tf
-import logging
 
 from msfm.utils import files
 

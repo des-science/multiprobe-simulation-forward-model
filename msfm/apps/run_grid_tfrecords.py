@@ -344,9 +344,7 @@ def main(indices, args):
         yield index
 
 
-def load_data_vecs(
-    filename,
-):
+def load_data_vecs(filename):
     with h5py.File(filename, "r") as f:
         # shape (n_examples_per_cosmo, n_pix, n_z_bins) before the indexing
         kg = f["kg"][:]
