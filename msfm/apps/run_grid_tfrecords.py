@@ -176,25 +176,31 @@ def main(indices, args):
     tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
     tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
-    def clustering_smoothing(dg):
+    def clustering_smoothing(dg, np_seed=None):
         # Gaussian Random Field
         if args.make_clustering_grf:
-            smoothing_func = scales.data_vector_to_grf_data_vector
+            dg = scales.data_vector_to_grf_data_vector(
+                dg,
+                l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+                l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+                n_side=conf["analysis"]["n_side"],
+                data_vec_pix=data_vec_pix,
+                np_seed=np_seed,
+            )
+
         # standard smoothing with a Gaussian kernel
         else:
-            smoothing_func = scales.data_vector_to_smoothed_data_vector
-
-        dg = smoothing_func(
-            dg,
-            l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-            l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-            n_side=conf["analysis"]["n_side"],
-            data_vec_pix=data_vec_pix,
-        )
+            dg = scales.data_vector_to_smoothed_data_vector(
+                dg,
+                l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+                l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+                n_side=conf["analysis"]["n_side"],
+                data_vec_pix=data_vec_pix,
+            )
 
         return dg
 
-    def clustering_transform(dg, bg, n_bg):
+    def clustering_transform(dg, bg, n_bg, np_seed=None):
         # linear galaxy biasing
         tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
         LOGGER.debug(f"Per z bin bg = {tomo_bg}")
@@ -212,12 +218,12 @@ def main(indices, args):
 
         smooth_poisson_noises = []
         for poisson_noise in poisson_noises:
-            smooth_poisson_noises.append(clustering_smoothing(poisson_noise))
+            smooth_poisson_noises.append(clustering_smoothing(poisson_noise, np_seed=np_seed))
 
         smooth_poisson_noises = np.stack(smooth_poisson_noises, axis=0)
 
         # noiseless
-        galaxy_counts = clustering_smoothing(galaxy_counts)
+        galaxy_counts = clustering_smoothing(galaxy_counts, np_seed=np_seed)
 
         # shape (n_pix, n_z_maglim) and (n_noise_per_example, n_pix, n_z_maglim)
         return galaxy_counts, smooth_poisson_noises
@@ -295,7 +301,7 @@ def main(indices, args):
 
                 # redshift evolution, only calculate the integrals once here
                 current_lensing_transform = lambda kg, ia: lensing_transform(kg, ia, Aia, n_Aia)
-                current_clustering_transform = lambda dg: clustering_transform(dg, bg, n_bg)
+                current_clustering_transform = lambda dg, np_seed: clustering_transform(dg, bg, n_bg, np_seed)
 
                 # verify that the Sobol sequences are identical (the parameters are ordered differently)
                 assert np.allclose(sobol_params[0], cosmo[0], rtol=1e-3, atol=1e-5)  # Om
@@ -318,7 +324,7 @@ def main(indices, args):
                     total=n_examples_per_cosmo,
                 ):
                     kg = current_lensing_transform(kg, ia)
-                    dg, pn_realz = current_clustering_transform(dg)
+                    dg, pn_realz = current_clustering_transform(dg, i_sobol + i_example)
 
                     serialized = tfrecords.parse_forward_grid(
                         kg, sn_realz, dg, pn_realz, cosmo, i_sobol, i_example

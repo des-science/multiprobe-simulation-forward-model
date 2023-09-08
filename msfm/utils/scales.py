@@ -129,7 +129,7 @@ def data_vector_to_smoothed_data_vector(data_vector, l_min, l_max, n_side, data_
         l_min (Union[int, list]): Largest scale(s).
         l_max (Union[int, list]): Smallest scale(s).
         n_side (int): Healpix nside of the output map.
-        nest (bool, optional): Whether the (full sky) input map is in NEST ordering.
+        data_vec_pix (np.array): Indices of the (padded) data vector in NEST ordering.
 
     Returns:
         np.array: Smoothed data vector(s) of shape (len(data_vec_pix),) or (len(data_vec_pix), n_z_bins).
@@ -163,7 +163,7 @@ def data_vector_to_smoothed_data_vector(data_vector, l_min, l_max, n_side, data_
 # Gaussian Random Fields ##############################################################################################
 
 
-def data_vector_to_grf_data_vector(data_vector, l_min, l_max, n_side, data_vec_pix, np_seed=None):
+def data_vector_to_grf_data_vector(data_vector, l_min, l_max, n_side, data_vec_pix, np_seed):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been
     smoothed according to l_min and l_max and transformed to a Gaussian Random Field. This destroys all non-Gaussian
     information and is meant for testing purposes only, to be compared with Cls. The input can either be a single map,
@@ -175,7 +175,10 @@ def data_vector_to_grf_data_vector(data_vector, l_min, l_max, n_side, data_vec_p
         l_min (Union[int, list]): Largest scale(s).
         l_max (Union[int, list]): Smallest scale(s).
         n_side (int): Healpix nside of the output map.
-        nest (bool, optional): Whether the (full sky) input map is in NEST ordering.
+        data_vec_pix (np.array): Indices of the (padded) data vector in NEST ordering.
+        np_seed (int): A numpy random seed used in the (intrinsically random) generation alm -> map. It's important
+            that this is the same for all tomographic bins and maps that are added later on the GRF level (like signal
+            and noise maps, both for weak lensing and galaxy clustering).
 
     Returns:
         np.array: Smoothed data vector(s) of shape (len(data_vec_pix),) or (len(data_vec_pix), n_z_bins).
@@ -187,10 +190,6 @@ def data_vector_to_grf_data_vector(data_vector, l_min, l_max, n_side, data_vec_p
     if isinstance(l_min, list) and isinstance(l_max, list):
         assert data_vector.ndim == 2
         assert len(l_min) == len(l_max) == data_vector.shape[1]
-
-        # same seed for all tomographic bins
-        if np_seed is None:
-            np_seed = int(abs(data_vector[10000, 0] * 100 + 100))
 
         for i_tomo, (current_l_min, current_l_max) in enumerate(zip(l_min, l_max)):
             full_map = np.zeros((n_pix), dtype=np.float32)
@@ -213,8 +212,6 @@ def data_vector_to_grf_data_vector(data_vector, l_min, l_max, n_side, data_vec_p
     # single map
     elif isinstance(l_min, int) and isinstance(l_max, int):
         assert data_vector.ndim == 1
-        if np_seed is None:
-            np_seed = int(abs(data_vector[10000] * 100 + 100))
 
         full_map = np.zeros(n_pix, dtype=np.float32)
         full_map[data_vec_pix] = data_vector
