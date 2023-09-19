@@ -118,19 +118,7 @@ def main(indices, args):
 
     # power spectra
     n_bins = conf["analysis"]["power_spectra"]["n_bins"]
-
-    lensing_l_mins = conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
-    lensing_l_maxs = conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
-
-    clustering_l_mins = conf["analysis"]["scale_cuts"]["clustering"]["l_min"]
-    clustering_l_maxs = conf["analysis"]["scale_cuts"]["clustering"]["l_max"]
-
-    l_mins = np.asarray(lensing_l_mins + clustering_l_mins)
-    l_maxs = np.asarray(lensing_l_maxs + clustering_l_maxs)
-    assert len(l_mins) == len(l_maxs)
-
-    # include smaller scales in the cls because of the Gaussian smoothing. TODO justify the factor of 1.5 numerically
-    l_maxs = np.clip(l_maxs * 1.5, 0, 3 * n_side - 1).astype(int)
+    l_mins, l_maxs, _ = _get_l_ranges(conf)
 
     LOGGER.info(f"l_mins = {l_mins}")
     LOGGER.info(f"l_maxs = {l_maxs}")
@@ -252,6 +240,10 @@ def merge(indices, args):
     h5_files = sorted(glob.glob(h5_pattern))
     n_files = len(h5_files)
 
+    # load the bin configuration
+    conf = files.load_config(args.config)
+    _, _, cl_bins = _get_l_ranges(conf)
+
     # determine the per cosmology shapes
     with h5py.File(h5_files[0], "r") as f:
         cls_shape = f["cls"].shape
@@ -264,6 +256,8 @@ def merge(indices, args):
 
     # open the combined file
     with h5py.File(os.path.join(args.dir_out, f"{args.simset}_cls.h5"), "w") as f_combined:
+        f_combined.create_dataset(name="cl_bins", data=cl_bins)
+
         if args.simset == "grid":
             # define the combined output shapes
             f_combined.create_dataset(name="cls", shape=(n_files,) + cls_shape)
@@ -312,3 +306,25 @@ def merge(indices, args):
             raise ValueError(f"Unknown simset {args.simset}")
 
     LOGGER.info(f"Merged the per cosmology files into one and deleted them")
+
+def _get_l_ranges(conf):
+    """Helper function to get the l ranges for the power spectra from the configuration file to both main and merge"""
+
+    lensing_l_mins = conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
+    lensing_l_maxs = conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
+
+    clustering_l_mins = conf["analysis"]["scale_cuts"]["clustering"]["l_min"]
+    clustering_l_maxs = conf["analysis"]["scale_cuts"]["clustering"]["l_max"]
+
+    l_mins = np.asarray(lensing_l_mins + clustering_l_mins, dtype=int)
+    l_maxs = np.asarray(lensing_l_maxs + clustering_l_maxs, dtype=int)
+    assert len(l_mins) == len(l_maxs)
+
+    # include smaller scales in the cls because of the Gaussian smoothing. TODO justify the factor of 1.5 numerically
+    n_side = conf["analysis"]["n_side"]
+    l_maxs = np.clip(l_maxs * 1.5, 0, 3 * n_side - 1).astype(int)
+
+    n_bins = conf["analysis"]["power_spectra"]["n_bins"]
+    cl_bins = power_spectra.get_cl_bins(l_mins, l_maxs, n_bins)
+
+    return l_mins, l_maxs, cl_bins
