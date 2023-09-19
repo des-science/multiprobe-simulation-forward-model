@@ -91,6 +91,8 @@ analysis:
   normalization:
     # approximate per tomo bin standard deviation of the kg + ia + sn maps at the fiducial cosmology
     lensing: [0.0086, 0.0137, 0.0174, 0.0229]
+  power_spectra:
+    n_bins: 33
   grid:
     # CosmoGrid
     n_cosmos: 2500
