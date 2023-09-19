@@ -6,11 +6,12 @@ Tools to handle the scale cuts, kaiser-squires transformation and multiplicative
 """
 
 import numpy as np
-import healpy as hp
 import tensorflow as tf
 import tensorflow_probability as tfp
 
-from msfm.utils import files, logger, scales
+from msfm.utils import files, logger, scales, imports
+
+hp = imports.import_healpy()
 
 LOGGER = logger.get_logger(__file__)
 

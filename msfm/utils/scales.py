@@ -8,23 +8,11 @@ Tools to handle the scale cuts/Gaussian smoothing.
 import numpy as np
 import os, logging
 
-from msfm.utils import files, logger
+from msfm.utils import files, logger, imports
+
+hp = imports.import_healpy()
 
 LOGGER = logger.get_logger(__file__)
-
-# set the environmental variable OMP_NUM_THREADS to the number of logical processors for healpy parallelixation
-try:
-    n_cpus = len(os.sched_getaffinity(0))
-except AttributeError:
-    LOGGER.debug(f"os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
-    n_cpus = os.cpu_count()
-os.environ["OMP_NUM_THREADS"] = str(n_cpus)
-LOGGER.info(f"Setting up healpy to run on {n_cpus} CPUs")
-
-import healpy as hp
-
-hp_LOGGER = logging.getLogger("healpy")
-hp_LOGGER.disabled = True
 
 
 def alm_to_smoothed_map(alm, l_min, l_max, n_side, nest=False):

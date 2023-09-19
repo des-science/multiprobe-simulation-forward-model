@@ -13,32 +13,17 @@ Meant for Euler (CPU nodes, local scratch)
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-import os, argparse, warnings, h5py, time, logging, yaml
+import os, argparse, warnings, h5py, time, yaml
 
-from msfm.utils import files, lensing, logger, input_output, maps, cosmogrid, clustering, scales
+from msfm.utils import files, lensing, logger, input_output, maps, cosmogrid, clustering, imports
 from msfm.utils.filenames import *
+
+hp = imports.import_healpy()
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
-
-# set the environmental variable OMP_NUM_THREADS to the number of logical processors for healpy parallelixation
-try:
-    n_cpus = len(os.sched_getaffinity(0))
-except AttributeError:
-    LOGGER.debug(f"os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
-    n_cpus = os.cpu_count()
-os.environ["OMP_NUM_THREADS"] = str(n_cpus)
-LOGGER.info(f"Setting up healpy to run on {n_cpus} CPUs")
-
-import healpy as hp
-
-hp_LOGGER = logging.getLogger("healpy")
-hp_LOGGER.disabled = True
-# hp_LOGGER.setLevel(logging.ERROR)
-# warnings.filterwarnings("once", module="healpy")
-# hp.disable_warnings()
 
 
 def resources(args):
@@ -95,18 +80,15 @@ def setup(args):
 
     args, _ = parser.parse_known_args(args)
 
+    # print arguments
     logger.set_all_loggers_level(args.verbosity)
+    for key, value in vars(args).items():
+        LOGGER.info(f"{key} = {value}")
 
     args.config = os.path.abspath(args.config)
 
     if not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
-
-    LOGGER.warning(args)
-    LOGGER.warning(vars(args))
-
-    for key, value in vars(args).items():
-        LOGGER.warning(f"{key} = {value}")
 
     if args.make_clustering_grf:
         LOGGER.warning(f"Degrading the weak lensing maps to Gaussian Random Fields")

@@ -34,27 +34,19 @@ from msfm.utils import (
     redshift,
     clustering,
     scales,
+    imports,
 )
+
+hp = imports.import_healpy()
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
-# set the environmental variable OMP_NUM_THREADS to the number of logical processors for healpy parallelixation
-try:
-    n_cpus = len(os.sched_getaffinity(0))
-except AttributeError:
-    LOGGER.debug(f"os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
-    n_cpus = os.cpu_count()
-os.environ["OMP_NUM_THREADS"] = str(n_cpus)
-LOGGER.info(f"Setting up healpy to run on {n_cpus} CPUs")
-
-import healpy as hp
-
 
 def resources(args):
-    return dict(main_memory=1024, main_time=1, main_scratch=0, main_n_cores=4)
+    return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=4)
 
 
 def setup(args):
@@ -105,12 +97,15 @@ def setup(args):
 
     args, _ = parser.parse_known_args(args)
 
+    # print arguments
+    logger.set_all_loggers_level(args.verbosity)
+    for key, value in vars(args).items():
+        LOGGER.info(f"{key} = {value}")
+
     if not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
 
     args.config = os.path.abspath(args.config)
-
-    logger.set_all_loggers_level(args.verbosity)
 
     if args.include_maglim_systematics:
         LOGGER.debug(f"Including the Maglim systematics maps")

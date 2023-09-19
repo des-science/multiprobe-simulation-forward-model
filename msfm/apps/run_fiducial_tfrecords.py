@@ -22,27 +22,29 @@ import os, argparse, warnings, h5py
 
 from numpy.random import default_rng
 
-from msfm.utils import files, logger, input_output, cosmogrid, tfrecords, filenames, parameters, clustering, scales
+from msfm.utils import (
+    files,
+    logger,
+    input_output,
+    cosmogrid,
+    tfrecords,
+    filenames,
+    parameters,
+    clustering,
+    scales,
+    imports,
+)
+
+hp = imports.import_healpy()
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
-# set the environmental variable OMP_NUM_THREADS to the number of logical processors for healpy parallelixation
-try:
-    n_cpus = len(os.sched_getaffinity(0))
-except AttributeError:
-    LOGGER.debug(f"os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
-    n_cpus = os.cpu_count()
-os.environ["OMP_NUM_THREADS"] = str(n_cpus)
-LOGGER.info(f"Setting up healpy to run on {n_cpus} CPUs")
-
-import healpy as hp
-
 
 def resources(args):
-    return dict(main_memory=1024, main_time=1, main_scratch=0, main_n_cores=4)
+    return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=4)
 
 
 def setup(args):
@@ -91,6 +93,11 @@ def setup(args):
     parser.add_argument("--np_seed", type=int, default=7, help="random seed to shuffle the patches")
     parser.add_argument("--debug", action="store_true", help="activate debug mode")
 
+    # print arguments
+    logger.set_all_loggers_level(args.verbosity)
+    for key, value in vars(args).items():
+        LOGGER.info(f"{key} = {value}")
+
     args, _ = parser.parse_known_args(args)
 
     if not os.path.isdir(args.dir_out):
@@ -100,8 +107,6 @@ def setup(args):
         LOGGER.warning(f"Degrading the galaxy clustering maps to Gaussian Random Fields")
 
     args.config = os.path.abspath(args.config)
-
-    logger.set_all_loggers_level(args.verbosity)
 
     return args
 

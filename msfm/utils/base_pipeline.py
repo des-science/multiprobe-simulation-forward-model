@@ -10,7 +10,6 @@ Parent class of the fiducial and grid pipelines
 import tensorflow as tf
 import numpy as np
 import healpy as hp
-import warnings
 
 from msfm.utils import files, lensing
 
