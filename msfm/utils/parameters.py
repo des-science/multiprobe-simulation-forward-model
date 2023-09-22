@@ -143,10 +143,10 @@ def get_tomo_amplitude_perturbations_dict(param, conf=None):
     z0 = conf["analysis"]["modelling"]["z0"]
     if param == "Aia":
         tomo_z, tomo_nz = files.load_redshift_distributions("metacal", conf)
-    elif param == "bg":
+    elif param == "bg" or param == "bg2":
         tomo_z, tomo_nz = files.load_redshift_distributions("maglim", conf)
     else:
-        raise ValueError(f"param {param} needs to be either 'bg' or 'Aia'")
+        raise ValueError(f"param {param} needs to be either 'Aia', 'bg' or 'bg2'")
 
     # fiducial values
     amplitude = conf["analysis"]["fiducial"][param]

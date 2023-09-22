@@ -59,7 +59,6 @@ def setup(args):
         choices=("critical", "error", "warning", "info", "debug"),
         help="logging level",
     )
-    parser.add_argument("--with_bary", action="store_true", help="include baryons")
     parser.add_argument("--n_files", type=int, default=100, help="number of .tfrecord files to produce")
     parser.add_argument(
         "--dir_in",
@@ -80,11 +79,6 @@ def setup(args):
         help="configuration yaml file",
     )
     parser.add_argument(
-        "--make_clustering_grf",
-        action="store_true",
-        help="Whether to degrade the galaxy clustering maps to Gaussian Random Fields",
-    )
-    parser.add_argument(
         "--file_suffix",
         type=str,
         default="",
@@ -93,18 +87,15 @@ def setup(args):
     parser.add_argument("--np_seed", type=int, default=7, help="random seed to shuffle the patches")
     parser.add_argument("--debug", action="store_true", help="activate debug mode")
 
+    args, _ = parser.parse_known_args(args)
+
     # print arguments
     logger.set_all_loggers_level(args.verbosity)
     for key, value in vars(args).items():
         LOGGER.info(f"{key} = {value}")
 
-    args, _ = parser.parse_known_args(args)
-
     if not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
-
-    if args.make_clustering_grf:
-        LOGGER.warning(f"Degrading the galaxy clustering maps to Gaussian Random Fields")
 
     args.config = os.path.abspath(args.config)
 
@@ -126,6 +117,19 @@ def main(indices, args):
     meta_info_file = os.path.join(repo_dir, conf["files"]["meta_info"])
     cosmo_params_info = cosmogrid.get_cosmo_params_info(meta_info_file, "fiducial")
 
+    # constants
+    n_side = conf["analysis"]["n_side"]
+
+    quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
+    if quadratic_biasing:
+        LOGGER.warning(f"Using quadratic galaxy biasing")
+    else:
+        LOGGER.warning(f"Using linear galaxy biasing")
+
+    degrade_to_grf = conf["analysis"]["modelling"]["degrade_to_grf"]
+    if degrade_to_grf:
+        LOGGER.warning(f"Degrading the galaxy clustering maps to Gaussian Random Fields")
+
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["fiducial"]["n_perms_per_cosmo"]
@@ -143,20 +147,20 @@ def main(indices, args):
 
         return kg
 
-    # clustering (linear galaxy bias)
-    tomo_n_gal_maglim = tf.constant(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(
-        conf["analysis"]["n_side"], degrees=True
-    )
+    # clustering (linear + optionally quadratic galaxy bias)
+    tomo_n_gal_maglim = tf.constant(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
     tomo_bg_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg", conf)
+    if quadratic_biasing:
+        tomo_bg2_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg2", conf)
 
     def clustering_smoothing(dg, np_seed=None):
         # Gaussian Random Field
-        if args.make_clustering_grf:
+        if degrade_to_grf:
             dg = scales.data_vector_to_grf_data_vector(
                 dg,
                 l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
                 l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-                n_side=conf["analysis"]["n_side"],
+                n_side=n_side,
                 data_vec_pix=data_vec_pix,
                 np_seed=np_seed,
             )
@@ -167,25 +171,46 @@ def main(indices, args):
                 dg,
                 l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
                 l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-                n_side=conf["analysis"]["n_side"],
+                n_side=n_side,
                 data_vec_pix=data_vec_pix,
             )
 
         return dg
 
-    def clustering_transform(dg, label, draw_noise=False, np_seed=None):
+    def clustering_counts(dg, bg_tomo, bg2_tomo=None):
+        """To focus on the function arguments that are actually varying within clustering_transform"""
+
         galaxy_counts = clustering.galaxy_density_to_count(
             dg,
             tomo_n_gal_maglim,
-            tomo_bg_perts_dict[label],
+            bg_tomo,
+            bg2_tomo,
             conf=conf,
-            include_systematics=conf["analysis"]["systematics"]["maglim_survey_systematics_map"],
+            include_systematics=conf["analysis"]["modelling"]["maglim_survey_systematics_map"],
             sys_pixel_type="data_vector",
         )
 
+        return galaxy_counts
+
+    def clustering_transform(dg, label, draw_noise=False, np_seed=None):
+        # quadratic bias
+        if quadratic_biasing:
+            if label == "fiducial":
+                galaxy_counts = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], tomo_bg2_perts_dict["fiducial"])
+            elif "bg_" in label:
+                galaxy_counts = clustering_counts(dg, tomo_bg_perts_dict[label], tomo_bg2_perts_dict["fiducial"])
+            elif "bg2_" in label:
+                galaxy_counts = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], tomo_bg2_perts_dict[label])
+            else:
+                raise ValueError(f"Inconsistent label {label}")
+
+        # linear bias
+        else:
+            galaxy_counts = clustering_counts(dg, tomo_bg_perts_dict[label])
+
         # only draw the noise for the fiducial, not the perturbations
         if draw_noise:
-            poisson_noises = clustering.galaxy_count_to_noise(galaxy_counts, n_noise_per_example)
+            poisson_noises = clustering.galaxy_count_to_noise(galaxy_counts, n_noise_per_example, np_seed=np_seed + 1)
 
             smooth_poisson_noises = []
             for poisson_noise in poisson_noises:
@@ -206,8 +231,7 @@ def main(indices, args):
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
 
     # remove baryon perturbations for the fiducial set
-    if not args.with_bary:
-        cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs if not "bary" in cosmo_dir]
+    cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs if not "bary" in cosmo_dir]
 
     cosmo_dirs_in = [os.path.join(args.dir_in, cosmo_dir) for cosmo_dir in cosmo_dirs]
     LOGGER.debug(cosmo_dirs_in)
@@ -240,8 +264,11 @@ def main(indices, args):
     ia_pert_labels = parameters.get_fiducial_perturbation_labels(conf["analysis"]["params"]["ia"])[1:]
     LOGGER.info(f"There's {len(ia_pert_labels)} intrinsic alignment labels = {ia_pert_labels}")
 
-    bg_pert_labels = parameters.get_fiducial_perturbation_labels(conf["analysis"]["params"]["bg"])[1:]
-    LOGGER.info(f"There's {len(bg_pert_labels)} galaxy clustering labels = {bg_pert_labels}")
+    bg_params = conf["analysis"]["params"]["bg"]["linear"]
+    if quadratic_biasing:
+        bg_params += conf["analysis"]["params"]["bg"]["quadratic"]
+    bg_pert_labels = parameters.get_fiducial_perturbation_labels(bg_params)[1:]
+    LOGGER.info(f"There's {len(bg_pert_labels)} linear galaxy clustering labels = {bg_pert_labels}")
 
     # index corresponds to a .tfrecord file ###########################################################################
     for index in indices:
@@ -275,13 +302,10 @@ def main(indices, args):
                 bg_perts = []
                 # (2 * n_cosmos + 1,) iterations
                 for cosmo_dir_in in cosmo_dirs_in:
-                    file_cosmo = filenames.get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
+                    file_cosmo = filenames.get_filename_data_vectors(cosmo_dir_in, with_bary=False)
                     LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
 
-                    (kg, ia, dg) = load_example(file_cosmo, i_example, ["kg", "ia", "dg"])
-
-                    # add the fiducial intrinsic alignment
-                    kg_perts.append(lensing_transform(kg, ia, "fiducial"))
+                    (kg, ia, dg) = _load_example(file_cosmo, i_example, ["kg", "ia", "dg"])
 
                     # astrophysics perturbations are calculated with respect to the fiducial cosmo params
                     if "cosmo_fiducial" in cosmo_dir_in:
@@ -294,16 +318,20 @@ def main(indices, args):
                             bg_perts.append(clustering_transform(dg, label, np_seed=j))
 
                         # load the shape noise realization
-                        (sn_realz,) = load_example(file_cosmo, i_example, ["sn"])
+                        (sn_realz,) = _load_example(file_cosmo, i_example, ["sn"])
 
                         # convert dg to galaxy number and draw the poisson noise realization
                         dg, pn_realz = clustering_transform(dg, "fiducial", draw_noise=True, np_seed=j)
 
+                    # cosmological perturbations
                     else:
                         # noiseless
                         dg = clustering_transform(dg, "fiducial", np_seed=j)
 
-                    # down here on purpose
+                    # add the fiducial intrinsic alignment
+                    kg_perts.append(lensing_transform(kg, ia, "fiducial"))
+
+                    # add the noiseless clustering map
                     dg_perts.append(dg)
 
                 # serialize the lists of tensors of shape (n_pix, n_z_bins)
@@ -356,7 +384,7 @@ def main(indices, args):
         yield index
 
 
-def load_example(filename, i_example, map_labels):
+def _load_example(filename, i_example, map_labels):
     with h5py.File(filename, "r") as f:
         maps = []
         for map_label in map_labels:
