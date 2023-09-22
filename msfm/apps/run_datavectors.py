@@ -45,7 +45,6 @@ def setup(args):
     parser.add_argument(
         "--simset", type=str, default="grid", choices=("grid", "fiducial"), help="set of simulations to use"
     )
-    parser.add_argument("--with_bary", action="store_true", help="activate debug mode")
     parser.add_argument(
         "--dir_in",
         type=str,
@@ -70,11 +69,6 @@ def setup(args):
         default=120,
         help="set the maximal amount of time to sleep before copying to avoid clashes",
     )
-    parser.add_argument(
-        "--make_lensing_grf",
-        action="store_true",
-        help="Whether to degrade the weak lensing maps to Gaussian Random Fields",
-    )
     parser.add_argument("--debug", action="store_true", help="activate debug mode")
     parser.add_argument("--store_counts", action="store_true", help="whether to store the metacal galaxy count maps")
 
@@ -89,9 +83,6 @@ def setup(args):
 
     if not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
-
-    if args.make_clustering_grf:
-        LOGGER.warning(f"Degrading the weak lensing maps to Gaussian Random Fields")
 
     return args
 
@@ -124,14 +115,19 @@ def main(indices, args):
     # general constants
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
+
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"][args.simset]["n_perms_per_cosmo"]
     n_noise_per_example = conf["analysis"][args.simset]["n_noise_per_example"]
     LOGGER.info(f"Looping through {n_perms_per_cosmo} permutations per cosmological parameter set")
     LOGGER.info(f"Generating {n_noise_per_example} noise realizations per example")
 
+    degrade_to_grf = conf["analysis"]["modelling"]["degrade_to_grf"]
+    if degrade_to_grf:
+        LOGGER.warning(f"Degrading the weak lensing maps to Gaussian Random Fields")
+
     # metacal, TODO this is only a placeholder bias
-    tomo_bias_metacal = conf["survey"]["metacal"]["bias"]
+    tomo_bias_metacal = conf["survey"]["metacal"]["galaxy_bias"]
     tomo_n_gal_metacal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
     # alm
@@ -155,7 +151,7 @@ def main(indices, args):
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
 
     # remove baryon perturbations for the fiducial set
-    if args.simset == "fiducial" and not args.with_bary:
+    if args.simset == "fiducial":
         cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs if not "bary" in cosmo_dir]
 
     cosmo_dirs_in = [os.path.join(args.dir_in, cosmo_dir) for cosmo_dir in cosmo_dirs]
@@ -172,7 +168,7 @@ def main(indices, args):
         cosmo_dir_out = cosmo_dirs_out[index]
         if not os.path.isdir(cosmo_dir_out):
             input_output.robust_makedirs(cosmo_dir_out)
-        data_vec_file = get_filename_data_vectors(cosmo_dir_out, args.with_bary)
+        data_vec_file = get_filename_data_vectors(cosmo_dir_out, with_bary=False)
         LOGGER.info(f"Index {index} takes input from {cosmo_dir_in} and writes to {data_vec_file}")
 
         for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Loop over permutations\n", at_level="info"):
@@ -185,7 +181,7 @@ def main(indices, args):
 
             # TODO copy the file to local scratch first?
             perm_dir_in = os.path.join(cosmo_dir_in, f"perm_{i_perm:04d}")
-            full_maps_file = get_filename_full_maps(perm_dir_in, with_bary=args.with_bary)
+            full_maps_file = get_filename_full_maps(perm_dir_in, with_bary=False)
 
             # output containers, one for each permutation, in NEST ordering with padding
             data_vec_container = {}
@@ -291,7 +287,7 @@ def main(indices, args):
                                         l_max,
                                         hp_datapath,
                                         # GRF output
-                                        make_grf=args.make_lensing_grf,
+                                        make_grf=degrade_to_grf,
                                         # identical throughout all tomograhic bins of a single example
                                         np_seed=index + i_perm + i_patch,
                                     )
@@ -355,7 +351,7 @@ def main(indices, args):
                                             l_max,
                                             hp_datapath,
                                             # GRF output
-                                            make_grf=args.make_lensing_grf,
+                                            make_grf=degrade_to_grf,
                                             # identical throughout all tomograhic bins of a single example
                                             # NOTE the same seed is used for all different noise realizations
                                             np_seed=index + i_perm + i_patch,

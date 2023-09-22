@@ -61,7 +61,6 @@ def setup(args):
         choices=("critical", "error", "warning", "info", "debug"),
         help="logging level",
     )
-    parser.add_argument("--with_bary", action="store_true", help="include baryons")
     parser.add_argument("--n_files", type=int, default=100, help="number of .tfrecord files to produce")
     parser.add_argument(
         "--dir_in",
@@ -82,17 +81,11 @@ def setup(args):
         help="configuration yaml file",
     )
     parser.add_argument(
-        "--make_clustering_grf",
-        action="store_true",
-        help="Whether to degrade the galaxy clustering maps to Gaussian Random Fields",
-    )
-    parser.add_argument(
         "--file_suffix",
         type=str,
         default="",
         help="Optional suffix to be appended to the end of the filename, for example to distinguish different runs",
     )
-    parser.add_argument("--include_maglim_systematics", action="store_true", help="Whether to apply the")
     parser.add_argument("--debug", action="store_true", help="activate debug mode")
 
     args, _ = parser.parse_known_args(args)
@@ -106,12 +99,6 @@ def setup(args):
         input_output.robust_makedirs(args.dir_out)
 
     args.config = os.path.abspath(args.config)
-
-    if args.include_maglim_systematics:
-        LOGGER.debug(f"Including the Maglim systematics maps")
-
-    if args.make_clustering_grf:
-        LOGGER.warning(f"Degrading the galaxy clustering maps to Gaussian Random Fields")
 
     return args
 
@@ -137,10 +124,20 @@ def main(indices, args):
 
     # constants
     n_side = conf["analysis"]["n_side"]
-    sobol_priors = parameters.get_prior_intervals(
-        conf["analysis"]["params"]["sobol"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
-    )
-    z0 = conf["analysis"]["systematics"]["z0"]
+    # get all of the parameters, the only distinction in here is between the linear and quadratic bias
+    params = parameters.get_parameters(conf=conf)
+    sobol_priors = parameters.get_prior_intervals(params, conf=conf)
+    z0 = conf["analysis"]["modelling"]["z0"]
+
+    quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
+    if quadratic_biasing:
+        LOGGER.warning(f"Using quadratic galaxy biasing")
+    else:
+        LOGGER.warning(f"Using linear galaxy biasing")
+
+    degrade_to_grf = conf["analysis"]["modelling"]["degrade_to_grf"]
+    if degrade_to_grf:
+        LOGGER.warning(f"Degrading the galaxy clustering maps to Gaussian Random Fields")
 
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
@@ -173,12 +170,12 @@ def main(indices, args):
 
     def clustering_smoothing(dg, np_seed=None):
         # Gaussian Random Field
-        if args.make_clustering_grf:
+        if degrade_to_grf:
             dg = scales.data_vector_to_grf_data_vector(
                 dg,
                 l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
                 l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-                n_side=conf["analysis"]["n_side"],
+                n_side=n_side,
                 data_vec_pix=data_vec_pix,
                 np_seed=np_seed,
             )
@@ -189,27 +186,47 @@ def main(indices, args):
                 dg,
                 l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
                 l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-                n_side=conf["analysis"]["n_side"],
+                n_side=n_side,
                 data_vec_pix=data_vec_pix,
             )
 
         return dg
 
-    def clustering_transform(dg, bg, n_bg, np_seed=None):
-        # linear galaxy biasing
-        tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
-        LOGGER.debug(f"Per z bin bg = {tomo_bg}")
+    def clustering_transform(dg, bg, n_bg, bg2=None, n_bg2=None, np_seed=None):
+        assert (not quadratic_biasing and (bg2 is None) and (n_bg2 is None)) or (
+            quadratic_biasing and (bg2 is not None) and (n_bg2 is not None)
+        ), f"The galaxy biasing setup must be consistent"
 
-        galaxy_counts = clustering.galaxy_density_to_count(
-            dg,
-            tomo_n_gal_maglim,
-            tomo_bg,
-            conf=conf,
-            include_systematics=conf["analysis"]["systematics"]["maglim_survey_systematics_map"],
-        )
+        # the linear galaxy bias is needed in both cases
+        tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+        LOGGER.debug(f"Per z bin linear bg = {tomo_bg}")
+
+        # quadratic bias
+        if quadratic_biasing:
+            tomo_bg2 = redshift.get_tomo_amplitudes(bg2, n_bg2, tomo_z_maglim, tomo_nz_maglim, z0)
+            LOGGER.debug(f"Per z bin quadratic bg2 = {tomo_bg2}")
+
+            galaxy_counts = clustering.galaxy_density_to_count(
+                dg,
+                tomo_n_gal_maglim,
+                tomo_bg,
+                tomo_bg2,
+                conf=conf,
+                include_systematics=conf["analysis"]["modelling"]["maglim_survey_systematics_map"],
+            )
+
+        # linear bias
+        else:
+            galaxy_counts = clustering.galaxy_density_to_count(
+                dg,
+                tomo_n_gal_maglim,
+                tomo_bg,
+                conf=conf,
+                include_systematics=conf["analysis"]["modelling"]["maglim_survey_systematics_map"],
+            )
 
         # draw and smooth noise
-        poisson_noises = clustering.galaxy_count_to_noise(galaxy_counts, n_noise_per_example)
+        poisson_noises = clustering.galaxy_count_to_noise(galaxy_counts, n_noise_per_example, np_seed=np_seed + 1)
 
         smooth_poisson_noises = []
         for poisson_noise in poisson_noises:
@@ -294,22 +311,33 @@ def main(indices, args):
                 n_bg = sobol_params[9]
                 cosmo = np.concatenate((cosmo, np.array([Aia, n_Aia, bg, n_bg])))
 
+                # additional parameters for quadratic galaxy biasing
+                if quadratic_biasing:
+                    bg2 = sobol_params[10]
+                    n_bg2 = sobol_params[11]
+                    cosmo = np.concatenate((cosmo, np.array([bg2, n_bg2])))
+                else:
+                    bg2 = None
+                    n_bg2 = None
+
                 # redshift evolution, only calculate the integrals once here
                 current_lensing_transform = lambda kg, ia: lensing_transform(kg, ia, Aia, n_Aia)
-                current_clustering_transform = lambda dg, np_seed: clustering_transform(dg, bg, n_bg, np_seed)
+                current_clustering_transform = lambda dg, np_seed: clustering_transform(
+                    dg, bg, n_bg, bg2, n_bg2, np_seed
+                )
 
-                # verify that the Sobol sequences are identical (the parameters are ordered differently)
+                # verify that the Sobol sequences (stored and newly generated) are identical for the cosmo params
                 assert np.allclose(sobol_params[0], cosmo[0], rtol=1e-3, atol=1e-5)  # Om
                 assert np.allclose(sobol_params[1], cosmo[1], rtol=1e-3, atol=1e-5)  # s8
-                assert np.allclose(sobol_params[2], cosmo[3], rtol=1e-3, atol=1e-3)  # Ob
-                assert np.allclose(sobol_params[3], cosmo[2], rtol=1e-3, atol=1e-5)  # H0
+                assert np.allclose(sobol_params[2], cosmo[2], rtol=1e-3, atol=1e-3)  # Ob
+                assert np.allclose(sobol_params[3], cosmo[3], rtol=1e-3, atol=1e-5)  # H0
                 assert np.allclose(sobol_params[4], cosmo[4], rtol=1e-3, atol=1e-5)  # ns
                 assert np.allclose(sobol_params[5], cosmo[5], rtol=1e-3, atol=1e-5)  # w0
 
                 # load the .h5 files
-                file_cosmo = filenames.get_filename_data_vectors(cosmo_dir_in, with_bary=args.with_bary)
+                file_cosmo = filenames.get_filename_data_vectors(cosmo_dir_in, with_bary=False)
 
-                kg_examples, ia_examples, sn_examples, dg_examples = load_data_vecs(file_cosmo)
+                kg_examples, ia_examples, sn_examples, dg_examples = _load_data_vecs(file_cosmo)
 
                 # loop over the n_examples_per_cosmo
                 for i_example, (kg, ia, sn_realz, dg) in LOGGER.progressbar(
@@ -345,7 +373,7 @@ def main(indices, args):
         yield index
 
 
-def load_data_vecs(filename):
+def _load_data_vecs(filename):
     with h5py.File(filename, "r") as f:
         # shape (n_examples_per_cosmo, n_pix, n_z_bins) before the indexing
         kg = f["kg"][:]

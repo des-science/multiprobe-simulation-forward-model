@@ -50,8 +50,8 @@ def get_m_bias_distribution(conf=None):
     conf = files.load_config(conf)
 
     m_bias_dist = tfp.distributions.MultivariateNormalDiag(
-        loc=conf["analysis"]["systematics"]["shear_bias"]["multiplicative"]["mu"],
-        scale_diag=conf["analysis"]["systematics"]["shear_bias"]["multiplicative"]["sigma"],
+        loc=conf["survey"]["metacal"]["shear_bias"]["multiplicative"]["mu"],
+        scale_diag=conf["survey"]["metacal"]["shear_bias"]["multiplicative"]["sigma"],
     )
 
     return m_bias_dist
