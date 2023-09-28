@@ -150,8 +150,16 @@ def main(indices, args):
     # clustering (linear + optionally quadratic galaxy bias)
     tomo_n_gal_maglim = tf.constant(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
     tomo_bg_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg", conf)
+
     if quadratic_biasing:
         tomo_bg2_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg2", conf)
+
+    if conf["analysis"]["modelling"]["maglim_survey_systematics_map"]:
+        tomo_maglim_sys_dv = files.get_clustering_systematics(conf, pixel_type="data_vector")
+    else:
+        tomo_maglim_sys_dv = None
+
+    maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
 
     def clustering_smoothing(dg, np_seed=None):
         # Gaussian Random Field
@@ -186,8 +194,11 @@ def main(indices, args):
             bg_tomo,
             bg2_tomo,
             conf=conf,
-            include_systematics=conf["analysis"]["modelling"]["maglim_survey_systematics_map"],
-            sys_pixel_type="data_vector",
+            systematics_map=tomo_maglim_sys_dv,
+            stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
+            data_vec_pix=data_vec_pix,
+            mask=maglim_mask,
+            np_seed=None,
         )
 
         return galaxy_counts

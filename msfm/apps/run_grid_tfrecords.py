@@ -168,6 +168,13 @@ def main(indices, args):
     tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
     tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
+    if conf["analysis"]["modelling"]["maglim_survey_systematics_map"]:
+        tomo_maglim_sys_dv = files.get_clustering_systematics(conf, pixel_type="data_vector")
+    else:
+        tomo_maglim_sys_dv = None
+
+    maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
+
     def clustering_smoothing(dg, np_seed=None):
         # Gaussian Random Field
         if degrade_to_grf:
@@ -212,7 +219,11 @@ def main(indices, args):
                 tomo_bg,
                 tomo_bg2,
                 conf=conf,
-                include_systematics=conf["analysis"]["modelling"]["maglim_survey_systematics_map"],
+                stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
+                data_vec_pix=data_vec_pix,
+                systematics_map=tomo_maglim_sys_dv,
+                mask=maglim_mask,
+                np_seed=np_seed + 1,
             )
 
         # linear bias
@@ -222,11 +233,15 @@ def main(indices, args):
                 tomo_n_gal_maglim,
                 tomo_bg,
                 conf=conf,
-                include_systematics=conf["analysis"]["modelling"]["maglim_survey_systematics_map"],
+                stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
+                data_vec_pix=data_vec_pix,
+                systematics_map=tomo_maglim_sys_dv,
+                mask=maglim_mask,
+                np_seed=np_seed + 1,
             )
 
         # draw and smooth noise
-        poisson_noises = clustering.galaxy_count_to_noise(galaxy_counts, n_noise_per_example, np_seed=np_seed + 1)
+        poisson_noises = clustering.galaxy_count_to_noise(galaxy_counts, n_noise_per_example, np_seed=np_seed + 2)
 
         smooth_poisson_noises = []
         for poisson_noise in poisson_noises:
