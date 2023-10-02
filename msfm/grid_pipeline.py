@@ -12,7 +12,7 @@ by Janis Fluri
 import tensorflow as tf
 import warnings
 
-from msfm.utils import logger, tfrecords
+from msfm.utils import logger, tfrecords, parameters
 from msfm.utils.base_pipeline import MSFMpipeline
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -68,11 +68,8 @@ class GridPipeline(MSFMpipeline):
         )
 
         # used to return the correct labels
-        self.all_params = (
-            self.conf["analysis"]["params"]["cosmo"]
-            + self.conf["analysis"]["params"]["ia"]
-            + self.conf["analysis"]["params"]["bg"]
-        )
+        self.all_params = parameters.get_parameters(conf=conf)
+
         # used to reshape the stored tensors, and for nothing else
         self.n_all_params = len(self.all_params)
 

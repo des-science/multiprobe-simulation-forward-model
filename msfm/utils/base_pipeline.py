@@ -11,7 +11,7 @@ import tensorflow as tf
 import numpy as np
 import healpy as hp
 
-from msfm.utils import files, lensing
+from msfm.utils import files, lensing, parameters
 
 
 class MSFMpipeline:
@@ -57,16 +57,9 @@ class MSFMpipeline:
         """
         # general constants
         self.conf = files.load_config(conf)
+        self.params = parameters.get_parameters(params, self.conf)
 
-        if params is None:
-            self.params = (
-                self.conf["analysis"]["params"]["cosmo"]
-                + self.conf["analysis"]["params"]["ia"]
-                + self.conf["analysis"]["params"]["bg"]
-            )
-        else:
-            self.params = params
-
+        # function arguments
         self.apply_norm = apply_norm
         self.shape_noise_scale = shape_noise_scale
         self.poisson_noise_scale = poisson_noise_scale

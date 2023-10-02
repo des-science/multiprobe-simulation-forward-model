@@ -74,22 +74,29 @@ analysis:
     bg:
       linear: ["bg", "n_bg"]
       quadratic: ["bg2", "n_bg2"]
-  # see scale_cuts.ipynb, naive angle -> ell conversion in 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
+  # see scale_cuts.ipynb. All angles are in arcmin.
+  # The angle -> ell conversion is done in the "naive" way in 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
   scale_cuts:
     lensing:
       # from 6.1 in https://arxiv.org/pdf/2110.10135.pdf
       l_min: [30, 30, 30, 30]
-      # 4 Mpc/h transverse comoving scale
-      l_max: [723, 1054, 1408, 1535]
+      # 6 Mpc/h transverse comoving scale
+      l_max: [487, 715, 960, 1145]
+      theta_max: [22.1, 15.1, 11.2, 9.4]
     # first four redshift bins only
     clustering:
       # from 6.1 in https://arxiv.org/pdf/2110.10135.pdf
       l_min: [30, 30, 30, 30]
-      # 12 Mpc/h transverse comoving scale
-      l_max: [219, 319, 414, 493]
+      # 16 Mpc/h transverse comoving scale
+      l_max: [165, 242, 317, 378]
+      theta_max: [65.1, 44.5, 34.1, 28.5]
   modelling:
     # linear + quadratic galaxy biasing or just linear
     quadratic_biasing: False
+    # whether to include a stochasticity in the galaxy biasing. This scales the [-pi, pi] interval from which the
+    # random phases with which the alm coefficients are multiplied are drawn. Set to Null to discard.
+    galaxy_stochasticity: 0.4
+    # galaxy_stochasticity: 0.4
     # whether to include the survey systematics maps from https://arxiv.org/pdf/2105.13540.pdf
     maglim_survey_systematics_map: True
     # pivot redshift from https://arxiv.org/pdf/2105.13543.pdf, https://arxiv.org/pdf/2105.13549.pdf (Y3)
@@ -121,7 +128,7 @@ analysis:
       n_Aia: [-4.0, 6.0]
       bg: [0.8, 3.0]
       n_bg: [-3.0, 3.0]
-      bg2: [-3.0, 1.0]
+      bg2: [-1.0, 1.0]
       n_bg2: [-2.0, 2.0]
       Om_s8_border_points:
         [

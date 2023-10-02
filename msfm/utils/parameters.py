@@ -12,6 +12,34 @@ import numpy as np
 from msfm.utils import files, redshift
 
 
+def get_parameters(params=None, conf=None):
+    """Return the list of cosmological parameters. This is meant to handle the default case when params is set to None.
+    If params is not none, the value is simply passed through.
+
+    Args:
+        params (list, optional): List of strings like ["Om", "s8", "H0", "Ob", "ns", "w0", "Aia"]. Defaults to None,
+            then all parameters according to config.yaml are used.
+        conf (str, dict, optional): The config, either specified as a str pointing to a file or a dict. Defaults to
+            None, then the standard config of this repo is used.
+
+    Returns:
+        np.ndarray: shape (n_params,) in the ordering specified by the params list.
+    """
+    if params is None:
+        conf = files.load_config(conf)
+        
+        params = (
+            conf["analysis"]["params"]["cosmo"]
+            + conf["analysis"]["params"]["ia"]
+            + conf["analysis"]["params"]["bg"]["linear"]
+        )
+
+        if conf["analysis"]["modelling"]["quadratic_biasing"]:
+            params += conf["analysis"]["params"]["bg"]["quadratic"]
+
+    return params
+
+
 def get_prior_intervals(params=None, conf=None):
     """Return the array of priors over the cosmological parameters
     (just the intervals without the additional restrictions)
@@ -27,11 +55,7 @@ def get_prior_intervals(params=None, conf=None):
             in the ordering specified by the params list.
     """
     conf = files.load_config(conf)
-
-    if params is None:
-        params = (
-            conf["analysis"]["params"]["cosmo"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
-        )
+    params = get_parameters(params, conf)
 
     priors = np.array([conf["analysis"]["grid"]["priors"][param] for param in params])
 
@@ -51,11 +75,7 @@ def get_fiducials(params=None, conf=None):
         np.ndarray: shape (n_params,) in the ordering specified by the params list.
     """
     conf = files.load_config(conf)
-
-    if params is None:
-        params = (
-            conf["analysis"]["params"]["cosmo"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
-        )
+    params = get_parameters(params, conf)
 
     fids = np.array([conf["analysis"]["fiducial"][param] for param in params])
 
@@ -75,11 +95,7 @@ def get_fiducial_perturbations(params=None, conf=None):
         np.ndarray: shape (n_params,) in the ordering specified by the params list.
     """
     conf = files.load_config(conf)
-
-    if params is None:
-        params = (
-            conf["analysis"]["params"]["cosmo"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
-        )
+    params = get_parameters(params, conf)
 
     perts = np.array([conf["analysis"]["fiducial"]["perturbations"][param] for param in params])
 
@@ -96,11 +112,7 @@ def get_fiducial_perturbation_labels(params=None):
     Returns:
         pert_labels: list of strings denoting the fiducial perturbations. These are used in the .tfrecord files.
     """
-    if params is None:
-        conf = files.load_config()
-        params = (
-            conf["analysis"]["params"]["cosmo"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
-        )
+    params = get_parameters(params)
 
     pert_labels = ["fiducial"]
     for param in params:
@@ -125,17 +137,16 @@ def get_tomo_amplitude_perturbations_dict(param, conf=None):
     Returns:
         dict: Dictionary containing the per bin amplitude values for either Aia or bg and the perturbations.
     """
-    if conf is None:
-        conf = files.load_config()
-        
+    conf = files.load_config(conf)
+
     # redshift
-    z0 = conf["analysis"]["systematics"]["z0"]
+    z0 = conf["analysis"]["modelling"]["z0"]
     if param == "Aia":
         tomo_z, tomo_nz = files.load_redshift_distributions("metacal", conf)
-    elif param == "bg":
+    elif param == "bg" or param == "bg2":
         tomo_z, tomo_nz = files.load_redshift_distributions("maglim", conf)
     else:
-        raise ValueError(f"param {param} needs to be either 'bg' or 'Aia'")
+        raise ValueError(f"param {param} needs to be either 'Aia', 'bg' or 'bg2'")
 
     # fiducial values
     amplitude = conf["analysis"]["fiducial"][param]

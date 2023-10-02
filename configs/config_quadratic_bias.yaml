@@ -89,7 +89,7 @@ analysis:
       l_max: [219, 319, 414, 493]
   modelling:
     # linear + quadratic galaxy biasing or just linear
-    quadratic_biasing: False
+    quadratic_biasing: True
     # whether to include the survey systematics maps from https://arxiv.org/pdf/2105.13540.pdf
     maglim_survey_systematics_map: True
     # pivot redshift from https://arxiv.org/pdf/2105.13543.pdf, https://arxiv.org/pdf/2105.13549.pdf (Y3)

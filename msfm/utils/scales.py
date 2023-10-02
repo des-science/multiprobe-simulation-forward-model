@@ -15,20 +15,58 @@ hp = imports.import_healpy()
 LOGGER = logger.get_logger(__file__)
 
 
-def alm_to_smoothed_map(alm, l_min, l_max, n_side, nest=False):
+def rad_to_arcmin(theta):
+    return theta / np.pi * (180 * 60)
+
+
+def arcmin_to_rad(theta):
+    return theta * np.pi / (60 * 180)
+
+
+def ell_to_angle(ell, arcmin=False, method="naive"):
+    # method like 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
+    if method == "naive":
+        theta = np.pi / ell
+
+    elif method == "physical":
+        theta = 1 / ell
+
+    if arcmin:
+        theta = rad_to_arcmin(theta)
+
+    return theta
+
+
+def angle_to_ell(theta, arcmin=False, method="naive"):
+    # method like 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
+    if arcmin:
+        theta = arcmin_to_rad(theta)
+
+    if method == "naive":
+        ell = np.pi / theta
+
+    elif method == "physical":
+        ell = 1 / theta
+
+    return ell
+
+
+def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_max=None, nest=False):
     """Takes in alm coefficients and returns a map that has been smoothed according to l_min and l_max.
 
     Args:
         alm (np.array): Single spherical harmonics decomposition.
-        l_min (int): Largest scale.
-        l_max (int): Smallest scale.
         n_side (int): Healpix nside of the output map.
+        l_min (int): Largest scale.
+        l_max (int): Smallest scale, specified as an ell.
+        theta_max (float): Smallest scale, specified as an angle, which is used as the FWHM of a Gaussian.
         nest (bool, optional): Whether the (full sky) output map should be in NEST ordering.
 
     Returns:
         np.array: Healpy map of shape (n_pix,)
     """
-    LOGGER.debug(f"Smoothing according to l_min = {l_min}, l_max = {l_max}")
+    assert not (l_max is None and theta_max is None), "Either l_max or theta_max must be specified"
+    assert l_max is None or theta_max is None, "Only one of l_max or theta_max can be specified"
 
     # alm are computed for the standard l_max = 3 * n_side - 1
     l = hp.Alm.getlm(3 * n_side - 1)[0]
@@ -37,7 +75,10 @@ def alm_to_smoothed_map(alm, l_min, l_max, n_side, nest=False):
     alm[l < l_min] = 0.0
 
     # remove small scales (Gaussian smoothing)
-    full_map = hp.alm2map(alm, nside=n_side, fwhm=np.pi / l_max)
+    if l_max is not None:
+        theta_max = ell_to_angle(l_max)
+
+    full_map = hp.alm2map(alm, nside=n_side, fwhm=theta_max)
 
     if nest:
         full_map = hp.reorder(full_map, r2n=True)
@@ -45,7 +86,7 @@ def alm_to_smoothed_map(alm, l_min, l_max, n_side, nest=False):
     return full_map
 
 
-def map_to_smoothed_map(full_map, l_min, l_max, n_side, nest=False):
+def map_to_smoothed_map(full_map, n_side, l_min, l_max, nest=False):
     """Takes in a (multiple) full sky healpy map(s) and returns a (multiple) map(s) that has (have) been smoothed
     according to l_min and l_max. The input can either be a single map, or a stack of multiple tomographic bins along
     axis = 1 = -1.
@@ -83,7 +124,7 @@ def map_to_smoothed_map(full_map, l_min, l_max, n_side, nest=False):
                 datapath=hp_datapath,
             )
 
-            full_map[:, i_tomo] = alm_to_smoothed_map(alm, current_l_min, current_l_max, n_side, nest=nest)
+            full_map[:, i_tomo] = alm_to_smoothed_map(alm, n_side, current_l_min, current_l_max, nest=nest)
 
     # single map
     elif isinstance(l_min, int) and isinstance(l_max, int):
@@ -98,7 +139,7 @@ def map_to_smoothed_map(full_map, l_min, l_max, n_side, nest=False):
             datapath=hp_datapath,
         )
 
-        full_map = alm_to_smoothed_map(alm, l_min, l_max, n_side, nest=nest)
+        full_map = alm_to_smoothed_map(alm, n_side, l_min, l_max, nest=nest)
 
     else:
         raise ValueError(f"Unknown dtype for l_min or l_max")
@@ -143,7 +184,7 @@ def data_vector_to_smoothed_data_vector(data_vector, l_min, l_max, n_side, data_
     else:
         raise ValueError(f"Unknown dtype for l_min or l_max")
 
-    data_vector = map_to_smoothed_map(full_map, l_min, l_max, n_side, nest=True)[data_vec_pix]
+    data_vector = map_to_smoothed_map(full_map, n_side, l_min, l_max, nest=True)[data_vec_pix]
 
     return data_vector
 
@@ -151,7 +192,7 @@ def data_vector_to_smoothed_data_vector(data_vector, l_min, l_max, n_side, data_
 # Gaussian Random Fields ##############################################################################################
 
 
-def data_vector_to_grf_data_vector(data_vector, l_min, l_max, n_side, data_vec_pix, np_seed):
+def data_vector_to_grf_data_vector(data_vector, n_side, l_min, l_max, data_vec_pix, np_seed):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been
     smoothed according to l_min and l_max and transformed to a Gaussian Random Field. This destroys all non-Gaussian
     information and is meant for testing purposes only, to be compared with Cls. The input can either be a single map,
@@ -160,9 +201,9 @@ def data_vector_to_grf_data_vector(data_vector, l_min, l_max, n_side, data_vec_p
     Args:
         data_vector (np.array): Partial sky padded data vector(s) of shape (len(data_vec_pix),) or
             (len(data_vec_pix), n_z_bins).
+        n_side (int): Healpix nside of the output map.
         l_min (Union[int, list]): Largest scale(s).
         l_max (Union[int, list]): Smallest scale(s).
-        n_side (int): Healpix nside of the output map.
         data_vec_pix (np.array): Indices of the (padded) data vector in NEST ordering.
         np_seed (int): A numpy random seed used in the (intrinsically random) generation alm -> map. It's important
             that this is the same for all tomographic bins and maps that are added later on the GRF level (like signal
@@ -191,7 +232,7 @@ def data_vector_to_grf_data_vector(data_vector, l_min, l_max, n_side, data_vec_p
 
             # remove small scales and make a Gaussian Random Field
             np.random.seed(np_seed)
-            grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=np.pi / current_l_max).astype(np.float32)
+            grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=ell_to_angle(current_l_max)).astype(np.float32)
             grf = hp.reorder(grf, r2n=True)
 
             # padding is populated too
@@ -212,7 +253,7 @@ def data_vector_to_grf_data_vector(data_vector, l_min, l_max, n_side, data_vec_p
 
         # remove small scales and make a Gaussian Random Field
         np.random.seed(np_seed)
-        grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=np.pi / current_l_max).astype(np.float32)
+        grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=ell_to_angle(current_l_max)).astype(np.float32)
         grf = hp.reorder(grf, r2n=True)
 
         # padding is populated too
@@ -224,7 +265,7 @@ def data_vector_to_grf_data_vector(data_vector, l_min, l_max, n_side, data_vec_p
     return data_vector
 
 
-def alm_to_grf_map(alm, l_min, l_max, n_side, np_seed):
+def alm_to_grf_map(alm, n_side, l_min, l_max, np_seed):
     """TODO this function has not been tested yet in conjunction with run_datavectors.py
 
     Take in an alm vector and return a full sky Gaussian Random Field in ring ordering. This is for testing purposes
@@ -235,9 +276,9 @@ def alm_to_grf_map(alm, l_min, l_max, n_side, np_seed):
     Args:
         alm (np.ndarray): Vector of complex alm coefficients. Only a single tomographic bin at a time is supported
             by this function, unlike some of the above in this file.
+        n_side (int): Healpix nside of the output map.
         l_min (Union[int, list]): Largest scale(s).
         l_max (Union[int, list]): Smallest scale(s).
-        n_side (int): Healpix nside of the output map.
         np_seed (int): A numpy random seed used in the (intrinsically random) generation alm -> map.
 
     Returns:
@@ -250,6 +291,6 @@ def alm_to_grf_map(alm, l_min, l_max, n_side, np_seed):
 
     # remove small scales and make a Gaussian Random Field
     np.random.seed(np_seed)
-    grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=np.pi / l_max).astype(np.float32)
+    grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=ell_to_angle(l_max)).astype(np.float32)
 
     return grf
