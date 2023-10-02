@@ -208,21 +208,29 @@ class GridPipeline(MSFMpipeline):
         """
 
         # separate the noise realizations
-        kg = []
-        dg = []
-        i_noise = []
-        for i in range(n_noise):
-            kg.append(data_vectors.pop(f"kg_{i}"))
-            dg.append(data_vectors.pop(f"dg_{i}"))
-            i_noise.append(i)
+        if self.with_lensing:
+            kg = []
+            i_noise = []
+            for i in range(n_noise):
+                kg.append(data_vectors.pop(f"kg_{i}"))
+                i_noise.append(i)
+
+        if self.with_clustering:
+            dg = []
+            i_noise = []
+            for i in range(n_noise):
+                dg.append(data_vectors.pop(f"dg_{i}"))
+                i_noise.append(i)
 
         # repeat the signal as often as there are different noise realizations
         for key in data_vectors.keys():
             data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), n_noise, axis=0)
 
         # update the dictionary
-        data_vectors["kg"] = kg
-        data_vectors["dg"] = dg
+        if self.with_lensing:
+            data_vectors["kg"] = kg
+        if self.with_clustering:
+            data_vectors["dg"] = dg
         data_vectors["i_noise"] = i_noise
 
         # return a dataset containing n_examples elements
