@@ -269,21 +269,29 @@ class FiducialPipeline(MSFMpipeline):
         """
 
         # separate the noise realizations
-        sn = []
-        pn = []
-        i_noise = []
-        for i in range(n_noise):
-            sn.append(data_vectors.pop(f"sn_{i}"))
-            pn.append(data_vectors.pop(f"pn_{i}"))
-            i_noise.append(i)
+        if self.with_lensing:
+            sn = []
+            i_noise = []
+            for i in range(n_noise):
+                sn.append(data_vectors.pop(f"sn_{i}"))
+                i_noise.append(i)
+
+        if self.with_clustering:
+            pn = []
+            i_noise = []
+            for i in range(n_noise):
+                pn.append(data_vectors.pop(f"pn_{i}"))
+                i_noise.append(i)
 
         # repeat the signal as often as there are different noise realizations
         for key in data_vectors.keys():
             data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), n_noise, axis=0)
 
         # update the dictionary
-        data_vectors["sn"] = sn
-        data_vectors["pn"] = pn
+        if self.with_lensing:
+            data_vectors["sn"] = sn
+        if self.with_clustering:
+            data_vectors["pn"] = pn
         data_vectors["i_noise"] = i_noise
 
         # return a dataset containing n_noise elements
