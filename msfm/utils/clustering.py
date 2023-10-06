@@ -60,7 +60,7 @@ def galaxy_density_to_count(
         assert data_vec_pix is not None, f"data_vec_pix must be passed if stochasticity is not None"
 
         # healpy path
-        conf = files.load_config()
+        conf = files.load_config(conf)
         file_dir = os.path.dirname(__file__)
         repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
         hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
