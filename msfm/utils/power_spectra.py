@@ -127,10 +127,13 @@ def get_cl_bin_indices(
     lensing_indices = []
     clustering_indices = []
     combined_indices = []
+    names = []
     for i in range(n_z_lensing + n_z_clustering):
         for j in range(n_z_lensing + n_z_clustering):
             if i <= j:
-                # lensing only
+                names.append(f"bin_{i}x{j}")
+
+                # lensing only``
                 if i < n_z_lensing and j < n_z_lensing:
                     if with_cross_z:
                         lensing_indices.append(index)
@@ -159,4 +162,6 @@ def get_cl_bin_indices(
     if with_cross_probe:
         total_indices += combined_indices
 
-    return sorted(total_indices)
+    names = np.array(names)[total_indices]
+
+    return sorted(total_indices), names
