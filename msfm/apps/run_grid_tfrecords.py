@@ -140,6 +140,9 @@ def main(indices, args):
     if degrade_to_grf:
         LOGGER.warning(f"Degrading the galaxy clustering maps to Gaussian Random Fields")
 
+        if n_noise_per_example > 1:
+            LOGGER.warning(f"For the GRF, the different noise realizations und up being identical")
+
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]

@@ -300,21 +300,6 @@ def data_vector_to_grf_data_vector(
             grf = hp.synfast(cl, nside=n_side, pol=False).astype(np.float32)
             grf = hp.reorder(grf, r2n=True)
 
-            # cl = hp.anafast(full_map, alm=False, pol=False, use_pixel_weights=True, datapath=hp_datapath)
-
-            # # remove large scales
-            # cl[np.arange(0, current_l_min)] = 0
-
-            # # remove small scales and make a Gaussian Random Field
-            # np.random.seed(np_seed)
-            # if l_max is not None:
-            #     grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=ell_to_angle(l_max[i_tomo])).astype(np.float32)
-            # elif theta_max is not None:
-            #     grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=theta_max[i_tomo]).astype(np.float32)
-            # else:
-            #     raise ValueError(f"Either l_max or theta_max must be specified")
-            # grf = hp.reorder(grf, r2n=True)
-
             # padding is populated too
             data_vector[:, i_tomo] = grf[data_vec_pix]
 
@@ -352,21 +337,6 @@ def data_vector_to_grf_data_vector(
         grf = hp.synfast(cl, nside=n_side, pol=False).astype(np.float32)
         grf = hp.reorder(grf, r2n=True)
 
-        # cl = hp.anafast(full_map, alm=False, pol=False, use_pixel_weights=True, datapath=hp_datapath)
-
-        # # remove large scales
-        # cl[np.arange(0, current_l_min)] = 0
-
-        # # remove small scales and make a Gaussian Random Field
-        # np.random.seed(np_seed)
-        # if l_max is not None:
-        #     grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=ell_to_angle(l_max[i_tomo])).astype(np.float32)
-        # elif theta_max is not None:
-        #     grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=theta_max[i_tomo]).astype(np.float32)
-        # else:
-        #     raise ValueError(f"Either l_max or theta_max must be specified")
-        # grf = hp.reorder(grf, r2n=True)
-
         # padding is populated too
         data_vector = grf[data_vec_pix]
 
@@ -376,32 +346,32 @@ def data_vector_to_grf_data_vector(
     return data_vector, alm
 
 
-# def alm_to_grf_map(alm, n_side, l_min, l_max, np_seed):
-#     """TODO this function has not been tested yet in conjunction with run_datavectors.py
+def alm_to_grf_map(alm, n_side, l_min, l_max, np_seed):
+    """NOTE this function has not been tested yet in conjunction with run_datavectors.py and is deprecated.
 
-#     Take in an alm vector and return a full sky Gaussian Random Field in ring ordering. This is for testing purposes
-#     only and enables a comparison of the networks to power spectra. Note that it's important that the different
-#     tomographic bins are all generated according to the same np.random.seed, otherwise the tomographic information
-#     gets lost too.
+    Take in an alm vector and return a full sky Gaussian Random Field in ring ordering. This is for testing purposes
+    only and enables a comparison of the networks to power spectra. Note that it's important that the different
+    tomographic bins are all generated according to the same np.random.seed, otherwise the tomographic information
+    gets lost too.
 
-#     Args:
-#         alm (np.ndarray): Vector of complex alm coefficients. Only a single tomographic bin at a time is supported
-#             by this function, unlike some of the above in this file.
-#         n_side (int): Healpix nside of the output map.
-#         l_min (Union[int, list]): Largest scale(s).
-#         l_max (Union[int, list]): Smallest scale(s).
-#         np_seed (int): A numpy random seed used in the (intrinsically random) generation alm -> map.
+    Args:
+        alm (np.ndarray): Vector of complex alm coefficients. Only a single tomographic bin at a time is supported
+            by this function, unlike some of the above in this file.
+        n_side (int): Healpix nside of the output map.
+        l_min (Union[int, list]): Largest scale(s).
+        l_max (Union[int, list]): Smallest scale(s).
+        np_seed (int): A numpy random seed used in the (intrinsically random) generation alm -> map.
 
-#     Returns:
-#         np.array: Smoothed full sky healpy map for a single tomographic bin of shape (n_pix,).
-#     """
-#     cl = hp.alm2cl(alm)
+    Returns:
+        np.array: Smoothed full sky healpy map for a single tomographic bin of shape (n_pix,).
+    """
+    cl = hp.alm2cl(alm)
 
-#     # remove large scales
-#     cl[np.arange(0, l_min)] = 0
+    # remove large scales
+    cl[np.arange(0, l_min)] = 0
 
-#     # remove small scales and make a Gaussian Random Field
-#     np.random.seed(np_seed)
-#     grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=ell_to_angle(l_max)).astype(np.float32)
+    # remove small scales and make a Gaussian Random Field
+    np.random.seed(np_seed)
+    grf = hp.synfast(cl, nside=n_side, pol=False, fwhm=ell_to_angle(l_max)).astype(np.float32)
 
-#     return grf
+    return grf

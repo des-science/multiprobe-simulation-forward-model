@@ -62,12 +62,13 @@ def mode_removal(
     gamma2_patch,
     gamma2kappa_fac,
     n_side,
+    hp_datapath=None,
+    # deprecated
     apply_smoothing=False,
     l_min=None,
     l_max=None,
     make_grf=False,
     np_seed=None,
-    hp_datapath=None,
 ):
     """Takes in survey patches of gamma maps and puts out survey patches of kappa maps that only contain E-modes
 
@@ -99,12 +100,11 @@ def mode_removal(
 
     # kappa: alm -> map
     if apply_smoothing:
-        raise NotImplementedError("Smoothing not implemented yet")
-        # if make_grf:
-        #     # kappa_patch = scales.alm_to_grf_map(kappa_alm, l_min, l_max, n_side, np_seed)
-        #     raise NotImplementedError("GRF smoothing not implemented yet")
-        # else:
-        #     kappa_patch = scales.alm_to_smoothed_map(kappa_alm, l_min, l_max, n_side, nest=False)
+        LOGGER.warning(f"Double check what you're doing, smoothing within the mode removal has been deprecated")
+        if make_grf:
+            kappa_patch = scales.alm_to_grf_map(kappa_alm, l_min, l_max, n_side, np_seed)
+        else:
+            kappa_patch = scales.alm_to_smoothed_map(kappa_alm, n_side, l_min, l_max, nest=False)
     else:
         kappa_patch = hp.alm2map(kappa_alm, n_side, pol=False)
 

@@ -196,10 +196,6 @@ def main(indices, args):
                 z_bins = conf["survey"][sample]["z_bins"]
                 n_z_bins = len(z_bins)
 
-                # # TODO clean these up?
-                # tomo_l_min = conf["analysis"]["scale_cuts"][probe]["l_min"]
-                # tomo_l_max = conf["analysis"]["scale_cuts"][probe]["l_max"]
-
                 # map types
                 in_map_types = conf["survey"][sample]["map_types"]["input"]
                 out_map_types = conf["survey"][sample]["map_types"]["output"]
@@ -236,11 +232,6 @@ def main(indices, args):
                         with h5py.File(full_maps_file, "r") as f:
                             map_full = f[map_dir][:]
                         LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
-
-                        # # scale cuts
-                        # l_min = tomo_l_min[i_z]
-                        # l_max = tomo_l_max[i_z]
-                        # LOGGER.debug(f"Only keeping ell in [{l_min}, {l_max}] for bin {z_bin}")
 
                         # lensing, metacal sample #####################################################################
                         if sample == "metacal":
@@ -289,12 +280,6 @@ def main(indices, args):
                                         n_side,
                                         apply_smoothing=False,
                                         hp_datapath=hp_datapath,
-                                        # l_min,
-                                        # l_max,
-                                        # # GRF output
-                                        # make_grf=degrade_to_grf,
-                                        # # identical throughout all tomograhic bins of a single example
-                                        # np_seed=index + i_perm + i_patch,
                                     )
 
                                     # cut out padded data vector
@@ -354,13 +339,6 @@ def main(indices, args):
                                             n_side,
                                             apply_smoothing=False,
                                             hp_datapath=hp_datapath,
-                                            # l_min,
-                                            # l_max,
-                                            # # GRF output
-                                            # make_grf=degrade_to_grf,
-                                            # # identical throughout all tomograhic bins of a single example
-                                            # # NOTE the same seed is used for all different noise realizations
-                                            # np_seed=index + i_perm + i_patch,
                                         )
 
                                         # cut out padded data vector
