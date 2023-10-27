@@ -343,7 +343,7 @@ def main(indices, args):
             for i_cosmo, cosmo_dir_in in LOGGER.progressbar(
                 zip(range(js, je), cosmo_dirs_in[js:je]),
                 at_level="info",
-                desc="Looping through cosmological parameters",
+                desc="Looping through cosmologies",
                 total=je - js,
             ):
                 LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
@@ -382,7 +382,7 @@ def main(indices, args):
                     n_bg2 = None
 
                 # redshift evolution, only calculate the integrals once here
-                current_lensing_transform = lambda kg, ia, np_seed: lensing_transform(
+                current_lensing_transform = lambda kg, ia, sn_realz, np_seed: lensing_transform(
                     kg, ia, sn_realz, Aia, n_Aia, np_seed
                 )
                 current_clustering_transform = lambda dg, np_seed: clustering_transform(
@@ -405,9 +405,9 @@ def main(indices, args):
                 # loop over the n_examples_per_cosmo
                 for i_example, (kg, ia, sn_realz, dg) in LOGGER.progressbar(
                     enumerate(zip(kg_examples, ia_examples, sn_examples, dg_examples)),
-                    at_level="debug",
-                    desc="Looping through the examples of one cosmology",
-                    total=n_examples_per_cosmo,
+                    at_level="info",
+                    desc="Looping through the per cosmology examples",
+                    total=n_examples_per_cosmo // n_noise_per_example,
                 ):
                     # maps
                     kg, sn_realz, alm_kg, alm_sn_realz = current_lensing_transform(

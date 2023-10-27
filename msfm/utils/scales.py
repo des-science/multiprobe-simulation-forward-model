@@ -152,7 +152,7 @@ def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_max=None, arc
 
             alms.append(alm)
 
-        alm = np.stack(alms, axis=1, dtype=np.complex128)
+        alm = np.stack(alms, axis=1)
 
     # single map
     elif full_map.ndim == 1:
@@ -211,7 +211,9 @@ def data_vector_to_smoothed_data_vector(
     else:
         raise ValueError(f"Unknown data_vector.ndim: {data_vector.ndim}, must be 1 or 2")
 
-    data_vector, alm = map_to_smoothed_map(full_map, n_side, l_min, l_max, theta_max, arcmin, nest=True)[data_vec_pix]
+    full_map, alm = map_to_smoothed_map(full_map, n_side, l_min, l_max, theta_max, arcmin, nest=True)
+
+    data_vector = full_map[data_vec_pix]
 
     return data_vector, alm
 
@@ -318,7 +320,7 @@ def data_vector_to_grf_data_vector(
 
             alms.append(alm)
 
-        alm = np.stack(alms, axis=1, dtype=np.complex128)
+        alm = np.stack(alms, axis=1)
 
     # single map
     elif data_vector.ndim == 1:

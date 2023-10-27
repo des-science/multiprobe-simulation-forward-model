@@ -85,13 +85,13 @@ def get_cls(alms, l_mins, l_maxs, n_bins, with_cross=True):
 
                 bins = get_cl_bins(l_min, l_max, n_bins)
 
-                # square root of alms like Dominik
-                cl = hp.alm2cl(alms1=np.sqrt(alms[:, i]), alms2=np.sqrt(alms[:, j]))
+                # NOTE there's no sqrt here
+                cl = hp.alm2cl(alms1=alms[:, i], alms2=alms[:, j])
                 binned_cl = scipy.stats.binned_statistic(np.arange(len(cl)), cl, statistic="mean", bins=bins)[0]
 
                 cls.append(binned_cl)
 
-    cls = np.stack(cls, axis=1)
+    cls = np.stack(cls, axis=1).astype(np.float32)
 
     return cls
 

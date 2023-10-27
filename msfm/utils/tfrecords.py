@@ -189,6 +189,9 @@ def parse_inverse_grid_cls(
     features = {
         "cls": tf.io.FixedLenFeature([], tf.string),
         # tensor shapes
+        "n_noise": tf.io.FixedLenFeature([], tf.int64),
+        "n_cls": tf.io.FixedLenFeature([], tf.int64),
+        "n_z_cross": tf.io.FixedLenFeature([], tf.int64),
         "n_params": tf.io.FixedLenFeature([], tf.int64),
         # labels
         "cosmo": tf.io.FixedLenFeature([], tf.string),
