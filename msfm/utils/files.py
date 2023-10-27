@@ -146,18 +146,18 @@ def get_clustering_systematics(conf=None, pixel_type="data_vector", apply_smooth
         n_side = conf["analysis"]["n_side"]
         n_pix = conf["analysis"]["n_pix"]
         tomo_l_min = conf["analysis"]["scale_cuts"]["maglim"]["l_min"]
-        tomo_l_max = conf["analysis"]["scale_cuts"]["maglim"]["l_max"]
+        tomo_theta_max = conf["analysis"]["scale_cuts"]["maglim"]["theta_max"]
 
-        for sys, l_min, l_max in zip(tomo_sys, tomo_l_min, tomo_l_max):
+        for sys, l_min, theta_max in zip(tomo_sys, tomo_l_min, tomo_theta_max):
             if pixel_type == "map":
                 # populate the survey footprint
                 base_patch_pix = patches_pix_dict["maglim"][0]
                 sys_map = np.zeros(n_pix)
                 sys_map[base_patch_pix] = sys
-                sys = scales.map_to_smoothed_map(sys_map, l_min, l_max, n_side)
+                sys = scales.map_to_smoothed_map(sys_map, n_side, l_min, theta_max=theta_max)
 
             elif pixel_type == "data_vector":
-                sys = scales.data_vector_to_smoothed_data_vector(sys, l_min, l_max, n_side, data_vec_pix)
+                sys = scales.data_vector_to_smoothed_data_vector(sys, data_vec_pix, n_side, l_min, theta_max=theta_max)
 
             else:
                 raise ValueError(f"Unsupported pixel_type = {pixel_type}")

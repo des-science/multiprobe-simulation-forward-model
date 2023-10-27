@@ -37,7 +37,7 @@ def get_alms(maps, nest=True, datapath=None):
 
         alms.append(hp.map2alm(map, use_pixel_weights=True, datapath=datapath))
 
-    alms = np.stack(alms, axis=0)
+    alms = np.stack(alms, axis=1)
 
     return alms
 
@@ -57,7 +57,7 @@ def get_cls(alms, l_mins, l_maxs, n_bins, with_cross=True):
     """Calculates the auto- and cross-spectra from a list of alms
 
     Args:
-        alms (list): List of alms corresponding to the tomographic bins.
+        alms (np.ndarray): Array of shape (n_alms, n_z_bins) containing alms corresponding to the tomographic bins.
         l_mins (list): List of largest scales, same length as the number of tomographic bins.
         l_maxs (list): List of smallest scales, same length as the number of tomographic bins.
         n_bins (int): Number of bins to average the Cls in.
@@ -69,10 +69,10 @@ def get_cls(alms, l_mins, l_maxs, n_bins, with_cross=True):
             11, 12, 13, ..., 1n, 22, 23, ..., 2n, ..., nn, where n = len(alms)
     """
 
-    assert len(alms) == len(l_mins) == len(l_maxs)
+    assert alms.shape[1] == len(l_mins) == len(l_maxs)
 
     # get the number of alms
-    n_alms = len(alms)
+    n_alms = alms.shape[1]
 
     # get the cls
     cls = []
@@ -86,12 +86,12 @@ def get_cls(alms, l_mins, l_maxs, n_bins, with_cross=True):
                 bins = get_cl_bins(l_min, l_max, n_bins)
 
                 # square root of alms like Dominik
-                cl = hp.alm2cl(alms1=np.sqrt(alms[i]), alms2=np.sqrt(alms[j]))
+                cl = hp.alm2cl(alms1=np.sqrt(alms[:, i]), alms2=np.sqrt(alms[:, j]))
                 binned_cl = scipy.stats.binned_statistic(np.arange(len(cl)), cl, statistic="mean", bins=bins)[0]
 
                 cls.append(binned_cl)
 
-    cls = np.stack(cls, axis=-1)
+    cls = np.stack(cls, axis=1)
 
     return cls
 

@@ -24,7 +24,7 @@ warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
 
-def parse_forward_grid(kg, sn_realz, dg, pn_realz, cosmo, i_sobol, i_example):
+def parse_forward_grid(kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_example):
     """The grid cosmologies contain all of the maps and labels.
 
     Args:
@@ -55,6 +55,11 @@ def parse_forward_grid(kg, sn_realz, dg, pn_realz, cosmo, i_sobol, i_example):
         "cosmo": _bytes_feature(tf.io.serialize_tensor(cosmo)),
         "i_sobol": _int64_feature(i_sobol),
         "i_example": _int64_feature(i_example),
+        # power spectra
+        "cls": _bytes_feature(tf.io.serialize_tensor(cls)),
+        "n_noise": _int64_feature(cls.shape[0]),
+        "n_cls": _int64_feature(cls.shape[1]),
+        "n_z_cross": _int64_feature(cls.shape[2]),
     }
 
     # lensing (metacal), shape noise realizations
@@ -144,6 +149,75 @@ def parse_inverse_grid(
             output_data = _parse_and_reshape_data_vector(
                 output_data, serialized_data, f"dg_{i}", f"dg_{i}", n_pix, n_z_maglim, "n_z_maglim"
             )
+
+    # indices
+    output_data["i_sobol"] = serialized_data["i_sobol"]
+    output_data["i_example"] = serialized_data["i_example"]
+
+    return output_data
+
+
+def parse_inverse_grid_cls(
+    serialized_example,
+    # shapes
+    n_noise=None,
+    n_cls=None,
+    n_z_cross=None,
+    n_params=None,
+):
+    """
+    TODO UPATE
+    Use the same structure as in in the forward pass above. Note that n_pix, n_z_bins and n_params have to be passed
+    as function arguments to ensure that the function can be converted to a graph.
+
+    Args:
+        serialized_example (tf.train.Example.SerializeToString()): The stored data.
+        n_noise (int, optional): Number of noise realizations to return, where the noise index always runs from 0 to
+            n_noise - 1. Defaults to 1.
+        n_pix (int, optional): Fixes the size of the tensors. Defaults to None.
+        n_z_metacal (int, optional): Fixes the size of the tensors. Defaults to None.
+        n_z_maglim (int, optional): Fixes the size of the tensors. Defaults to None.
+        n_params (int, optional): Fixes the size of the tensors. Defaults to None.
+        with_lensing (bool, optional): Whether to return the weak lensing maps. Defaults to True.
+        with_clustering (bool, optional): Whether to return the galaxy clustering maps. Defaults to True.
+
+    Returns:
+        tf.tensors, int: Tensors containing the different fields, the cosmological parameters and indices i_sobol and
+            i_example.
+    """
+
+    features = {
+        "cls": tf.io.FixedLenFeature([], tf.string),
+        # tensor shapes
+        "n_params": tf.io.FixedLenFeature([], tf.int64),
+        # labels
+        "cosmo": tf.io.FixedLenFeature([], tf.string),
+        "i_sobol": tf.io.FixedLenFeature([], tf.int64),
+        "i_example": tf.io.FixedLenFeature([], tf.int64),
+    }
+
+    serialized_data = tf.io.parse_single_example(serialized_example, features)
+
+    # output container
+    output_data = {}
+
+    # power spectra
+    cls = tf.io.parse_tensor(serialized_data["cls"], out_type=tf.float32)
+    if n_noise is None and n_cls is None and n_z_cross is None:
+        cls = tf.reshape(
+            cls, shape=(serialized_data["n_noise"], serialized_data["n_cls"], serialized_data["n_z_cross"])
+        )
+    else:
+        cls = tf.ensure_shape(cls, shape=(n_noise, n_cls, n_z_cross))
+    output_data["cls"] = cls
+
+    # cosmology label
+    cosmo = tf.io.parse_tensor(serialized_data["cosmo"], out_type=tf.float32)
+    if n_params is None:
+        cosmo = tf.reshape(cosmo, shape=(serialized_data["n_params"],))
+    else:
+        cosmo = tf.ensure_shape(cosmo, shape=(n_params,))
+    output_data["cosmo"] = cosmo
 
     # indices
     output_data["i_sobol"] = serialized_data["i_sobol"]

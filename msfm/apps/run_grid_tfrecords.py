@@ -35,6 +35,7 @@ from msfm.utils import (
     clustering,
     scales,
     imports,
+    power_spectra,
 )
 
 hp = imports.import_healpy()
@@ -147,22 +148,74 @@ def main(indices, args):
 
     data_vec_pix, _, _, _ = files.load_pixel_file()
 
+    def data_vector_smoothing(dv, l_min, theta_max, np_seed):
+        # Gaussian Random Field
+        if degrade_to_grf:
+            dv, alm = scales.data_vector_to_grf_data_vector(
+                np_seed,
+                dv,
+                data_vec_pix=data_vec_pix,
+                n_side=n_side,
+                l_min=l_min,
+                theta_max=theta_max,
+                arcmin=True,
+            )
+
+        # standard smoothing with a Gaussian kernel
+        else:
+            dv, alm = scales.data_vector_to_smoothed_data_vector(
+                dv,
+                data_vec_pix=data_vec_pix,
+                n_side=n_side,
+                l_min=l_min,
+                theta_max=theta_max,
+                arcmin=True,
+            )
+
+        return dv, alm
+
     # lensing (intrinsic alignment)
     tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
     m_bias_dist = lensing.get_m_bias_distribution(conf)
+    metacal_mask = files.get_tomo_dv_masks(conf)["metacal"]
 
-    def lensing_transform(kg, ia, Aia, n_Aia):
+    def lensing_smoothing(kg, np_seed):
+        kg, alm = data_vector_smoothing(
+            kg,
+            conf["analysis"]["scale_cuts"]["lensing"]["l_min"],
+            conf["analysis"]["scale_cuts"]["lensing"]["theta_max"],
+            np_seed,
+        )
+
+        return kg, alm
+
+    def lensing_transform(kg, ia, sn_realz, Aia, n_Aia, np_seed=None):
         # intrinsic alignment
         tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
         LOGGER.debug(f"Per z bin Aia = {tomo_Aia}")
 
-        kg += tomo_Aia * ia
+        kappa = kg + tomo_Aia * ia
 
         # fixing this in the .tfrecords simplifies reproducibility
         m_bias = m_bias_dist.sample()
-        kg *= 1.0 + m_bias
+        kappa *= 1.0 + m_bias
 
-        return kg
+        kappa *= metacal_mask
+        kappa, alm_kappa = lensing_smoothing(kg, np_seed)
+
+        smooth_sn_realz, alm_sn_realz = [], []
+        for shape_noise in sn_realz:
+            shape_noise *= maglim_mask
+
+            smooth_sn, alm_sn = lensing_smoothing(shape_noise, np_seed)
+
+            smooth_sn_realz.append(smooth_sn)
+            alm_sn_realz.append(alm_sn)
+
+        smooth_sn_realz = np.stack(smooth_sn_realz, axis=0)
+        alm_sn_realz = np.stack(alm_sn_realz, axis=0)
+
+        return kappa, smooth_sn_realz, alm_kappa, alm_sn_realz
 
     # clustering (linear galaxy bias)
     tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
@@ -175,29 +228,15 @@ def main(indices, args):
 
     maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
 
-    def clustering_smoothing(dg, np_seed=None):
-        # Gaussian Random Field
-        if degrade_to_grf:
-            dg = scales.data_vector_to_grf_data_vector(
-                dg,
-                l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-                l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-                n_side=n_side,
-                data_vec_pix=data_vec_pix,
-                np_seed=np_seed,
-            )
+    def clustering_smoothing(dg, np_seed):
+        dg, alm = data_vector_smoothing(
+            dg,
+            conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+            conf["analysis"]["scale_cuts"]["clustering"]["theta_max"],
+            np_seed,
+        )
 
-        # standard smoothing with a Gaussian kernel
-        else:
-            dg = scales.data_vector_to_smoothed_data_vector(
-                dg,
-                l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-                l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-                n_side=n_side,
-                data_vec_pix=data_vec_pix,
-            )
-
-        return dg
+        return dg, alm
 
     def clustering_transform(dg, bg, n_bg, bg2=None, n_bg2=None, np_seed=None):
         assert (not quadratic_biasing and (bg2 is None) and (n_bg2 is None)) or (
@@ -240,20 +279,27 @@ def main(indices, args):
                 np_seed=np_seed + 1,
             )
 
-        # draw and smooth noise
-        poisson_noises = clustering.galaxy_count_to_noise(galaxy_counts, n_noise_per_example, np_seed=np_seed + 2)
+        # draw noise, mask, smooth
+        pn_realz = clustering.galaxy_count_to_noise(galaxy_counts, n_noise_per_example, np_seed=np_seed + 2)
 
-        smooth_poisson_noises = []
-        for poisson_noise in poisson_noises:
-            smooth_poisson_noises.append(clustering_smoothing(poisson_noise, np_seed=np_seed))
+        smooth_pn_realz, alm_pn_realz = [], []
+        for poisson_noise in pn_realz:
+            poisson_noise *= maglim_mask
 
-        smooth_poisson_noises = np.stack(smooth_poisson_noises, axis=0)
+            smooth_poisson_noise, alm_smooth_poisson_noise = clustering_smoothing(poisson_noise, np_seed)
+
+            smooth_pn_realz.append(smooth_poisson_noise)
+            alm_pn_realz.append(alm_smooth_poisson_noise)
+
+        smooth_pn_realz = np.stack(smooth_pn_realz, axis=0)
+        alm_pn_realz = np.stack(alm_pn_realz, axis=0)
 
         # noiseless
-        galaxy_counts = clustering_smoothing(galaxy_counts, np_seed=np_seed)
+        galaxy_counts, alm_galaxy_counts = clustering_smoothing(galaxy_counts, np_seed)
 
-        # shape (n_pix, n_z_maglim) and (n_noise_per_example, n_pix, n_z_maglim)
-        return galaxy_counts, smooth_poisson_noises
+        # shapes (n_pix, n_z_maglim), (n_noise_per_example, n_pix, n_z_maglim)
+        # (n_noise_per_example, )
+        return galaxy_counts, smooth_pn_realz, alm_galaxy_counts, alm_pn_realz
 
     # set up the paths
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
@@ -336,7 +382,9 @@ def main(indices, args):
                     n_bg2 = None
 
                 # redshift evolution, only calculate the integrals once here
-                current_lensing_transform = lambda kg, ia: lensing_transform(kg, ia, Aia, n_Aia)
+                current_lensing_transform = lambda kg, ia, np_seed: lensing_transform(
+                    kg, ia, sn_realz, Aia, n_Aia, np_seed
+                )
                 current_clustering_transform = lambda dg, np_seed: clustering_transform(
                     dg, bg, n_bg, bg2, n_bg2, np_seed
                 )
@@ -361,22 +409,35 @@ def main(indices, args):
                     desc="Looping through the examples of one cosmology",
                     total=n_examples_per_cosmo,
                 ):
-                    kg = current_lensing_transform(kg, ia)
-                    dg, pn_realz = current_clustering_transform(dg, i_sobol + i_example)
+                    # maps
+                    kg, sn_realz, alm_kg, alm_sn_realz = current_lensing_transform(
+                        kg, ia, sn_realz, np_seed=i_sobol + i_example
+                    )
+                    dg, pn_realz, alm_dg, alm_pn_realz = current_clustering_transform(dg, np_seed=i_sobol + i_example)
+
+                    # power spectra
+                    cls = _alm_to_cl(conf, alm_kg, alm_sn_realz, alm_dg, alm_pn_realz)
 
                     serialized = tfrecords.parse_forward_grid(
-                        kg, sn_realz, dg, pn_realz, cosmo, i_sobol, i_example
+                        kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_example
                     ).SerializeToString()
 
                     # check correctness
-                    inv_data_vectors = tfrecords.parse_inverse_grid(serialized, n_noise_per_example)
+                    inv_maps = tfrecords.parse_inverse_grid(serialized, n_noise_per_example)
 
                     for i_noise in range(n_noise_per_example):
-                        assert np.allclose(inv_data_vectors[f"kg_{i_noise}"], kg + sn_realz[i_noise])
-                        assert np.allclose(inv_data_vectors[f"dg_{i_noise}"], dg + pn_realz[i_noise])
-                    assert np.allclose(inv_data_vectors["cosmo"], cosmo)
-                    assert np.allclose(inv_data_vectors["i_sobol"], i_sobol)
-                    assert np.allclose(inv_data_vectors["i_example"], i_example)
+                        assert np.allclose(inv_maps[f"kg_{i_noise}"], kg + sn_realz[i_noise])
+                        assert np.allclose(inv_maps[f"dg_{i_noise}"], dg + pn_realz[i_noise])
+                    assert np.allclose(inv_maps["cosmo"], cosmo)
+                    assert np.allclose(inv_maps["i_sobol"], i_sobol)
+                    assert np.allclose(inv_maps["i_example"], i_example)
+
+                    inv_cls = tfrecords.parse_inverse_grid_cls(serialized)
+
+                    assert np.allclose(inv_cls["cls"], cls)
+                    assert np.allclose(inv_cls["cosmo"], cosmo)
+                    assert np.allclose(inv_cls["i_sobol"], i_sobol)
+                    assert np.allclose(inv_cls["i_example"], i_example)
 
                     LOGGER.debug("decoded successfully")
 
@@ -398,3 +459,32 @@ def _load_data_vecs(filename):
 
     LOGGER.debug(f"Successfully loaded the data vectors")
     return kg, ia, sn_realz, dg
+
+
+def _alm_to_cl(conf, alm_kg, alm_sn_realz, alm_dg, alm_pn_realz):
+    assert alm_sn_realz.shape[0] == alm_pn_realz.shape[0]
+
+    n_noise_per_example = alm_sn_realz.shape[0]
+
+    cls = []
+    for i_noise in range(n_noise_per_example):
+        alms_lensing = alm_kg + alm_sn_realz[i_noise]
+        alms_clustering = alm_dg + alm_pn_realz[i_noise]
+
+        alms = np.concatenate((alms_lensing, alms_clustering), axis=1)
+
+        cls.append(
+            power_spectra.get_cls(
+                alms,
+                l_mins=conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
+                + conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+                l_maxs=conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
+                + conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+                n_bins=conf["analysis"]["power_spectra"]["n_bins"],
+            )
+        )
+
+    # shape (n_noise_per_example, n_cls, n_cross_bins)?
+    cls = np.stack(cls, axis=0)
+
+    return cls
