@@ -28,11 +28,14 @@ def get_filename_full_maps(grid_dir, with_bary=False):
     return os.path.join(grid_dir, file_name)
 
 
-def get_filename_tfrecords(out_dir, index, tag, simset, with_bary=False):
+def get_filename_tfrecords(out_dir, index, tag, simset, with_bary=False, return_pattern=False):
     if with_bary:
         file_name = f"{tag}_{simset}_baryonified_{index:03d}.tfrecord"
     else:
-        file_name = f"{tag}_{simset}_{index:03d}.tfrecord"
+        if return_pattern:
+            file_name = f"{tag}_{simset}_???.tfrecord"
+        else:
+            file_name = f"{tag}_{simset}_{index:03d}.tfrecord"
 
     return os.path.join(out_dir, file_name)
 

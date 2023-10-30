@@ -113,7 +113,8 @@ def get_cl_bin_indices(
 
     Returns:
         list: List of indices corresponding to the auto and cross spectra of the selected probes and tomographic bins,
-            that can be used for numpy fancy indexing.
+            that can be used for numpy fancy indexing. The length of this list is n_z_bins * (n_z_bins + 1) / 2, where
+            n_z_bins = n_z_lensing + n_z_clustering.
     """
     assert not (
         with_cross_probe and (not with_lensing or not with_clustering)
@@ -131,9 +132,9 @@ def get_cl_bin_indices(
     for i in range(n_z_lensing + n_z_clustering):
         for j in range(n_z_lensing + n_z_clustering):
             if i <= j:
-                names.append(f"bin_{i}x{j}")
+                names.append(f"bin_{i+1}x{j+1}")
 
-                # lensing only``
+                # lensing only
                 if i < n_z_lensing and j < n_z_lensing:
                     if with_cross_z:
                         lensing_indices.append(index)
@@ -165,3 +166,46 @@ def get_cl_bin_indices(
     names = np.array(names)[total_indices]
 
     return sorted(total_indices), names
+
+
+def run_tfrecords_alm_to_cl(conf, alm_kg, alm_sn_realz, alm_dg, alm_pn_realz):
+    """To be used in run_grid_tfrecords.py and run_fiducial_tfrecords.py
+
+    Args:
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
+            passed through) or None (the default config is loaded). The relative paths are stored here. Defaults to
+            None.
+        alm_kg (np.ndarray): Shape (n_alms, n_z_bins) containing the lensing signal amls.
+        alm_sn_realz (np.ndarray): Shape (n_noise, n_alms, n_z_bins) containing the shape noise amls.
+        alm_dg (np.ndarray): Shape (n_alms, n_z_bins) containing the clustering signal amls.
+        alm_pn_realz (np.ndarray): Shape (n_noise, n_alms, n_z_bins) containing the Poisson noise amls.
+
+    Returns:
+        np.ndarray: Shape (n_noise, n_cls, n_z_cross), where n_z_cross = n_z_bins * (n_z_bins + 1) / 2.
+    """
+    assert alm_sn_realz.shape[0] == alm_pn_realz.shape[0]
+
+    n_noise_per_example = alm_sn_realz.shape[0]
+
+    cls = []
+    for i_noise in range(n_noise_per_example):
+        alms_lensing = alm_kg + alm_sn_realz[i_noise]
+        alms_clustering = alm_dg + alm_pn_realz[i_noise]
+
+        alms = np.concatenate((alms_lensing, alms_clustering), axis=1)
+
+        cls.append(
+            get_cls(
+                alms,
+                l_mins=conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
+                + conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+                l_maxs=conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
+                + conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+                n_bins=conf["analysis"]["power_spectra"]["n_bins"],
+            )
+        )
+
+    # shape (n_noise_per_example, n_cls, n_cross_bins)?
+    cls = np.stack(cls, axis=0)
+
+    return cls

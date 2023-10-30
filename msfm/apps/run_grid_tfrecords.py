@@ -197,14 +197,14 @@ def main(indices, args):
         tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
         LOGGER.debug(f"Per z bin Aia = {tomo_Aia}")
 
-        kappa = kg + tomo_Aia * ia
+        kg = kg + tomo_Aia * ia
 
         # fixing this in the .tfrecords simplifies reproducibility
         m_bias = m_bias_dist.sample()
-        kappa *= 1.0 + m_bias
+        kg *= 1.0 + m_bias
 
-        kappa *= metacal_mask
-        kappa, alm_kappa = lensing_smoothing(kg, np_seed)
+        kg *= metacal_mask
+        kg, alm_kg = lensing_smoothing(kg, np_seed)
 
         smooth_sn_realz, alm_sn_realz = [], []
         for shape_noise in sn_realz:
@@ -215,10 +215,10 @@ def main(indices, args):
             smooth_sn_realz.append(smooth_sn)
             alm_sn_realz.append(alm_sn)
 
-        smooth_sn_realz = np.stack(smooth_sn_realz, axis=0)
+        sn_realz = np.stack(smooth_sn_realz, axis=0)
         alm_sn_realz = np.stack(alm_sn_realz, axis=0)
 
-        return kappa, smooth_sn_realz, alm_kappa, alm_sn_realz
+        return kg, sn_realz, alm_kg, alm_sn_realz
 
     # clustering (linear galaxy bias)
     tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
@@ -255,7 +255,7 @@ def main(indices, args):
             tomo_bg2 = redshift.get_tomo_amplitudes(bg2, n_bg2, tomo_z_maglim, tomo_nz_maglim, z0)
             LOGGER.debug(f"Per z bin quadratic bg2 = {tomo_bg2}")
 
-            galaxy_counts = clustering.galaxy_density_to_count(
+            dg = clustering.galaxy_density_to_count(
                 dg,
                 tomo_n_gal_maglim,
                 tomo_bg,
@@ -270,7 +270,7 @@ def main(indices, args):
 
         # linear bias
         else:
-            galaxy_counts = clustering.galaxy_density_to_count(
+            dg = clustering.galaxy_density_to_count(
                 dg,
                 tomo_n_gal_maglim,
                 tomo_bg,
@@ -283,26 +283,26 @@ def main(indices, args):
             )
 
         # draw noise, mask, smooth
-        pn_realz = clustering.galaxy_count_to_noise(galaxy_counts, n_noise_per_example, np_seed=np_seed + 2)
+        pn_realz = clustering.galaxy_count_to_noise(dg, n_noise_per_example, np_seed=np_seed + 2)
 
         smooth_pn_realz, alm_pn_realz = [], []
-        for poisson_noise in pn_realz:
-            poisson_noise *= maglim_mask
+        for pn in pn_realz:
+            pn *= maglim_mask
 
-            smooth_poisson_noise, alm_smooth_poisson_noise = clustering_smoothing(poisson_noise, np_seed)
+            smooth_pn, alm_smooth_pn = clustering_smoothing(pn, np_seed)
 
-            smooth_pn_realz.append(smooth_poisson_noise)
-            alm_pn_realz.append(alm_smooth_poisson_noise)
+            smooth_pn_realz.append(smooth_pn)
+            alm_pn_realz.append(alm_smooth_pn)
 
-        smooth_pn_realz = np.stack(smooth_pn_realz, axis=0)
+        pn_realz = np.stack(smooth_pn_realz, axis=0)
         alm_pn_realz = np.stack(alm_pn_realz, axis=0)
 
         # noiseless
-        galaxy_counts, alm_galaxy_counts = clustering_smoothing(galaxy_counts, np_seed)
+        dg, alm_dg = clustering_smoothing(dg, np_seed)
 
         # shapes (n_pix, n_z_maglim), (n_noise_per_example, n_pix, n_z_maglim)
         # (n_noise_per_example, )
-        return galaxy_counts, smooth_pn_realz, alm_galaxy_counts, alm_pn_realz
+        return dg, pn_realz, alm_dg, alm_pn_realz
 
     # set up the paths
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
@@ -419,7 +419,7 @@ def main(indices, args):
                     dg, pn_realz, alm_dg, alm_pn_realz = current_clustering_transform(dg, np_seed=i_sobol + i_example)
 
                     # power spectra
-                    cls = _alm_to_cl(conf, alm_kg, alm_sn_realz, alm_dg, alm_pn_realz)
+                    cls = power_spectra.run_tfrecords_alm_to_cl(conf, alm_kg, alm_sn_realz, alm_dg, alm_pn_realz)
 
                     serialized = tfrecords.parse_forward_grid(
                         kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_example
@@ -452,6 +452,46 @@ def main(indices, args):
         yield index
 
 
+def merge(indices, args):
+    args = setup(args)
+    conf = files.load_config(args.config)
+
+    tfr_pattern = filenames.get_filename_tfrecords(
+        args.dir_out, tag=conf["survey"]["name"] + args.file_suffix, index=None, simset="grid", return_pattern=True
+    )
+
+    cls_dset = tf.data.Dataset.list_files(tfr_pattern)
+    cls_dset = cls_dset.interleave(tf.data.TFRecordDataset, cycle_length=16, block_length=1)
+    cls_dset = cls_dset.map(tfrecords.parse_inverse_fiducial_cls)
+
+    cls = []
+    cosmos = []
+    i_sobols = []
+    i_examples = []
+    for example in cls_dset:
+        cls.append(example["cls"].numpy())
+        cosmos.append(example["cosmo"].numpy())
+        i_sobols.append(int(example["i_sobol"]))
+        i_examples.append(int(example["i_example"]))
+
+    # results
+    cls = np.concatenate(cls, axis=0)
+    cosmos = np.stack(cosmos, axis=0)
+    i_sobols = np.array(i_sobols)
+    i_examples = np.array(i_examples)
+
+    cls = np.concatenate(cls, axis=0)
+    cosmos = np.stack(cosmos, axis=0)
+    i_sobols = np.array(i_sobols)
+    i_examples = np.array(i_examples)
+
+    with h5py.File(os.path.join(args.dir_out, "grid_cls.h5"), "w") as f:
+        f.create_dataset("cls", data=cls)
+        f.create_dataset("cosmos", data=cosmos)
+        f.create_dataset("i_sobols", data=i_sobols)
+        f.create_dataset("i_examples", data=i_examples)
+
+
 def _load_data_vecs(filename):
     with h5py.File(filename, "r") as f:
         # shape (n_examples_per_cosmo, n_pix, n_z_bins) before the indexing
@@ -462,32 +502,3 @@ def _load_data_vecs(filename):
 
     LOGGER.debug(f"Successfully loaded the data vectors")
     return kg, ia, sn_realz, dg
-
-
-def _alm_to_cl(conf, alm_kg, alm_sn_realz, alm_dg, alm_pn_realz):
-    assert alm_sn_realz.shape[0] == alm_pn_realz.shape[0]
-
-    n_noise_per_example = alm_sn_realz.shape[0]
-
-    cls = []
-    for i_noise in range(n_noise_per_example):
-        alms_lensing = alm_kg + alm_sn_realz[i_noise]
-        alms_clustering = alm_dg + alm_pn_realz[i_noise]
-
-        alms = np.concatenate((alms_lensing, alms_clustering), axis=1)
-
-        cls.append(
-            power_spectra.get_cls(
-                alms,
-                l_mins=conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
-                + conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-                l_maxs=conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
-                + conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-                n_bins=conf["analysis"]["power_spectra"]["n_bins"],
-            )
-        )
-
-    # shape (n_noise_per_example, n_cls, n_cross_bins)?
-    cls = np.stack(cls, axis=0)
-
-    return cls
