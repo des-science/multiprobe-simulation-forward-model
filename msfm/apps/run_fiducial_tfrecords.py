@@ -5,7 +5,7 @@ Created December 2022
 Author: Arne Thomsen
 
 Convert the .h5 files containing the lensing and clustering maps to scrambled .tfrecord files suitable for training
-with the delta loss at the fiducial cosmology and its perturbations
+with the delta loss at the fiducial cosmology and its perturbations.
 
 Adapted from https://github.com/tomaszkacprzak/CosmoPointNet/blob/main/CosmoPointNet/apps/run_build_tfrecords.py 
 by Tomasz Kacprzak
@@ -33,6 +33,7 @@ from msfm.utils import (
     clustering,
     scales,
     imports,
+    power_spectra,
 )
 
 hp = imports.import_healpy()
@@ -138,14 +139,78 @@ def main(indices, args):
 
     data_vec_pix, _, _, _ = files.load_pixel_file()
 
+    def data_vector_smoothing(dv, l_min, theta_max, np_seed):
+        # Gaussian Random Field
+        if degrade_to_grf:
+            dv, alm = scales.data_vector_to_grf_data_vector(
+                np_seed,
+                dv,
+                data_vec_pix=data_vec_pix,
+                n_side=n_side,
+                l_min=l_min,
+                theta_max=theta_max,
+                arcmin=True,
+            )
+
+        # standard smoothing with a Gaussian kernel
+        else:
+            dv, alm = scales.data_vector_to_smoothed_data_vector(
+                dv,
+                data_vec_pix=data_vec_pix,
+                n_side=n_side,
+                l_min=l_min,
+                theta_max=theta_max,
+                arcmin=True,
+            )
+
+        return dv, alm
+
     # lensing (intrinsic alignment)
     tomo_Aia_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("Aia", conf)
+    metacal_mask = files.get_tomo_dv_masks(conf)["metacal"]
 
-    def lensing_transform(kg, ia, label):
+    def lensing_smoothing(kg, np_seed):
+        kg, alm = data_vector_smoothing(
+            kg,
+            conf["analysis"]["scale_cuts"]["lensing"]["l_min"],
+            conf["analysis"]["scale_cuts"]["lensing"]["theta_max"],
+            np_seed,
+        )
+
+        return kg, alm
+
+    def lensing_transform(kg, ia, ia_label, is_true_fiducial=False, sn_realz=None, np_seed=None):
+        assert bool(not is_true_fiducial) != bool(sn_realz is not None)
+
         # important not to use +=, since then the array is transformed in place
-        kg = kg + tomo_Aia_perts_dict[label] * ia
+        kg = kg + tomo_Aia_perts_dict[ia_label] * ia
+        kg *= metacal_mask
 
-        return kg
+        # only smooth the shape noise and return the alms for the fiducial, not the perturbations
+        if is_true_fiducial:
+            assert sn_realz is not None, "sn_realz has to be provided if is_true_fiducial is True"
+
+            smooth_sn_realz, alm_sn_realz = [], []
+            for shape_noise in sn_realz:
+                shape_noise *= metacal_mask
+
+                smooth_sn, alm_sn = lensing_smoothing(shape_noise, np_seed)
+
+                smooth_sn_realz.append(smooth_sn)
+                alm_sn_realz.append(alm_sn)
+
+            sn_realz = np.stack(smooth_sn_realz, axis=0)
+            alm_sn_realz = np.stack(alm_sn_realz, axis=0)
+
+            # noiseless
+            kg, alm_kg = lensing_smoothing(kg, np_seed)
+
+            return kg, sn_realz, alm_kg, alm_sn_realz
+
+        else:
+            kg, _ = lensing_smoothing(kg, np_seed)
+
+            return kg
 
     # clustering (linear + optionally quadratic galaxy bias)
     tomo_n_gal_maglim = tf.constant(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
@@ -161,29 +226,15 @@ def main(indices, args):
 
     maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
 
-    def clustering_smoothing(dg, np_seed=None):
-        # Gaussian Random Field
-        if degrade_to_grf:
-            dg = scales.data_vector_to_grf_data_vector(
-                dg,
-                l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-                l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-                n_side=n_side,
-                data_vec_pix=data_vec_pix,
-                np_seed=np_seed,
-            )
+    def clustering_smoothing(dg, np_seed):
+        dg, alm = data_vector_smoothing(
+            dg,
+            conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+            conf["analysis"]["scale_cuts"]["clustering"]["theta_max"],
+            np_seed,
+        )
 
-        # standard smoothing with a Gaussian kernel
-        else:
-            dg = scales.data_vector_to_smoothed_data_vector(
-                dg,
-                l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-                l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
-                n_side=n_side,
-                data_vec_pix=data_vec_pix,
-            )
-
-        return dg
+        return dg, alm
 
     def clustering_counts(dg, bg_tomo, bg2_tomo=None):
         """To focus on the function arguments that are actually varying within clustering_transform"""
@@ -203,40 +254,47 @@ def main(indices, args):
 
         return galaxy_counts
 
-    def clustering_transform(dg, label, draw_noise=False, np_seed=None):
+    def clustering_transform(dg, bg_label, is_true_fiducial=False, np_seed=None):
         # quadratic bias
         if quadratic_biasing:
-            if label == "fiducial":
-                galaxy_counts = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], tomo_bg2_perts_dict["fiducial"])
-            elif "bg_" in label:
-                galaxy_counts = clustering_counts(dg, tomo_bg_perts_dict[label], tomo_bg2_perts_dict["fiducial"])
-            elif "bg2_" in label:
-                galaxy_counts = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], tomo_bg2_perts_dict[label])
+            if bg_label == "fiducial":
+                dg = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], tomo_bg2_perts_dict["fiducial"])
+            elif "bg_" in bg_label:
+                dg = clustering_counts(dg, tomo_bg_perts_dict[bg_label], tomo_bg2_perts_dict["fiducial"])
+            elif "bg2_" in bg_label:
+                dg = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], tomo_bg2_perts_dict[bg_label])
             else:
-                raise ValueError(f"Inconsistent label {label}")
+                raise ValueError(f"Inconsistent bias label {bg_label}")
 
         # linear bias
         else:
-            galaxy_counts = clustering_counts(dg, tomo_bg_perts_dict[label])
+            dg = clustering_counts(dg, tomo_bg_perts_dict[bg_label])
 
-        # only draw the noise for the fiducial, not the perturbations
-        if draw_noise:
-            poisson_noises = clustering.galaxy_count_to_noise(galaxy_counts, n_noise_per_example, np_seed=np_seed + 1)
+        # only draw the Poisson noise and return the alms for the fiducial, not the perturbations
+        if is_true_fiducial:
+            pn_realz = clustering.galaxy_count_to_noise(dg, n_noise_per_example, np_seed=np_seed + 1)
 
-            smooth_poisson_noises = []
-            for poisson_noise in poisson_noises:
-                smooth_poisson_noises.append(clustering_smoothing(poisson_noise, np_seed=np_seed))
+            smooth_pn_realz, alm_pn_realz = [], []
+            for pn in pn_realz:
+                pn *= maglim_mask
 
-            smooth_poisson_noises = np.stack(smooth_poisson_noises, axis=0)
+                smooth_pn, alm_smooth_pn = clustering_smoothing(pn, np_seed)
 
-        # noiseless
-        galaxy_counts = clustering_smoothing(galaxy_counts, np_seed=np_seed)
+                smooth_pn_realz.append(smooth_pn)
+                alm_pn_realz.append(alm_smooth_pn)
 
-        if draw_noise:
-            # shape (n_pix, n_z_maglim) and (n_noise_per_example, n_pix, n_z_maglim)
-            return galaxy_counts, smooth_poisson_noises
+            pn_realz = np.stack(smooth_pn_realz, axis=0)
+            alm_pn_realz = np.stack(alm_pn_realz, axis=0)
+
+            # noiseless
+            dg, alm_dg = clustering_smoothing(dg, np_seed)
+
+            return dg, pn_realz, alm_dg, alm_pn_realz
+
         else:
-            return galaxy_counts
+            dg, _ = clustering_smoothing(dg, np_seed)
+
+            return dg
 
     # set up the paths
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
@@ -322,27 +380,33 @@ def main(indices, args):
                     if "cosmo_fiducial" in cosmo_dir_in:
                         # intrinsic alignment perturbations
                         for label in ia_pert_labels:
-                            ia_perts.append(lensing_transform(kg, ia, label))
+                            ia_perts.append(lensing_transform(kg, ia, ia_label=label, np_seed=j))
 
                         # galaxy clustering perturbations
                         for label in bg_pert_labels:
-                            bg_perts.append(clustering_transform(dg, label, np_seed=j))
+                            bg_perts.append(clustering_transform(dg, bg_label=label, np_seed=j))
 
                         # load the shape noise realization
                         (sn_realz,) = _load_example(file_cosmo, i_example, ["sn"])
 
+                        # add the signal and ia maps and smooth everything
+                        kg, sn_realz, alm_kg, alm_sn_realz = lensing_transform(
+                            kg, ia, ia_label="fiducial", is_true_fiducial=True, sn_realz=sn_realz, np_seed=j
+                        )
+
                         # convert dg to galaxy number and draw the poisson noise realization
-                        dg, pn_realz = clustering_transform(dg, "fiducial", draw_noise=True, np_seed=j)
+                        dg, pn_realz, alm_dg, alm_pn_realz = clustering_transform(
+                            dg, bg_label="fiducial", is_true_fiducial=True, np_seed=j
+                        )
+
+                        cls = power_spectra.run_tfrecords_alm_to_cl(conf, alm_kg, alm_sn_realz, alm_dg, alm_pn_realz)
 
                     # cosmological perturbations
                     else:
-                        # noiseless
-                        dg = clustering_transform(dg, "fiducial", np_seed=j)
+                        kg = lensing_transform(kg, ia, ia_label="fiducial", np_seed=j)
+                        dg = clustering_transform(dg, bg_label="fiducial", np_seed=j)
 
-                    # add the fiducial intrinsic alignment
-                    kg_perts.append(lensing_transform(kg, ia, "fiducial"))
-
-                    # add the noiseless clustering map
+                    kg_perts.append(kg)
                     dg_perts.append(dg)
 
                 # serialize the lists of tensors of shape (n_pix, n_z_bins)
@@ -358,6 +422,8 @@ def main(indices, args):
                     bg_pert_labels,
                     bg_perts,
                     pn_realz,
+                    # power spectra
+                    cls,
                     i_example,
                 ).SerializeToString()
 
@@ -387,12 +453,47 @@ def main(indices, args):
                     assert np.allclose(inv_data_vectors[f"pn_{i_noise}"], pn_realz[i_noise])
                 assert np.allclose(inv_data_vectors["i_example"], i_example)
 
+                inv_cls = tfrecords.parse_inverse_fiducial_cls(serialized)
+
+                assert np.allclose(inv_cls["cls"], cls)
+                assert np.allclose(inv_cls["i_example"], i_example)
+
+                LOGGER.debug("decoded successfully")
+
                 file_writer.write(serialized)
 
                 n_done += 1
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
+
+
+def merge(indices, args):
+    args = setup(args)
+    conf = files.load_config(args.config)
+
+    tfr_pattern = filenames.get_filename_tfrecords(
+        args.dir_out, tag=conf["survey"]["name"] + args.file_suffix, index=None, simset="fiducial", return_pattern=True
+    )
+
+    cls_dset = tf.data.Dataset.list_files(tfr_pattern)
+    cls_dset = cls_dset.interleave(tf.data.TFRecordDataset, cycle_length=16, block_length=1)
+    cls_dset = cls_dset.map(tfrecords.parse_inverse_fiducial_cls)
+
+    cls = []
+    i_examples = []
+    for example in cls_dset:
+        cls.append(example["cls"].numpy())
+        i_examples.append(int(example["i_example"]))
+
+    # cls.shape[0] = n_noise * n_examples
+    cls = np.concatenate(cls, axis=0)
+    # i_examples.shape[0] = n_noise * n_examples
+    i_examples = np.array(i_examples)
+
+    with h5py.File(os.path.join(args.dir_out, "fiducial_cls.h5"), "w") as f:
+        f.create_dataset("cls", data=cls)
+        f.create_dataset("i_examples", data=i_examples)
 
 
 def _load_example(filename, i_example, map_labels):

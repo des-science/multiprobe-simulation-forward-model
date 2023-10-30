@@ -8,6 +8,8 @@ Transform the full sky weak lensing signal and intrinsic alignment maps into mul
 both for the fiducial and the grid cosmology
 
 Meant for Euler (CPU nodes, local scratch)
+
+TODO clean this up as there is way too much nesting.
 """
 
 import numpy as np
@@ -193,8 +195,6 @@ def main(indices, args):
                 # constants
                 z_bins = conf["survey"][sample]["z_bins"]
                 n_z_bins = len(z_bins)
-                tomo_l_min = conf["analysis"]["scale_cuts"][probe]["l_min"]
-                tomo_l_max = conf["analysis"]["scale_cuts"][probe]["l_max"]
 
                 # map types
                 in_map_types = conf["survey"][sample]["map_types"]["input"]
@@ -232,11 +232,6 @@ def main(indices, args):
                         with h5py.File(full_maps_file, "r") as f:
                             map_full = f[map_dir][:]
                         LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
-
-                        # scale cuts
-                        l_min = tomo_l_min[i_z]
-                        l_max = tomo_l_max[i_z]
-                        LOGGER.debug(f"Only keeping ell in [{l_min}, {l_max}] for bin {z_bin}")
 
                         # lensing, metacal sample #####################################################################
                         if sample == "metacal":
@@ -283,13 +278,8 @@ def main(indices, args):
                                         gamma2_patch,
                                         gamma2kappa_fac,
                                         n_side,
-                                        l_min,
-                                        l_max,
-                                        hp_datapath,
-                                        # GRF output
-                                        make_grf=degrade_to_grf,
-                                        # identical throughout all tomograhic bins of a single example
-                                        np_seed=index + i_perm + i_patch,
+                                        apply_smoothing=False,
+                                        hp_datapath=hp_datapath,
                                     )
 
                                     # cut out padded data vector
@@ -323,7 +313,7 @@ def main(indices, args):
 
                                 # number of galaxies per pixel
                                 counts_full = clustering.galaxy_density_to_count(
-                                    delta_full, n_bar, bias, conf=conf, include_systematics=False
+                                    delta_full, n_bar, bias, conf=conf, systematics_map=None
                                 ).astype(int)
 
                                 for i_patch, patch_pix in enumerate(patches_pix):
@@ -347,14 +337,8 @@ def main(indices, args):
                                             gamma2_patch,
                                             gamma2kappa_fac,
                                             n_side,
-                                            l_min,
-                                            l_max,
-                                            hp_datapath,
-                                            # GRF output
-                                            make_grf=degrade_to_grf,
-                                            # identical throughout all tomograhic bins of a single example
-                                            # NOTE the same seed is used for all different noise realizations
-                                            np_seed=index + i_perm + i_patch,
+                                            apply_smoothing=False,
+                                            hp_datapath=hp_datapath,
                                         )
 
                                         # cut out padded data vector
@@ -460,23 +444,3 @@ def save_output_container(
             f[map_type][n_patches * i_perm : n_patches * (i_perm + 1)] = container[map_type]
 
     LOGGER.info(f"Stored {filename}")
-
-
-# This main only exists for testing purposes when not using esub
-if __name__ == "__main__":
-    args = [
-        "--simset=grid",
-        "--dir_in=/Users/arne/data/CosmoGrid_example/DES/grid",
-        "--dir_out=/Users/arne/data/CosmoGrid_example/DES/grid/v2",
-        "--config=configs/config.yaml",
-        "--max_sleep=0",
-        "--debug",
-        "--verbosity=info",
-        "--store_counts",
-    ]
-
-    indices = [0]
-    for _ in main(indices, args):
-        pass
-
-    LOGGER.info(f"Done with main after {LOGGER.timer.elapsed('main')}")

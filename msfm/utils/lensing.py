@@ -58,7 +58,17 @@ def get_m_bias_distribution(conf=None):
 
 
 def mode_removal(
-    gamma1_patch, gamma2_patch, gamma2kappa_fac, n_side, l_min, l_max, hp_datapath=None, make_grf=False, np_seed=None
+    gamma1_patch,
+    gamma2_patch,
+    gamma2kappa_fac,
+    n_side,
+    hp_datapath=None,
+    # deprecated
+    apply_smoothing=False,
+    l_min=None,
+    l_max=None,
+    make_grf=False,
+    np_seed=None,
 ):
     """Takes in survey patches of gamma maps and puts out survey patches of kappa maps that only contain E-modes
 
@@ -67,8 +77,12 @@ def mode_removal(
         gamma2_patch (np.ndarray): Same
         gamma2kappa_fac (np.ndarray): Kaiser squires conversion factors
         n_side (int): Resolution of the map
-        l_min (int): Minimal ell, this removes the large scales
-        l_max (int): Maximal ell, this smoothes the small scales
+        apply_smoothing (bool, optional): Whether to apply smoothing to the kappa map. This is included here because
+            the alm coefficients are already computed anyways for the mode removal. Defaults to False.
+        l_min (int, optional): Minimal ell, this removes the large scales if smoothing is applied. Defaults to None.
+        l_max (int, optional): Maximal ell, this smoothes the small scales if smoothing is applied. Defaults to None.
+        make_grf (bool, optional): Whether to degrade the map to a Gaussian random field instead of a smoothed map.
+            Defaults to False.
         hp_datapath (str, optional): Path to a healpy pixel weights file. Defaults to None.
 
     Returns:
@@ -77,6 +91,7 @@ def mode_removal(
     # gamma: map -> alm
     _, gamma_alm_E, gamma_alm_B = hp.map2alm(
         [np.zeros_like(gamma1_patch), gamma1_patch, gamma2_patch],
+        pol=True,
         use_pixel_weights=True,
         datapath=hp_datapath,
     )
@@ -84,10 +99,14 @@ def mode_removal(
     kappa_alm = gamma_alm_E * gamma2kappa_fac
 
     # kappa: alm -> map
-    if make_grf:
-        kappa_patch = scales.alm_to_grf_map(kappa_alm, l_min, l_max, n_side, np_seed)
+    if apply_smoothing:
+        LOGGER.warning(f"Double check what you're doing, smoothing within the mode removal has been deprecated")
+        if make_grf:
+            kappa_patch = scales.alm_to_grf_map(kappa_alm, l_min, l_max, n_side, np_seed)
+        else:
+            kappa_patch = scales.alm_to_smoothed_map(kappa_alm, n_side, l_min, l_max, nest=False)
     else:
-        kappa_patch = scales.alm_to_smoothed_map(kappa_alm, l_min, l_max, n_side, nest=False)
+        kappa_patch = hp.alm2map(kappa_alm, n_side, pol=False)
 
     return kappa_patch
 
