@@ -12,7 +12,7 @@ import numpy as np
 from scipy.spatial import Delaunay
 from scipy.optimize import fsolve
 
-from msfm.utils import files, parameters, logger
+from msfm.utils import files, parameters, logger, parameters
 
 LOGGER = logger.get_logger(__file__)
 
@@ -38,10 +38,7 @@ def in_grid_prior(cosmos, conf=None, params=None):
         contained within the prior.
     """
     conf = files.load_config(conf)
-    if params is None:
-        params = (
-            conf["analysis"]["params"]["cosmo"] + conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]
-        )
+    params = parameters.get_parameters(params, conf)
 
     # make the params 2d
     cosmos = np.atleast_2d(cosmos)
