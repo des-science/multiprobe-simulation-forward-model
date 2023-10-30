@@ -51,15 +51,15 @@ def angle_to_ell(theta, arcmin=False, method="naive"):
     return ell
 
 
-def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_max=None, arcmin=True, nest=False):
-    """Takes in alm coefficients and returns a map that has been smoothed according to l_min and l_max or theta_max.
+def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=True, nest=False):
+    """Takes in alm coefficients and returns a map that has been smoothed according to l_min and l_max or theta_fwhm.
 
     Args:
         alm (np.array): Single spherical harmonics decomposition.
         n_side (int): Healpix nside of the output map.
         l_min (int): Largest scale.
         l_max (int): Smallest scale, specified as an ell.
-        theta_max (float): Smallest scale, specified as an angle, which is used as the FWHM of a Gaussian.
+        theta_fwhm (float): Smallest scale, specified as an angle, which is used as the FWHM of a Gaussian.
         arcmin (bool, optional): Whether the smallest scale is specified as an angle in arcmin, otherwise it is in
             radian.
         nest (bool, optional): Whether the (full sky) output map should be returned in NEST ordering.
@@ -67,8 +67,8 @@ def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_max=None, arcmin=T
     Returns:
         np.array: Healpy map of shape (n_pix,)
     """
-    assert not (l_max is None and theta_max is None), "Either l_max or theta_max must be specified"
-    assert l_max is None or theta_max is None, "Only one of l_max or theta_max can be specified"
+    assert not (l_max is None and theta_fwhm is None), "Either l_max or theta_fwhm must be specified"
+    assert l_max is None or theta_fwhm is None, "Only one of l_max or theta_fwhm can be specified"
 
     # alm are computed for the standard l_max = 3 * n_side - 1
     l = hp.Alm.getlm(3 * n_side - 1)[0]
@@ -78,12 +78,12 @@ def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_max=None, arcmin=T
 
     # remove small scales (Gaussian smoothing)
     if l_max is not None:
-        theta_max = ell_to_angle(l_max, arcmin)
+        theta_fwhm = ell_to_angle(l_max, arcmin)
 
     if arcmin:
-        theta_max = arcmin_to_rad(theta_max)
+        theta_fwhm = arcmin_to_rad(theta_fwhm)
 
-    alm = hp.smoothalm(alm, fwhm=theta_max, pol=False)
+    alm = hp.smoothalm(alm, fwhm=theta_fwhm, pol=False)
 
     full_map = hp.alm2map(alm, nside=n_side, pol=False)
 
@@ -93,7 +93,7 @@ def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_max=None, arcmin=T
     return full_map, alm
 
 
-def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_max=None, arcmin=True, nest=False):
+def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=True, nest=False):
     """Takes in a (multiple) full sky healpy map(s) and returns a (multiple) map(s) that has (have) been smoothed
     according to l_min and l_max. The input can either be a single map, or a stack of multiple tomographic bins along
     the final axis.
@@ -103,7 +103,7 @@ def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_max=None, arc
         n_side (int): Healpix nside of the output map.
         l_min (Union[int, list]): Largest scale(s).
         l_max (Union[int, list]): Smallest scale(s).
-        theta_max (Union[float, list]): Smallest scale(s), specified as an angle, which is used as the FWHM of a
+        theta_fwhm (Union[float, list]): Smallest scale(s), specified as an angle, which is used as the FWHM of a
             Gaussian.
         arcmin (bool, optional): Whether the smallest scale is specified as an angle in arcmin, otherwise it is in
             radian.
@@ -126,10 +126,10 @@ def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_max=None, arc
 
         if isinstance(l_min, list) and isinstance(l_max, list):
             assert n_z_bins == len(l_min) == len(l_max)
-        elif isinstance(l_min, list) and isinstance(theta_max, list):
-            assert n_z_bins == len(l_min) == len(theta_max)
+        elif isinstance(l_min, list) and isinstance(theta_fwhm, list):
+            assert n_z_bins == len(l_min) == len(theta_fwhm)
         else:
-            raise ValueError(f"For tomographic inputs, l_min and l_max or theta_max must be lists of length n_z_bins")
+            raise ValueError(f"For tomographic inputs, l_min and l_max or theta_fwhm must be lists of length n_z_bins")
 
         alms = []
         for i_tomo in range(n_z_bins):
@@ -143,12 +143,12 @@ def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_max=None, arc
                 full_map[:, i_tomo], alm = alm_to_smoothed_map(
                     alm, n_side, l_min[i_tomo], l_max=l_max[i_tomo], arcmin=False, nest=nest
                 )
-            elif theta_max is not None:
+            elif theta_fwhm is not None:
                 full_map[:, i_tomo], alm = alm_to_smoothed_map(
-                    alm, n_side, l_min[i_tomo], theta_max=theta_max[i_tomo], arcmin=arcmin, nest=nest
+                    alm, n_side, l_min[i_tomo], theta_fwhm=theta_fwhm[i_tomo], arcmin=arcmin, nest=nest
                 )
             else:
-                raise ValueError(f"Either l_max or theta_max must be specified")
+                raise ValueError(f"Either l_max or theta_fwhm must be specified")
 
             alms.append(alm)
 
@@ -157,13 +157,13 @@ def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_max=None, arc
     # single map
     elif full_map.ndim == 1:
         assert (isinstance(l_min, int) and isinstance(l_max, int)) or (
-            isinstance(l_min, int) and isinstance(theta_max, float)
+            isinstance(l_min, int) and isinstance(theta_fwhm, float)
         )
 
         if nest:
             full_map = hp.reorder(full_map, n2r=True)
 
-        full_map, alm = alm_to_smoothed_map(alm, n_side, l_min, l_max, theta_max, arcmin, nest=nest)
+        full_map, alm = alm_to_smoothed_map(alm, n_side, l_min, l_max, theta_fwhm, arcmin, nest=nest)
 
     else:
         raise ValueError(f"Unknown full_map.ndim: {full_map.ndim}, must be 1 or 2")
@@ -172,7 +172,7 @@ def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_max=None, arc
 
 
 def data_vector_to_smoothed_data_vector(
-    data_vector, data_vec_pix, n_side, l_min, l_max=None, theta_max=None, arcmin=True
+    data_vector, data_vec_pix, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=True
 ):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been
     smoothed according to l_min and l_max. The input can either be a single map, or a stack of multiple tomographic
@@ -185,7 +185,7 @@ def data_vector_to_smoothed_data_vector(
         n_side (int): Healpix nside of the output map.
         l_min (Union[int, list]): Largest scale(s).
         l_max (Union[int, list]): Smallest scale(s).
-        theta_max (Union[float, list]): Smallest scale(s), specified as an angle, which is used as the FWHM of a
+        theta_fwhm (Union[float, list]): Smallest scale(s), specified as an angle, which is used as the FWHM of a
             Gaussian.
         arcmin (bool, optional): Whether the smallest scale is specified as an angle in arcmin, otherwise it is in
             radian.
@@ -211,7 +211,7 @@ def data_vector_to_smoothed_data_vector(
     else:
         raise ValueError(f"Unknown data_vector.ndim: {data_vector.ndim}, must be 1 or 2")
 
-    full_map, alm = map_to_smoothed_map(full_map, n_side, l_min, l_max, theta_max, arcmin, nest=True)
+    full_map, alm = map_to_smoothed_map(full_map, n_side, l_min, l_max, theta_fwhm, arcmin, nest=True)
 
     data_vector = full_map[data_vec_pix]
 
@@ -222,7 +222,7 @@ def data_vector_to_smoothed_data_vector(
 
 
 def data_vector_to_grf_data_vector(
-    np_seed, data_vector, data_vec_pix, n_side, l_min, l_max=None, theta_max=None, arcmin=True
+    np_seed, data_vector, data_vec_pix, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=True
 ):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been
     smoothed according to l_min and l_max and transformed to a Gaussian Random Field. This destroys all non-Gaussian
@@ -239,7 +239,7 @@ def data_vector_to_grf_data_vector(
             and noise maps, both for weak lensing and galaxy clustering).
         l_min (Union[int, list]): Largest scale(s).
         l_max (Union[int, list]): Smallest scale(s).
-        theta_max (Union[float, list]): Smallest scale(s), specified as an angle, which is used as the FWHM of a
+        theta_fwhm (Union[float, list]): Smallest scale(s), specified as an angle, which is used as the FWHM of a
             Gaussian.
         arcmin (bool, optional): Whether the smallest scale is specified as an angle in arcmin, otherwise it is in
             radian.
@@ -265,10 +265,10 @@ def data_vector_to_grf_data_vector(
 
         if isinstance(l_min, list) and isinstance(l_max, list):
             assert n_z_bins == len(l_min) == len(l_max)
-        elif isinstance(l_min, list) and isinstance(theta_max, list):
-            assert n_z_bins == len(l_min) == len(theta_max)
+        elif isinstance(l_min, list) and isinstance(theta_fwhm, list):
+            assert n_z_bins == len(l_min) == len(theta_fwhm)
         else:
-            raise ValueError(f"For tomographic inputs, l_min and l_max or theta_max must be lists of length n_z_bins")
+            raise ValueError(f"For tomographic inputs, l_min and l_max or theta_fwhm must be lists of length n_z_bins")
 
         alms = []
         for i_tomo in range(n_z_bins):
@@ -283,16 +283,16 @@ def data_vector_to_grf_data_vector(
 
             # remove small scales (Gaussian smoothing)
             if l_max is not None:
-                current_theta_max = ell_to_angle(l_max[i_tomo], arcmin)
-            elif theta_max is not None:
-                current_theta_max = theta_max[i_tomo]
+                current_theta_fwhm = ell_to_angle(l_max[i_tomo], arcmin)
+            elif theta_fwhm is not None:
+                current_theta_fwhm = theta_fwhm[i_tomo]
             else:
-                raise ValueError(f"Either l_max or theta_max must be specified")
+                raise ValueError(f"Either l_max or theta_fwhm must be specified")
 
             if arcmin:
-                current_theta_max = arcmin_to_rad(current_theta_max)
+                current_theta_fwhm = arcmin_to_rad(current_theta_fwhm)
 
-            alm = hp.smoothalm(alm, fwhm=current_theta_max, pol=False)
+            alm = hp.smoothalm(alm, fwhm=current_theta_fwhm, pol=False)
 
             # make a Gaussian Random Field
             cl = hp.alm2cl(alm)
@@ -310,7 +310,7 @@ def data_vector_to_grf_data_vector(
     # single map
     elif data_vector.ndim == 1:
         assert (isinstance(l_min, int) and isinstance(l_max, int)) or (
-            isinstance(l_min, int) and isinstance(theta_max, float)
+            isinstance(l_min, int) and isinstance(theta_fwhm, float)
         )
 
         full_map = np.zeros(n_pix, dtype=np.float32)
@@ -324,12 +324,12 @@ def data_vector_to_grf_data_vector(
 
         # remove small scales (Gaussian smoothing)
         if l_max is not None:
-            theta_max = ell_to_angle(l_max, arcmin)
+            theta_fwhm = ell_to_angle(l_max, arcmin)
 
         if arcmin:
-            theta_max = arcmin_to_rad(theta_max)
+            theta_fwhm = arcmin_to_rad(theta_fwhm)
 
-        alm = hp.smoothalm(alm, fwhm=theta_max, pol=False)
+        alm = hp.smoothalm(alm, fwhm=theta_fwhm, pol=False)
 
         # make a Gaussian Random Field
         cl = hp.alm2cl(alm)

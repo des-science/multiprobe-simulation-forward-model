@@ -139,7 +139,7 @@ def main(indices, args):
 
     data_vec_pix, _, _, _ = files.load_pixel_file()
 
-    def data_vector_smoothing(dv, l_min, theta_max, np_seed):
+    def data_vector_smoothing(dv, l_min, theta_fwhm, np_seed):
         # Gaussian Random Field
         if degrade_to_grf:
             dv, alm = scales.data_vector_to_grf_data_vector(
@@ -148,7 +148,7 @@ def main(indices, args):
                 data_vec_pix=data_vec_pix,
                 n_side=n_side,
                 l_min=l_min,
-                theta_max=theta_max,
+                theta_fwhm=theta_fwhm,
                 arcmin=True,
             )
 
@@ -159,7 +159,7 @@ def main(indices, args):
                 data_vec_pix=data_vec_pix,
                 n_side=n_side,
                 l_min=l_min,
-                theta_max=theta_max,
+                theta_fwhm=theta_fwhm,
                 arcmin=True,
             )
 
@@ -173,7 +173,7 @@ def main(indices, args):
         kg, alm = data_vector_smoothing(
             kg,
             conf["analysis"]["scale_cuts"]["lensing"]["l_min"],
-            conf["analysis"]["scale_cuts"]["lensing"]["theta_max"],
+            conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"],
             np_seed,
         )
 
@@ -230,7 +230,7 @@ def main(indices, args):
         dg, alm = data_vector_smoothing(
             dg,
             conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-            conf["analysis"]["scale_cuts"]["clustering"]["theta_max"],
+            conf["analysis"]["scale_cuts"]["clustering"]["theta_fwhm"],
             np_seed,
         )
 
