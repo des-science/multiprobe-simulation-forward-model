@@ -22,7 +22,7 @@ def get_alms(maps, nest=True, datapath=None):
 
     Args:
         maps (np.ndarray): Array of full sky healpy maps corresponding to the tomographic bins/probes. The shape is
-            (n_channels, n_pix).
+            (n_pix, n_z_bins).
         nest (bool, optional): The ordering of the maps. Defaults to True.
         datapath (str, optional): Path to the healpy pixel_weights for the alm transform. Defaults to None.
 
@@ -30,7 +30,8 @@ def get_alms(maps, nest=True, datapath=None):
         np.ndarray: Array of alms with shape (n_channels, n_alms)
     """
     alms = []
-    for map in maps:
+    for i in range(maps.shape[1]):
+        map = maps[:, i]
 
         if nest:
             map = hp.reorder(map, n2r=True)
