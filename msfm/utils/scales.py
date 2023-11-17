@@ -74,7 +74,9 @@ def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=
     l = hp.Alm.getlm(3 * n_side - 1)[0]
 
     # remove large scales (hard cut)
-    alm[l < l_min] = 0.0
+    sigmoid = lambda x, delta: 1 / (1 + np.exp(x - delta))
+    alm = sigmoid(l, delta=l_min) * alm
+    # alm[l < l_min] = 0.0
 
     # remove small scales (Gaussian smoothing)
     if l_max is not None:
