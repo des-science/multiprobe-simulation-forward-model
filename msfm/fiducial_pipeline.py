@@ -174,8 +174,9 @@ class FiducialPipeline(MSFMpipeline):
         # repeat and shuffle the files
         if not is_eval and not is_cached:
             dset = dset.repeat()
-            dset = dset.shuffle(file_name_shuffle_buffer, seed=file_name_shuffle_seed)
-            LOGGER.info(f"Shuffling file names with shuffle_buffer = {file_name_shuffle_buffer}")
+            if (file_name_shuffle_buffer is not None) and (file_name_shuffle_buffer > 0):
+                dset = dset.shuffle(file_name_shuffle_buffer, seed=file_name_shuffle_seed)
+                LOGGER.info(f"Shuffling file names with shuffle_buffer = {file_name_shuffle_buffer}")
 
         # interleave, block_length is the number of files every reader reads
         if is_eval:
@@ -222,7 +223,7 @@ class FiducialPipeline(MSFMpipeline):
         )
 
         # shuffle the examples
-        if (not is_eval) and (examples_shuffle_buffer is not None) and (examples_shuffle_buffer != 0):
+        if (not is_eval) and (examples_shuffle_buffer is not None) and (examples_shuffle_buffer > 0):
             dset = dset.shuffle(examples_shuffle_buffer, seed=examples_shuffle_seed)
             LOGGER.info(f"Shuffling examples with shuffle_buffer = {examples_shuffle_buffer}")
         elif not is_eval:
@@ -242,7 +243,7 @@ class FiducialPipeline(MSFMpipeline):
         )
 
         # prefetch
-        if n_prefetch != 0:
+        if n_prefetch > 0:
             if n_prefetch is None:
                 n_prefetch = tf.data.AUTOTUNE
             dset = dset.prefetch(n_prefetch)

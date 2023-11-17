@@ -11,7 +11,7 @@ import tensorflow_probability as tfp
 
 from msfm.utils import files, logger, scales, imports
 
-hp = imports.import_healpy()
+hp = imports.import_healpy(parallel=True)
 
 LOGGER = logger.get_logger(__file__)
 

@@ -12,7 +12,7 @@ import scipy.stats
 
 from msfm.utils import logger, imports
 
-hp = imports.import_healpy()
+hp = imports.import_healpy(parallel=True)
 
 LOGGER = logger.get_logger(__file__)
 

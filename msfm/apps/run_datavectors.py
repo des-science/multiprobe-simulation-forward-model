@@ -20,7 +20,7 @@ import os, argparse, warnings, h5py, time, yaml
 from msfm.utils import files, lensing, logger, input_output, maps, cosmogrid, clustering, imports
 from msfm.utils.filenames import *
 
-hp = imports.import_healpy()
+hp = imports.import_healpy(parallel=True)
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)

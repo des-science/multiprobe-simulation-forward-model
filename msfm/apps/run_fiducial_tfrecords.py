@@ -36,7 +36,7 @@ from msfm.utils import (
     power_spectra,
 )
 
-hp = imports.import_healpy()
+hp = imports.import_healpy(parallel=False)
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
