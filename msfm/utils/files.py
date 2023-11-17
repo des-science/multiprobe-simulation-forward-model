@@ -157,7 +157,9 @@ def get_clustering_systematics(conf=None, pixel_type="data_vector", apply_smooth
                 sys = scales.map_to_smoothed_map(sys_map, n_side, l_min, theta_fwhm=theta_fwhm)
 
             elif pixel_type == "data_vector":
-                sys = scales.data_vector_to_smoothed_data_vector(sys, data_vec_pix, n_side, l_min, theta_fwhm=theta_fwhm)
+                sys = scales.data_vector_to_smoothed_data_vector(
+                    sys, data_vec_pix, n_side, l_min, theta_fwhm=theta_fwhm
+                )
 
             else:
                 raise ValueError(f"Unsupported pixel_type = {pixel_type}")
@@ -174,8 +176,8 @@ def get_tomo_dv_masks(conf=None):
             passed through) or None (the default config is loaded). Defaults to None.
 
     Returns:
-        dict: For "metacal" (tomographic) and "maglim" (non-tomographic), mask array of shape (n_pix, n_z_bins) or
-            (n_pix, 1) that is zero for the padding and one for the data.
+        dict: For "metacal" (tomographic) and "maglim" (non-tomographic), mask array of shape (n_pix, n_z_bins) that
+            is zero for the padding and one for the data.
     """
     data_vec_pix, _, corresponding_pix_dict, _ = load_pixel_file(conf)
 
@@ -193,9 +195,11 @@ def get_tomo_dv_masks(conf=None):
     for p in corresponding_pix_dict["maglim"]:
         mask_maglim[p] = 1
 
+    n_z_maglim = len(conf["survey"]["maglim"]["z_bins"])
+
     masks_dict = {
         "metacal": np.array(masks_metacal).T,
-        "maglim": mask_maglim[:, np.newaxis],
+        "maglim": np.stack([mask_maglim for _ in range(n_z_maglim)], axis=1),
     }
 
     return masks_dict

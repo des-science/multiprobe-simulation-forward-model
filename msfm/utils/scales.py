@@ -10,7 +10,7 @@ import os, logging
 
 from msfm.utils import files, logger, imports
 
-hp = imports.import_healpy()
+hp = imports.import_healpy(parallel=True)
 
 LOGGER = logger.get_logger(__file__)
 

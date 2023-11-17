@@ -13,7 +13,7 @@ import os, argparse, warnings, h5py, glob
 from msfm import fiducial_pipeline, grid_pipeline
 from msfm.utils import power_spectra, files, logger, input_output, imports
 
-hp = imports.import_healpy()
+hp = imports.import_healpy(parallel=False)
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)

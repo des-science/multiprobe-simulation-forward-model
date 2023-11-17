@@ -180,14 +180,14 @@ class GridPipeline(MSFMpipeline):
         )
 
         # prefetch
-        if n_prefetch != 0:
+        if n_prefetch > 0:
             if n_prefetch is None:
                 n_prefetch = tf.data.AUTOTUNE
             dset = dset.prefetch(n_prefetch)
             LOGGER.info(f"Prefetching {n_prefetch} elements")
 
         LOGGER.info(
-            f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for i_noise in"
+            f"Successfully generated the grid validation set with element_spec {dset.element_spec} for i_noise in"
             f" [0, {n_noise})"
         )
         return dset
