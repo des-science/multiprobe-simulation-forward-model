@@ -126,8 +126,9 @@ class FiducialPipeline(MSFMpipeline):
             is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can
                 go through it deterministically exactly once. Defaults to False.
             eval_seed (int, optional): Fixed seed for evaluation. Defaults to 32.
-            input_context (tf.distribute.InputContext, optional): For distributed training, this is passed to the
-                dataset_fn like in
+            input_context (Union[tf.distribute.InputContext, deep_lss.utils.distribute.HorovodStrategy], optional):
+                Custom input_context attribute of my HorovodStrategy class or when using the TensorFlow builtin
+                distribution strategies, this is passed to the dataset_fn like in
                 https://www.tensorflow.org/tutorials/distribute/input#tfdistributestrategydistribute_datasets_from_function
                 Then, the dataset is sharded. Defaults to None for a non distributed dataset.
 
@@ -168,8 +169,10 @@ class FiducialPipeline(MSFMpipeline):
             # NOTE Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2. This is black magic since
             # print(input_context.num_input_pipelines) yields 1, so I don't know how the sharding happens, but it does,
             # see distributed_sharding.ipynb
+
+            # NOTE My HorovodStrategy is written to be compatible with this
             dset = dset.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
-            LOGGER.info(f"Sharding the dataset over the .tfrecord files according to the input_context")
+            LOGGER.info(f"Sharding the dataset over the .tfrecord files according to the input context")
 
         # repeat and shuffle the files
         if not is_eval and not is_cached:

@@ -95,15 +95,17 @@ class GridPipeline(MSFMpipeline):
             n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
                 concurrently. This should be roughly less than a tenth of the number of files. Defaults to 8.
             n_prefetch (int, optional): Number of dataset elements to prefetch.
-            input_context (tf.distribute.InputContext, optional): For distributed training, this is passed to the
-                dataset_fn like in https://www.tensorflow.org/tutorials/distribute/input#tfdistributestrategydistribute_datasets_from_function
+            input_context (Union[tf.distribute.InputContext, deep_lss.utils.distribute.HorovodStrategy], optional):
+                Custom input_context attribute of my HorovodStrategy class or when using the TensorFlow builtin
+                distribution strategies, this is passed to the dataset_fn like in
+                https://www.tensorflow.org/tutorials/distribute/input#tfdistributestrategydistribute_datasets_from_function
                 Then, the dataset is sharded. Defaults to None for a non distributed dataset.
 
                 Example usage:
                     def dataset_fn(input_context):
-                        dset = fiducial_pipeline.get_fiducial_dset(
+                        dset = fiducial_pipeline.get_grid_dset(
                             tfr_pattern,
-                            batch_size,
+                            local_batch_size,
                             input_context=input_context,
                         )
 
@@ -121,10 +123,12 @@ class GridPipeline(MSFMpipeline):
         # shard for distributed evaluation
         if input_context is not None:
             # NOTE Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2. This is black magic since
-            # input_context.num_input_pipelines = 1, so I don't know how the sharding happens, but it does, see
-            # distributed_sharding.ipynb
+            # print(input_context.num_input_pipelines) yields 1, so I don't know how the sharding happens, but it does,
+            # see distributed_sharding.ipynb
+
+            # NOTE My HorovodStrategy is written to be compatible with this
             dset = dset.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
-            LOGGER.info(f"Sharding the dataset according to the input_context")
+            LOGGER.info(f"Sharding the dataset over the .tfrecord files according to the input context")
 
         # interleave, block_length is the number of files every reader reads
         if local_batch_size == "cosmo":
