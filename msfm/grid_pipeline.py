@@ -184,7 +184,7 @@ class GridPipeline(MSFMpipeline):
         )
 
         # prefetch
-        if n_prefetch > 0:
+        if n_prefetch != 0:
             if n_prefetch is None:
                 n_prefetch = tf.data.AUTOTUNE
             dset = dset.prefetch(n_prefetch)
