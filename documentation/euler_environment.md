@@ -23,3 +23,8 @@ All of these packages are simply installed with
 ```
 pip install -e .
 ```
+Finally, to install the jupyter kernel run
+```
+python3 -m pip install ipykernel
+python -m ipykernel install --user --name dlss --display-name dlss
+```
