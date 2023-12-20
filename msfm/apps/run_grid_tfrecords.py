@@ -462,7 +462,7 @@ def merge(indices, args):
 
     cls_dset = tf.data.Dataset.list_files(tfr_pattern)
     cls_dset = cls_dset.interleave(tf.data.TFRecordDataset, cycle_length=16, block_length=1)
-    cls_dset = cls_dset.map(tfrecords.parse_inverse_fiducial_cls)
+    cls_dset = cls_dset.map(tfrecords.parse_inverse_grid_cls)
 
     cls = []
     cosmos = []
@@ -490,6 +490,8 @@ def merge(indices, args):
         f.create_dataset("cosmos", data=cosmos)
         f.create_dataset("i_sobols", data=i_sobols)
         f.create_dataset("i_examples", data=i_examples)
+
+    LOGGER.info(f"Done with merging of the grid power spectra")
 
 
 def _load_data_vecs(filename):

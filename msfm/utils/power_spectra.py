@@ -62,7 +62,7 @@ def get_cls(alms, l_mins, l_maxs, n_bins, with_cross=True):
         l_mins (list): List of largest scales, same length as the number of tomographic bins.
         l_maxs (list): List of smallest scales, same length as the number of tomographic bins.
         n_bins (int): Number of bins to average the Cls in.
-        cross (bool, optional): Whether to calculate the cross spectra or auto only. Defaults to True.
+        with_cross (bool, optional): Whether to calculate the cross spectra or auto only. Defaults to True.
 
     Returns:
         np.ndarray: If cross=False: an array with the same length as alms containing the auto-spectra, otherwise an

@@ -10,7 +10,9 @@ Tools to handle maps like conversion to and from data vectors, partially made mo
 import numpy as np
 from numba import njit
 
-from msfm.utils import logger
+from msfm.utils import logger, imports
+
+hp = imports.import_healpy(parallel=False)
 
 LOGGER = logger.get_logger(__file__)
 
@@ -110,7 +112,7 @@ def map_to_data_vec(hp_map, data_vec_len, corresponding_pix, cutout_pix, remove_
         cutout_pix (np.ndarray): pixels that should be cut out from the map (excludes padding)
         remove_mean (bool): Remove the mean within the footprint, that is without including the padding. This is
             applied to weak lensing maps.
-        divide_by_mean (bool): Remove the mean and divide by the mean within the footprint, that is without including 
+        divide_by_mean (bool): Remove the mean and divide by the mean within the footprint, that is without including
             the padding. This is applied to galaxy clustering maps.
 
     Returns:
@@ -163,6 +165,7 @@ def data_vec_to_map(data_vec, n_pix, corresponding_pix, cutout_pix):
 
     return hp_map
 
+
 @njit
 def patch_to_data_vec(patch, data_vec_len, corresponding_pix):
     """
@@ -188,3 +191,22 @@ def patch_to_data_vec(patch, data_vec_len, corresponding_pix):
         data_vec[corresponding_pix[i]] = patch[i]
 
     return data_vec
+
+
+def tomographic_reorder(map_in, r2n=False, n2r=False):
+    """Like hp.reorder, but for tomographic maps.
+
+    Args:
+        map_in (np.ndarray): Tomographic input maps of shape (n_pix, n_z_bins).
+        r2n (bool, optional): RING to NEST. Defaults to False.
+        n2r (bool, optional): NEST to RING. Defaults to False.
+
+    Returns:
+        np.ndarray: Reordered tomographic maps.
+    """
+    assert not (r2n and n2r), "Only one of r2n and n2r can be true"
+
+    for i in range(map_in.shape[1]):
+        map_in[:, i] = hp.reorder(map_in[:, i], r2n=r2n, n2r=n2r)
+
+    return map_in

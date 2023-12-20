@@ -39,5 +39,4 @@ def import_healpy(parallel=False):
     hp_LOGGER = logging.getLogger("healpy")
     hp_LOGGER.disabled = True
 
-    # return hp
-    return None
+    return hp

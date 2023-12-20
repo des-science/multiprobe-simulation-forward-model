@@ -4,7 +4,8 @@
 Created December 2022
 Author: Arne Thomsen
 
-Evaluate the power spectra from the .tfrecords files produced by the forward model pipelines.
+Evaluate the power spectra from the .tfrecords files produced by the forward model pipelines. This is obsolete now that
+the power spectra are calculated in the generation of the .tfrecords.
 """
 
 import numpy as np
@@ -129,7 +130,7 @@ def main(indices, args):
     n_noise_per_example = conf["analysis"][args.simset]["n_noise_per_example"]
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo * n_noise_per_example
 
-    def maps_to_cls(data_vector):
+    def data_vector_to_cls(data_vector):
         # swap the tomographic and pixel axes
         maps = np.zeros((len(l_mins), n_pix))
         maps[:, data_vec_pix] = data_vector.T
@@ -170,7 +171,7 @@ def main(indices, args):
                 for data_vector in LOGGER.progressbar(
                     data_vectors, total=n_examples_per_cosmo, desc="Loop over examples", at_level="info"
                 ):
-                    cls.append(maps_to_cls(data_vector))
+                    cls.append(data_vector_to_cls(data_vector))
 
                 cls = np.stack(cls, axis=0)
 
@@ -215,7 +216,7 @@ def main(indices, args):
                 i_noises.append(i_noise[0])
                 data_vector = np.squeeze(data_vector)
 
-                cls.append(maps_to_cls(data_vector))
+                cls.append(data_vector_to_cls(data_vector))
 
             cls = np.stack(cls, axis=0)
             i_examples = np.stack(i_examples, axis=0)

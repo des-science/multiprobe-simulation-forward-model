@@ -354,7 +354,6 @@ def main(indices, args):
         n_done = 0
         with tf.io.TFRecordWriter(tfr_file) as file_writer:
             for j in LOGGER.progressbar(range(js, je), at_level="info", desc="Storing DES examples\n", total=je - js):
-
                 if args.debug:
                     if n_done > 5:
                         LOGGER.warning("Debug mode, aborting after 5 subindices")
@@ -494,6 +493,8 @@ def merge(indices, args):
     with h5py.File(os.path.join(args.dir_out, "fiducial_cls.h5"), "w") as f:
         f.create_dataset("cls", data=cls)
         f.create_dataset("i_examples", data=i_examples)
+
+    LOGGER.info(f"Done with merging of the fiducial power spectra")
 
 
 def _load_example(filename, i_example, map_labels):

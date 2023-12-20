@@ -67,16 +67,16 @@ def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=
     Returns:
         np.array: Healpy map of shape (n_pix,)
     """
+
     assert not (l_max is None and theta_fwhm is None), "Either l_max or theta_fwhm must be specified"
     assert l_max is None or theta_fwhm is None, "Only one of l_max or theta_fwhm can be specified"
 
     # alm are computed for the standard l_max = 3 * n_side - 1
     l = hp.Alm.getlm(3 * n_side - 1)[0]
 
-    # remove large scales (hard cut)
-    sigmoid = lambda x, delta: 1 / (1 + np.exp(x - delta))
+    # remove large scales (hard cut), the sigmoid is close to zero for l < l_min and close to one for l > l_min
+    sigmoid = lambda x, delta: 1 / (1 + np.exp(delta - x))
     alm = sigmoid(l, delta=l_min) * alm
-    # alm[l < l_min] = 0.0
 
     # remove small scales (Gaussian smoothing)
     if l_max is not None:

@@ -388,7 +388,7 @@ def main(indices, args):
                     LOGGER.info(f"Done with map type {out_map_type} after {LOGGER.timer.elapsed('map_type')}")
 
             # save the results
-            save_output_container(
+            _save_output_container(
                 conf,
                 data_vec_file,
                 data_vec_container,
@@ -405,7 +405,7 @@ def main(indices, args):
         yield index
 
 
-def save_output_container(
+def _save_output_container(
     conf, filename, container, i_perm, n_perms_per_cosmo, n_patches, n_noise_per_example, output_len
 ):
     """Saves an .h5 file collecting all results on the level of the cosmological parameters (so for different
