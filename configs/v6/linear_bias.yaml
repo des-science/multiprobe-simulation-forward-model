@@ -7,7 +7,6 @@ dirs:
     fiducial: "/global/cfs/cdirs/des/cosmogrid/DESY3/fiducial"
   # relative to the root of this repository
   redshift_distributions: "data/redshift_distributions"
-  peak_binning: "data/peaks/binning"
 
 files:
   # relative to the root of this repository
@@ -17,6 +16,7 @@ files:
   grid_params: "data/CosmoGridV1_param_dirs.npy"
   meta_info: "data/CosmoGridV1_metainfo.h5"
   healpy_data: "data/healpy_data"
+  peak_binning: "data/peaks/binning/v6_linear_bias.h5"
 
 survey:
   name: "DESy3"
@@ -114,7 +114,17 @@ analysis:
   peak_statistics:
     n_bins: 15
     # FWHM of a Gaussian in arcmin
-    smoothing_scales: [0.0]
+    theta_fwhm:
+      [
+        [10.0, 20.0],
+        [10.0, 20.0],
+        [10.0, 20.0],
+        [10.0, 20.0],
+        [10.0, 20.0],
+        [10.0, 20.0],
+        [10.0, 20.0],
+        [10.0, 20.0],
+      ]
   grid:
     # CosmoGrid
     n_cosmos: 2500

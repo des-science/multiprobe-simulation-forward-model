@@ -110,12 +110,10 @@ def get_logger(filepath, logging_level=None, progressbar_color="red"):
 
 
 def set_logger_level(logger, level):
-
     logger.setLevel(logging_levels[level])
 
 
 def set_all_loggers_level(level):
-
     os.environ["PYTHON_LOGGER_LEVEL"] = level
 
     loggerDict = logging.root.manager.loggerDict

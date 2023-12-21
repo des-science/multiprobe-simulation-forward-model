@@ -45,7 +45,7 @@ def get_tasks(args):
 def resources(args):
     args = setup(args)
 
-    # 1h should actually be enough. CPU utilization is not great, but the memory usage is necessary
+    # TODO resource utilization has not been optimized yet
     if args.simset == "fiducial":
         resource_dict = dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=4)
     elif args.simset == "grid":
@@ -113,15 +113,19 @@ def main(indices, args):
     # setup up directories
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
-    binning_dir = os.path.join(repo_dir, conf["dirs"]["peak_binning"])
+    binning_file = os.path.join(repo_dir, conf["files"]["peak_binning"])
 
     # constants
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
+    n_z_bins = len(conf["survey"]["metacal"]["z_bins"]) + len(conf["survey"]["maglim"]["z_bins"])
 
     # peaks
     n_bins = conf["analysis"]["peak_statistics"]["n_bins"]
-    smoothing_scales = conf["analysis"]["peak_statistics"]["smoothing_scales"]
+    theta_fwhm = conf["analysis"]["peak_statistics"]["theta_fwhm"]
+    bins_centers, bins_edges, bins_fwhms = peak_statistics.get_binning_scheme(
+        binning_file, n_z_bins=n_z_bins, with_cross=True
+    )
 
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
@@ -136,12 +140,13 @@ def main(indices, args):
 
         peaks = peak_statistics.get_peaks(
             full_sky,
-            binning_dir=binning_dir,
             n_side=n_side,
             n_bins=n_bins,
-            smoothing_scales=smoothing_scales,
+            theta_fwhm=theta_fwhm,
             with_cross=True,
-            save_binning=False,
+            bins_centers=bins_centers,
+            bins_edges=bins_edges,
+            bins_fwhms=bins_fwhms,
         )
 
         return peaks
@@ -216,7 +221,7 @@ def main(indices, args):
             i_noises = []
             # loop over individual examples
             for data_vector, (i_example, i_noise) in LOGGER.progressbar(
-                dset, desc="Loop over examples", at_level="info"
+                dset, total=n_examples_per_cosmo // len(tfrecords), desc="Loop over examples", at_level="info"
             ):
                 # get rid of the batch dimension
                 i_examples.append(i_example[0])
