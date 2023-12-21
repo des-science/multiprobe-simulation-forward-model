@@ -162,7 +162,7 @@ class FiducialPipeline(MSFMpipeline):
             )
 
         # get the file names
-        dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=False)
+        dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=(not is_eval))
 
         # shard for distributed training
         if input_context is not None:
