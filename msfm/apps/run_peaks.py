@@ -12,7 +12,7 @@ Before running this, create the binning scheme with notebooks/peaks/binning.ipyn
 """
 
 import numpy as np
-import os, argparse, warnings, h5py, glob
+import os, argparse, warnings, h5py, glob, time
 
 from msfm import fiducial_pipeline, grid_pipeline
 from msfm.utils import files, logger, input_output, imports, maps, peak_statistics
@@ -45,11 +45,15 @@ def get_tasks(args):
 def resources(args):
     args = setup(args)
 
-    # TODO resource utilization has not been optimized yet
+    # memory: typically, the total memory consumption is around 2 GB per task
+    # CPU: with 8 cores per task, the total CPU utilization is around 70%
+    # time: this is meant for 2 smoothing scales
+
     if args.simset == "fiducial":
-        resource_dict = dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=4)
+        resource_dict = dict(main_memory=512, main_time=4, main_scratch=0, main_n_cores=8)
     elif args.simset == "grid":
-        resource_dict = dict(main_memory=2048, main_time=4, main_scratch=0, main_n_cores=4)
+        # when there's 2500 .tfrecords, such that each only contains a single cosmology, the 4h timeframe fits easily
+        resource_dict = dict(main_memory=512, main_time=4, main_scratch=0, main_n_cores=8)
 
     return resource_dict
 
@@ -87,6 +91,12 @@ def setup(args):
         default="configs/config.yaml",
         help="configuration yaml file",
     )
+    parser.add_argument(
+        "--max_sleep",
+        type=int,
+        default=60,
+        help="set the maximal amount of time to sleep before copying to avoid clashes",
+    )
     parser.add_argument("--debug", action="store_true", help="activate debug mode, then only run on 5 indices")
 
     args, _ = parser.parse_known_args(args)
@@ -108,6 +118,14 @@ def main(indices, args):
     args = setup(args)
     tfrecords = sorted(glob.glob(args.tfr_pattern))
 
+    if args.debug:
+        args.max_sleep = 0
+        LOGGER.warning("!!! debug mode !!!")
+
+    sleep_sec = np.random.uniform(0, args.max_sleep) if args.max_sleep > 0 else 0
+    LOGGER.info(f"Waiting for {sleep_sec:.2f}s to prevent overloading IO")
+    time.sleep(sleep_sec)
+
     conf = files.load_config(args.config)
 
     # setup up directories
@@ -123,7 +141,7 @@ def main(indices, args):
     # peaks
     n_bins = conf["analysis"]["peak_statistics"]["n_bins"]
     theta_fwhm = conf["analysis"]["peak_statistics"]["theta_fwhm"]
-    bins_centers, bins_edges, bins_fwhms = peak_statistics.get_binning_scheme(
+    bins_centers, bins_edges, bins_fwhms = peak_statistics.get_peaks_bins(
         binning_file, n_z_bins=n_z_bins, with_cross=True
     )
 

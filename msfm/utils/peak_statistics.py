@@ -22,7 +22,7 @@ hp = imports.import_healpy(parallel=True)
 LOGGER = logger.get_logger(__file__)
 
 
-def get_binning_scheme(binning_file, n_z_bins, with_cross=True):
+def get_peaks_bins(binning_file, n_z_bins, with_cross=True):
     """Loads the binning scheme from disk into memory.
 
     Args:
@@ -35,7 +35,6 @@ def get_binning_scheme(binning_file, n_z_bins, with_cross=True):
     """
 
     with h5py.File(binning_file, "r") as f:
-
         # the desired i,j indexing is easiest achieved with a dictionary
         edges = {}
         centers = {}
