@@ -47,7 +47,7 @@ LOGGER = logger.get_logger(__file__)
 
 
 def resources(args):
-    return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=4)
+    return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=4, merge_memory=2048, merge_n_cores=4)
 
 
 def setup(args):
@@ -456,40 +456,72 @@ def merge(indices, args):
     args = setup(args)
     conf = files.load_config(args.config)
 
+    n_cosmos = conf["analysis"]["grid"]["n_cosmos"]
+    n_patches = conf["analysis"]["n_patches"]
+    n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
+    n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
+    n_signal_per_cosmo = n_patches * n_perms_per_cosmo
+
     tfr_pattern = filenames.get_filename_tfrecords(
         args.dir_out, tag=conf["survey"]["name"] + args.file_suffix, index=None, simset="grid", return_pattern=True
     )
 
     cls_dset = tf.data.Dataset.list_files(tfr_pattern)
-    cls_dset = cls_dset.interleave(tf.data.TFRecordDataset, cycle_length=16, block_length=1)
-    cls_dset = cls_dset.map(tfrecords.parse_inverse_grid_cls)
+    # cycle_length = num_readers = 1 to not mix cosmologies
+    cls_dset = cls_dset.interleave(tf.data.TFRecordDataset, cycle_length=1, block_length=1)
+    # the default arguments for parse_inverse_fiducial_cls are fine since we're not in graph mode
+    cls_dset = cls_dset.map(tfrecords.parse_inverse_grid_cls, num_parallel_calls=tf.data.AUTOTUNE)
+    # every batch is a single cosmology
+    cls_dset = cls_dset.batch(n_signal_per_cosmo)
 
     cls = []
     cosmos = []
     i_sobols = []
     i_examples = []
-    for example in cls_dset:
-        cls.append(example["cls"].numpy())
-        cosmos.append(example["cosmo"].numpy())
-        i_sobols.append(int(example["i_sobol"]))
-        i_examples.append(int(example["i_example"]))
+    i_noises = []
+    for example in LOGGER.progressbar(
+        cls_dset, total=n_cosmos, desc="Looping through the different cosmologies in the .tfrecords", at_level="info"
+    ):
+        cl = example["cls"].numpy()
+        cosmo = example["cosmo"].numpy()
+        i_sobol = example["i_sobol"].numpy()
+        i_example = example["i_example"].numpy()
+
+        # concatenate the noise realizations along the same axis as the examples
+        cl = np.concatenate([cl[:, i, ...] for i in range(cl.shape[1])], axis=0)
+        # tiling has the same form as the above concatenation
+        cosmo = np.tile(cosmo, (n_noise_per_example, 1))
+        i_sobol = np.tile(i_sobol, n_noise_per_example)
+        i_example = np.tile(i_example, n_noise_per_example)
+
+        # noise is treated separately because it's along a separate dimension in the .tfrecords. This here is preserves
+        # the order imposed above in power_spectrum = ...
+        i_noise = np.arange(n_noise_per_example)
+        i_noise = np.repeat(i_noise, n_signal_per_cosmo)
+
+        cls.append(cl)
+        cosmos.append(cosmo)
+        i_sobols.append(i_sobol)
+        i_examples.append(i_example)
+        i_noises.append(i_noise)
 
     # results
-    cls = np.concatenate(cls, axis=0)
+    cls = np.stack(cls, axis=0)
     cosmos = np.stack(cosmos, axis=0)
     i_sobols = np.array(i_sobols)
     i_examples = np.array(i_examples)
+    i_noises = np.array(i_noises)
 
-    cls = np.concatenate(cls, axis=0)
-    cosmos = np.stack(cosmos, axis=0)
-    i_sobols = np.array(i_sobols)
-    i_examples = np.array(i_examples)
+    # separate folder on the same level as tfrecords
+    out_dir = os.path.join(args.dir_out, "../../cls")
+    os.makedirs(out_dir, exist_ok=True)
 
-    with h5py.File(os.path.join(args.dir_out, "grid_cls.h5"), "w") as f:
+    with h5py.File(os.path.join(out_dir, "grid_cls.h5"), "w") as f:
         f.create_dataset("cls", data=cls)
-        f.create_dataset("cosmos", data=cosmos)
-        f.create_dataset("i_sobols", data=i_sobols)
-        f.create_dataset("i_examples", data=i_examples)
+        f.create_dataset("cosmo", data=cosmos)
+        f.create_dataset("i_sobol", data=i_sobols)
+        f.create_dataset("i_example", data=i_examples)
+        f.create_dataset("i_noise", data=i_noises)
 
     LOGGER.info(f"Done with merging of the grid power spectra")
 
