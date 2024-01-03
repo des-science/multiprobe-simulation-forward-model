@@ -45,7 +45,7 @@ LOGGER = logger.get_logger(__file__)
 
 
 def resources(args):
-    return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=4)
+    return dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=4, merge_memory=2048)
 
 
 def setup(args):
@@ -471,28 +471,54 @@ def merge(indices, args):
     args = setup(args)
     conf = files.load_config(args.config)
 
+    # for proper bookkeeping
+    n_patches = conf["analysis"]["n_patches"]
+    n_perms_per_cosmo = conf["analysis"]["fiducial"]["n_perms_per_cosmo"]
+    n_examples = n_patches * n_perms_per_cosmo
+
     tfr_pattern = filenames.get_filename_tfrecords(
         args.dir_out, tag=conf["survey"]["name"] + args.file_suffix, index=None, simset="fiducial", return_pattern=True
     )
 
     cls_dset = tf.data.Dataset.list_files(tfr_pattern)
     cls_dset = cls_dset.interleave(tf.data.TFRecordDataset, cycle_length=16, block_length=1)
+    # the default arguments for parse_inverse_fiducial_cls are fine since we're not in graph mode
     cls_dset = cls_dset.map(tfrecords.parse_inverse_fiducial_cls)
 
     cls = []
     i_examples = []
-    for example in cls_dset:
+    for example in LOGGER.progressbar(
+        cls_dset, total=n_examples, desc="Looping through the .tfrecords", at_level="info"
+    ):
         cls.append(example["cls"].numpy())
         i_examples.append(int(example["i_example"]))
 
-    # cls.shape[0] = n_noise * n_examples
-    cls = np.concatenate(cls, axis=0)
-    # i_examples.shape[0] = n_noise * n_examples
-    i_examples = np.array(i_examples)
+    # noise realizations
+    n_noise = example["cls"].numpy().shape[0]
+    i_noise = np.arange(n_noise)
+    i_noise = np.tile(i_noise, n_examples)
 
-    with h5py.File(os.path.join(args.dir_out, "fiducial_cls.h5"), "w") as f:
+    # concatenate the different simulation runs and noise realizations along the same axis
+    # cls.shape[0] = n_examples * n_noise
+    cls = np.concatenate(cls, axis=0)
+
+    # i_examples.shape[0] = n_examples
+    i_examples = np.array(i_examples)
+    i_examples = np.repeat(i_examples, n_noise, axis=0)
+
+    # sort by example index
+    i_sort = np.argsort(i_examples)
+    cls = cls[i_sort, ...]
+    i_examples = i_examples[i_sort]
+    i_noise = i_noise[i_sort]
+
+    out_dir = os.path.join(args.dir_out, "../../cls")
+    os.makedirs(out_dir, exist_ok=True)
+
+    with h5py.File(os.path.join(out_dir, "fiducial_cls.h5"), "w") as f:
         f.create_dataset("cls", data=cls)
-        f.create_dataset("i_examples", data=i_examples)
+        f.create_dataset("i_example", data=i_examples)
+        f.create_dataset("i_noise", data=i_noise)
 
     LOGGER.info(f"Done with merging of the fiducial power spectra")
 
