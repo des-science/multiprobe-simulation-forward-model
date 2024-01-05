@@ -398,7 +398,7 @@ def main(indices, args):
                             dg, bg_label="fiducial", is_true_fiducial=True, np_seed=j
                         )
 
-                        cls = power_spectra.run_tfrecords_alm_to_cl(conf, alm_kg, alm_sn_realz, alm_dg, alm_pn_realz)
+                        cls = power_spectra.run_tfrecords_alm_to_cl(alm_kg, alm_sn_realz, alm_dg, alm_pn_realz)
 
                     # cosmological perturbations
                     else:
@@ -512,11 +512,29 @@ def merge(indices, args):
     i_examples = i_examples[i_sort]
     i_noise = i_noise[i_sort]
 
-    out_dir = os.path.join(args.dir_out, "../../cls")
+    # perform the binning (all examples at the same time)
+    binned_cls, bin_edges = power_spectra.bin_cls(
+        cls,
+        l_mins=conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
+        + conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+        l_maxs=conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
+        + conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+        n_bins=conf["analysis"]["power_spectra"]["n_bins"],
+        with_cross=True,
+    )
+
+    # separate folder on the same level as tfrecords
+    if args.debug:
+        out_dir = args.dir_out
+    else:
+        out_dir = os.path.join(args.dir_out, "../../cls")
     os.makedirs(out_dir, exist_ok=True)
 
+    LOGGER.info(f"Saving the results in {out_dir}")
     with h5py.File(os.path.join(out_dir, "fiducial_cls.h5"), "w") as f:
-        f.create_dataset("cls", data=cls)
+        f.create_dataset("cls/raw", data=cls)
+        f.create_dataset("cls/binned", data=binned_cls)
+        f.create_dataset("cls/bin_edges", data=bin_edges)
         f.create_dataset("i_example", data=i_examples)
         f.create_dataset("i_noise", data=i_noise)
 

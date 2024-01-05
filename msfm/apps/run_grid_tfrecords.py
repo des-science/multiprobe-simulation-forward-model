@@ -419,7 +419,7 @@ def main(indices, args):
                     dg, pn_realz, alm_dg, alm_pn_realz = current_clustering_transform(dg, np_seed=i_sobol + i_example)
 
                     # power spectra
-                    cls = power_spectra.run_tfrecords_alm_to_cl(conf, alm_kg, alm_sn_realz, alm_dg, alm_pn_realz)
+                    cls = power_spectra.run_tfrecords_alm_to_cl(alm_kg, alm_sn_realz, alm_dg, alm_pn_realz)
 
                     serialized = tfrecords.parse_forward_grid(
                         kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_example
@@ -475,6 +475,8 @@ def merge(indices, args):
     cls_dset = cls_dset.batch(n_signal_per_cosmo)
 
     cls = []
+    binned_cls = []
+    bin_edges = []
     cosmos = []
     i_sobols = []
     i_examples = []
@@ -489,6 +491,18 @@ def merge(indices, args):
 
         # concatenate the noise realizations along the same axis as the examples
         cl = np.concatenate([cl[:, i, ...] for i in range(cl.shape[1])], axis=0)
+
+        # perform the binning (all examples of a single cosmology at once)
+        binned_cl, bin_edge = power_spectra.bin_cls(
+            cl,
+            l_mins=conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
+            + conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+            l_maxs=conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
+            + conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+            n_bins=conf["analysis"]["power_spectra"]["n_bins"],
+            with_cross=True,
+        )
+
         # tiling has the same form as the above concatenation
         cosmo = np.tile(cosmo, (n_noise_per_example, 1))
         i_sobol = np.tile(i_sobol, n_noise_per_example)
@@ -500,6 +514,8 @@ def merge(indices, args):
         i_noise = np.repeat(i_noise, n_signal_per_cosmo)
 
         cls.append(cl)
+        binned_cls.append(binned_cl)
+        bin_edges.append(bin_edge)
         cosmos.append(cosmo)
         i_sobols.append(i_sobol)
         i_examples.append(i_example)
@@ -507,17 +523,25 @@ def merge(indices, args):
 
     # results
     cls = np.stack(cls, axis=0)
+    binned_cls = np.stack(binned_cls, axis=0)
+    bin_edges = np.stack(bin_edges, axis=0)
     cosmos = np.stack(cosmos, axis=0)
     i_sobols = np.array(i_sobols)
     i_examples = np.array(i_examples)
     i_noises = np.array(i_noises)
 
     # separate folder on the same level as tfrecords
-    out_dir = os.path.join(args.dir_out, "../../cls")
+    if args.debug:
+        out_dir = args.dir_out
+    else:
+        out_dir = os.path.join(args.dir_out, "../../cls")
     os.makedirs(out_dir, exist_ok=True)
 
+    LOGGER.info(f"Saving the results in {out_dir}")
     with h5py.File(os.path.join(out_dir, "grid_cls.h5"), "w") as f:
-        f.create_dataset("cls", data=cls)
+        f.create_dataset("cls/raw", data=cls)
+        f.create_dataset("cls/binned", data=binned_cls)
+        f.create_dataset("cls/bin_edges", data=bin_edges)
         f.create_dataset("cosmo", data=cosmos)
         f.create_dataset("i_sobol", data=i_sobols)
         f.create_dataset("i_example", data=i_examples)
