@@ -82,7 +82,7 @@ class GridPipeline(MSFMpipeline):
         n_readers: int = 8,
         n_prefetch: int = tf.data.AUTOTUNE,
         # training
-        is_training: bool = False,
+        is_eval: bool = True,
         file_name_shuffle_buffer: int = 128,
         examples_shuffle_buffer: int = 128,
         file_name_shuffle_seed: int = 11,
@@ -124,7 +124,7 @@ class GridPipeline(MSFMpipeline):
         assert n_noise >= 1, f"n_noise = {n_noise} must be >= 1"
 
         # get the file names and dataset them
-        dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=is_training, seed=file_name_shuffle_seed)
+        dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=(not is_eval), seed=file_name_shuffle_seed)
 
         # shard for distributed evaluation
         if input_context is not None:
@@ -137,7 +137,7 @@ class GridPipeline(MSFMpipeline):
             LOGGER.info(f"Sharding the dataset over the .tfrecord files according to the input context")
 
         # repeat and shuffle the files
-        if is_training:
+        if not is_eval:
             dset = dset.repeat()
             dset = dset.shuffle(file_name_shuffle_buffer, seed=file_name_shuffle_seed)
             LOGGER.info(f"Shuffling file names with shuffle_buffer = {file_name_shuffle_buffer}")
@@ -145,13 +145,13 @@ class GridPipeline(MSFMpipeline):
         # interleave, block_length is the number of files every reader reads
         if local_batch_size == "cosmo":
             assert n_readers == 1, f"Can only read from a single file concurrently when local_batch_size = 'cosmo'"
-            assert not is_training, f"The 'cosmo' batching is only for validation"
+            assert is_eval, f"The 'cosmo' batching is only for validation"
         dset = dset.interleave(
             tf.data.TFRecordDataset,
             cycle_length=n_readers,
             block_length=1,
             num_parallel_calls=tf.data.AUTOTUNE,
-            deterministic=(not is_training),
+            deterministic=is_eval,
         )
         LOGGER.info(f"Interleaving with n_readers = {n_readers}")
 
@@ -182,7 +182,7 @@ class GridPipeline(MSFMpipeline):
         )
 
         # shuffle the examples
-        if is_training:
+        if not is_eval:
             dset = dset.shuffle(examples_shuffle_buffer, seed=examples_shuffle_seed)
             LOGGER.info(f"Shuffling examples with shuffle_buffer = {examples_shuffle_buffer}")
 
