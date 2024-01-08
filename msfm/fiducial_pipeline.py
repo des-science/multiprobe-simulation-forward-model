@@ -166,11 +166,11 @@ class FiducialPipeline(MSFMpipeline):
 
         # shard for distributed training
         if input_context is not None:
-            # NOTE Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2. This is black magic since
-            # print(input_context.num_input_pipelines) yields 1, so I don't know how the sharding happens, but it does,
-            # see distributed_sharding.ipynb
-
+            # NOTE that for the builtin MirroredStrategy, input_context.num_input_pipelines = 1 and
+            # input_context.input_pipeline_id = 0, indicating that no sharding happens
             # NOTE My HorovodStrategy is written to be compatible with this
+
+            # Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2
             dset = dset.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
             LOGGER.info(f"Sharding the dataset over the .tfrecord files according to the input context")
 
