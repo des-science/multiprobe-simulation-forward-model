@@ -2,33 +2,33 @@
 dirs:
   # absolute path at NERSC
   CosmoGrid:
-    root: "/global/cfs/cdirs/des/cosmogrid/DESY3"
-    grid: "/global/cfs/cdirs/des/cosmogrid/DESY3/grid"
-    fiducial: "/global/cfs/cdirs/des/cosmogrid/DESY3/fiducial"
+    root: /global/cfs/cdirs/des/cosmogrid/DESY3
+    grid: /global/cfs/cdirs/des/cosmogrid/DESY3/grid
+    fiducial: /global/cfs/cdirs/des/cosmogrid/DESY3/fiducial
   # relative to the root of this repository
-  redshift_distributions: "data/redshift_distributions"
+  redshift_distributions: data/redshift_distributions
 
 files:
   # relative to the root of this repository
-  pixels: "data/DESY3_pixels_512.h5"
-  noise: "data/DESY3_noise.h5"
-  grid_perms: "data/CosmoGridV1_perm_dirs.npy"
-  grid_params: "data/CosmoGridV1_param_dirs.npy"
-  meta_info: "data/CosmoGridV1_metainfo.h5"
-  healpy_data: "data/healpy_data"
-  peak_binning: "data/peaks/binning/v6_linear_bias.h5"
+  pixels: data/DESY3_pixels_512.h5
+  noise: data/DESY3_noise.h5
+  grid_perms: data/CosmoGridV1_perm_dirs.npy
+  grid_params: data/CosmoGridV1_param_dirs.npy
+  meta_info: data/CosmoGridV1_metainfo.h5
+  healpy_data: data/healpy_data
+  peak_binning: data/peaks/binning/v6_linear_bias.h5
 
 survey:
-  name: "DESy3"
+  name: DESy3
   metacal:
     map_types:
-      input: ["kg", "ia", "dg"]
-      output: ["kg", "ia", "sn"]
+      input: [kg, ia, dg]
+      output: [kg, ia, sn]
     # from Table 1 in https://arxiv.org/pdf/2105.13543.pdf, in units of galaxies/deg^2
     n_gal: [5313.6, 5324.4, 5342.4, 5259.6]
     # from Table 2 in https://arxiv.org/pdf/2012.08566.pdf
     z_lims: [[0.0, 0.358], [0.358, 0.631], [0.631, 0.872], [0.872, 2.0]]
-    z_bins: ["desy3metacal1", "desy3metacal2", "desy3metacal3", "desy3metacal4"]
+    z_bins: [desy3metacal1, desy3metacal2, desy3metacal3, desy3metacal4]
     # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf, normal distribution parameters
     z_errors:
       mu: [0.0, 0.0, 0.0, 0.0]
@@ -42,13 +42,13 @@ survey:
         sigma: [0.0091, 0.0078, 0.0076, 0.0076]
   maglim:
     map_types:
-      input: ["dg"]
-      output: ["dg"]
+      input: [dg]
+      output: [dg]
     # from Table 1 in https://arxiv.org/pdf/2105.13540.pdf, in units of galaxies/deg^2
     n_gal: [540.0, 385.2, 392.4, 525.6] # , 381.6, 360.0]
     # from Table 2 in https://arxiv.org/pdf/2011.03411.pdf
     z_lims: [[0.15, 0.35], [0.35, 0.50], [0.50, 0.65], [0.65, 0.80]] # , [0.80, 0.95], [0.95, 1.05]]
-    z_bins: ["desy3maglim1", "desy3maglim2", "desy3maglim3", "desy3maglim4"] # , "desy3maglim5", "desy3maglim6"]
+    z_bins: [desy3maglim1, desy3maglim2, desy3maglim3, desy3maglim4] # , "desy3maglim5", "desy3maglim6"]
     # from Table 2 in https://arxiv.org/pdf/2105.13546.pdf, normal distribution parameters
     z_errors:
       shift:
@@ -68,13 +68,13 @@ analysis:
   # the six cosmological parameters of the CosmoGrid have to be listed first
   params:
     # same ordering as in the CosmoGrid
-    cosmo: ["Om", "s8", "Ob", "H0", "ns", "w0"]
+    cosmo: [Om, s8, Ob, H0, ns, w0]
     # NLA model
-    ia: ["Aia", "n_Aia"]
+    ia: [Aia, n_Aia]
     # galaxy biasing
     bg:
-      linear: ["bg", "n_bg"]
-      quadratic: ["bg2", "n_bg2"]
+      linear: [bg, n_bg]
+      quadratic: [bg2, n_bg2]
   # see scale_cuts.ipynb. All angles are in arcmin.
   # The angle -> ell conversion is done in the "naive" way in 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
   scale_cuts:
