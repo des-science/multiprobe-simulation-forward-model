@@ -105,7 +105,9 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
             mean Cls in each bin. bin_edges contains the binning details.
     """
 
-    assert cls.ndim == 2 or cls.ndim == 3, f"cls has shape {cls.shape}, which is not 2 or 3 dimensional"
+    assert (
+        cls.ndim == 2 or cls.ndim == 3 or cls.ndim == 4
+    ), f"cls has shape {cls.shape}, which is not 2, 3 or 4 dimensional"
     assert len(l_mins) == len(l_maxs), f"l_mins and l_maxs have different lengths: {len(l_mins)} and {len(l_maxs)}"
     n_z = len(l_mins)
 
@@ -132,6 +134,11 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
 
     assert len(cross_bins) == n_cross_z
 
+    four_dim_input = cls.ndim == 4
+    if four_dim_input:
+        binned_cls_shape = cls.shape[:2] + (n_bins - 1, n_cross_z)
+        cls = cls.reshape(-1, n_ell, n_cross_z)
+
     binned_cls = []
     bin_edges = []
     for i in range(n_cross_z):
@@ -141,8 +148,14 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
         binned_cls.append(binned[0])
         bin_edges.append(binned[1])
 
+    # shape (n_bins-1, n_cross_z) or (n_examples, n_bins-1, n_cross_z)
     binned_cls = np.stack(binned_cls, axis=-1)
+    if four_dim_input:
+        binned_cls = binned_cls.reshape(binned_cls_shape)
+
     bin_edges = np.stack(bin_edges, axis=-1)
+    if cls.ndim == 4:
+        pass
 
     return binned_cls, bin_edges
 
