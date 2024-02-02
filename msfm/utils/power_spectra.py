@@ -10,7 +10,7 @@ by Janis Fluri.
 import numpy as np
 import scipy.stats
 
-from msfm.utils import logger, imports
+from msfm.utils import logger, imports, scales
 
 hp = imports.import_healpy(parallel=True)
 
@@ -150,12 +150,16 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
     for i in range(n_cross_z):
         # select a single (cross) tomographic bin
         current_cls = cls[..., i]
+        current_bins = cross_bins[i]
+        current_ell = ell
+
+        # smooth in the same way as the maps
+        current_cls = scales.cls_to_smoothed_cls(current_cls, l_min=cross_l_mins[i], l_max=cross_l_maxs[i])
 
         # scipy.stats.binned_statistic includes values outside the bin range in the first/last bin, so those have to be
         # manually removed first
-        current_cls = current_cls[...,(cross_l_mins[i] < ell) & (ell < cross_l_maxs[i])]
-        current_ell = ell[(cross_l_mins[i] < ell) & (ell < cross_l_maxs[i])]
-        current_bins = cross_bins[i]
+        # current_cls = current_cls[...,(cross_l_mins[i] < ell) & (ell < cross_l_maxs[i])]
+        # current_ell = ell[(cross_l_mins[i] < ell) & (ell < cross_l_maxs[i])]
 
         binned = scipy.stats.binned_statistic(current_ell, current_cls, statistic="mean", bins=current_bins)
 
