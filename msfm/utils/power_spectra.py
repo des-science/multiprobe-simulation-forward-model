@@ -114,6 +114,7 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
     # minus indexing to be compatible with both the 2d and 3d case
     n_cross_z = cls.shape[-1]
     n_ell = cls.shape[-2]
+    ell = np.arange(n_ell)
 
     if with_cross:
         assert n_cross_z == n_z * (n_z + 1) // 2
@@ -121,6 +122,8 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
         assert n_cross_z == n_z
 
     # translate the two indices to a single one in a list
+    cross_l_mins = []
+    cross_l_maxs = []
     cross_bins = []
     for i in range(n_z):
         for j in range(n_z):
@@ -128,6 +131,9 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
                 # always conservative for cross bins
                 l_min = max(l_mins[i], l_mins[j])
                 l_max = min(l_maxs[i], l_maxs[j])
+
+                cross_l_mins.append(l_min)
+                cross_l_maxs.append(l_max)
 
                 bins = get_cl_bins(l_min, l_max, n_bins)
                 cross_bins.append(bins)
@@ -142,8 +148,16 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
     binned_cls = []
     bin_edges = []
     for i in range(n_cross_z):
-        bins = cross_bins[i]
-        binned = scipy.stats.binned_statistic(np.arange(n_ell), cls[..., i], statistic="mean", bins=bins)
+        # select a single (cross) tomographic bin
+        current_cls = cls[..., i]
+
+        # scipy.stats.binned_statistic includes values outside the bin range in the first/last bin, so those have to be
+        # manually removed first
+        current_cls = current_cls[...,(cross_l_mins[i] < ell) & (ell < cross_l_maxs[i])]
+        current_ell = ell[(cross_l_mins[i] < ell) & (ell < cross_l_maxs[i])]
+        current_bins = cross_bins[i]
+
+        binned = scipy.stats.binned_statistic(current_ell, current_cls, statistic="mean", bins=current_bins)
 
         binned_cls.append(binned[0])
         bin_edges.append(binned[1])
