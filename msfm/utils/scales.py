@@ -218,6 +218,7 @@ def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_fwhm=None, ar
         if nest:
             full_map = hp.reorder(full_map, n2r=True)
 
+        alm = hp.map2alm(full_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
         full_map, alm = alm_to_smoothed_map(alm, n_side, l_min, l_max, theta_fwhm, arcmin, nest=nest)
 
     else:
