@@ -1,0 +1,188 @@
+# contains the configuration parameters of the forward model pipeline
+dirs:
+  # absolute path at NERSC
+  CosmoGrid:
+    root: /global/cfs/cdirs/des/cosmogrid/DESY3
+    grid: /global/cfs/cdirs/des/cosmogrid/DESY3/grid
+    fiducial: /global/cfs/cdirs/des/cosmogrid/DESY3/fiducial
+  # relative to the root of this repository
+  redshift_distributions: data/redshift_distributions
+
+files:
+  # relative to the root of this repository
+  pixels: data/DESY3_pixels_512.h5
+  noise: data/DESY3_noise.h5
+  grid_perms: data/CosmoGridV1_perm_dirs.npy
+  grid_params: data/CosmoGridV1_param_dirs.npy
+  meta_info: data/CosmoGridV1_metainfo.h5
+  healpy_data: data/healpy_data
+  peak_binning: data/peaks/binning/v7_linear_bias.h5
+
+survey:
+  name: DESy3
+  metacal:
+    map_types:
+      input: [kg, ia, dg]
+      output: [kg, ia, sn]
+    # from Table 1 in https://arxiv.org/pdf/2105.13543.pdf, in units of galaxies/deg^2
+    n_gal: [5313.6, 5324.4, 5342.4, 5259.6]
+    # from Table 2 in https://arxiv.org/pdf/2012.08566.pdf
+    z_lims: [[0.0, 0.358], [0.358, 0.631], [0.631, 0.872], [0.872, 2.0]]
+    z_bins: [desy3metacal1, desy3metacal2, desy3metacal3, desy3metacal4]
+    # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf, normal distribution parameters
+    z_errors:
+      mu: [0.0, 0.0, 0.0, 0.0]
+      sigma: [0.018, 0.015, 0.011, 0.017]
+    # FIXME these are only placeholder values that were roughly estimated from histograms
+    galaxy_bias: [0.7, 1.2, 1.8, 3]
+    # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf, TODO check sqrt(2) kappa -> gamma conversion
+    shear_bias:
+      multiplicative:
+        mu: [-0.0063, -0.0198, -0.0241, -0.0369]
+        sigma: [0.0091, 0.0078, 0.0076, 0.0076]
+  maglim:
+    map_types:
+      input: [dg]
+      output: [dg]
+    # from Table 1 in https://arxiv.org/pdf/2105.13540.pdf, in units of galaxies/deg^2
+    n_gal: [540.0, 385.2, 392.4, 525.6] # , 381.6, 360.0]
+    # from Table 2 in https://arxiv.org/pdf/2011.03411.pdf
+    z_lims: [[0.15, 0.35], [0.35, 0.50], [0.50, 0.65], [0.65, 0.80]] # , [0.80, 0.95], [0.95, 1.05]]
+    z_bins: [desy3maglim1, desy3maglim2, desy3maglim3, desy3maglim4] # , "desy3maglim5", "desy3maglim6"]
+    # from Table 2 in https://arxiv.org/pdf/2105.13546.pdf, normal distribution parameters
+    z_errors:
+      shift:
+        mu: [-0.009, -0.035, -0.005, -0.007] # , 0.002, 0.002]
+        sigma: [0.007, 0.011, 0.006, 0.006] # , 0.007, 0.008]
+      scale:
+        mu: [0.975, 1.306, 0.870, 0.918] # , 1.08, 0.845]
+        sigma: [0.062, 0.093, 0.053, 0.051] # , 0.067, 0.073]
+
+analysis:
+  n_side: 512
+  n_pix: 3145728
+  # minimal n_side_for the networks, determines the padding of the data vectors
+  n_side_down: 16
+  # number of cut outs from the full sky
+  n_patches: 4
+  # the six cosmological parameters of the CosmoGrid have to be listed first
+  params:
+    # same ordering as in the CosmoGrid
+    cosmo: [Om, s8, Ob, H0, ns, w0]
+    # NLA model
+    ia: [Aia, n_Aia]
+    # galaxy biasing
+    bg:
+      linear: [bg, n_bg]
+      quadratic: [bg2, n_bg2]
+  # see scale_cuts.ipynb. All angles are in arcmin.
+  # The angle -> ell conversion is done in the "naive" way in 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
+  scale_cuts:
+    lensing:
+      # from 6.1 in https://arxiv.org/pdf/2110.10135.pdf
+      l_min: [30, 30, 30, 30]
+      # healpy default of 3 * n_side - 1, smoothing is done on the fly
+      l_max: [1535, 1535, 1535, 1535]
+      theta_fwhm: [0.0, 0.0, 0.0, 0.0]
+    # first four redshift bins only
+    clustering:
+      # from 6.1 in https://arxiv.org/pdf/2110.10135.pdf
+      l_min: [30, 30, 30, 30]
+      # healpy default of 3 * n_side - 1, smoothing is done on the fly
+      l_max: [1535, 1535, 1535, 1535]
+      theta_fwhm: [0.0, 0.0, 0.0, 0.0]
+  modelling:
+    # linear + quadratic galaxy biasing or just linear
+    quadratic_biasing: False
+    # whether to include a stochasticity in the galaxy biasing. This scales the [-pi, pi] interval from which the
+    # random phases with which the alm coefficients are multiplied are drawn. Set to Null to discard.
+    galaxy_stochasticity: Null
+    # whether to include the survey systematics maps from https://arxiv.org/pdf/2105.13540.pdf
+    maglim_survey_systematics_map: False
+    # pivot redshift from https://arxiv.org/pdf/2105.13543.pdf, https://arxiv.org/pdf/2105.13549.pdf (Y3)
+    # and https://journals.aps.org/prd/pdf/10.1103/PhysRevD.98.043528 (Y1)
+    z0: 0.62
+    # degrade the maps to Gaussian Random Fields for testing and comparison to the power spectra
+    degrade_to_grf: False
+    # TODO this flag currently does nothing
+    baryonified: False
+  normalization:
+    # approximate per tomo bin standard deviation of the kg + ia + sn maps at the fiducial cosmology
+    lensing: [0.0086, 0.0137, 0.0174, 0.0229]
+  power_spectra:
+    n_bins: 33
+  peak_statistics:
+    n_bins: 15
+    # FWHM of a Gaussian in arcmin (calculated in scale_cuts.ipynb)
+    theta_fwhm:
+      [
+        # metacal 4, 6, 8 Mpc/h
+        [14.8, 22.1, 29.5],
+        [10.1, 15.1, 20.1],
+        [7.5, 11.2, 15.0],
+        [6.3, 9.4, 12.6],
+        # maglim 8, 10, 12 Mpc/h
+        [32.6, 40.7, 48.8],
+        [22.2, 27.8, 33.3],
+        [17.0, 21.3, 25.5],
+        [14.3, 17.8, 21.4],
+      ]
+  grid:
+    # CosmoGrid
+    n_cosmos: 2500
+    n_perms_per_cosmo: 4
+    n_noise_per_example: 3
+    priors:
+      # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
+      Om: [0.1, 0.5]
+      s8: [0.4, 1.4]
+      H0: [64, 82]
+      Ob: [0.03, 0.06]
+      ns: [0.87, 1.07]
+      w0: [-2.0, -0.333]
+      Aia: [-3.0, 3.0]
+      n_Aia: [-4.0, 6.0]
+      bg: [0.8, 3.0]
+      n_bg: [-3.0, 3.0]
+      bg2: [-1.0, 1.0]
+      n_bg2: [-2.0, 2.0]
+      Om_s8_border_points:
+        [
+          [0.1, 1.4],
+          [0.2, 1.4],
+          [0.5, 0.65],
+          [0.5, 0.4],
+          [0.3, 0.4],
+          [0.1, 0.9],
+        ]
+  fiducial:
+    # CosmoGrid
+    n_cosmos: 17 # 1 + 2 * n_perts
+    n_perms_per_cosmo: 200
+    n_noise_per_example: 3
+    # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
+    Om: 0.26
+    s8: 0.84
+    H0: 67.36
+    Ob: 0.0493
+    ns: 0.9649
+    w0: -1.0
+    Aia: 0.5
+    n_Aia: 1.5
+    bg: 1.5
+    n_bg: 0.5
+    bg2: 0.5
+    n_bg2: 0.0
+    perturbations:
+      Om: 0.01
+      s8: 0.015
+      H0: 2.0
+      Ob: 0.001
+      ns: 0.02
+      w0: 0.05
+      Aia: 0.1
+      n_Aia: 0.2
+      bg: 0.1
+      n_bg: 0.2
+      bg2: 0.1
+      n_bg2: 0.2

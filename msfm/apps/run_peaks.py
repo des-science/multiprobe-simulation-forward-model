@@ -268,9 +268,12 @@ def main(indices, args):
 
 def merge(indices, args):
     args = setup(args)
+    LOGGER.info(f"Beginning with merge for {args.simset}")
+
     h5_pattern = os.path.join(args.dir_out, f"{args.simset}_peaks_??????.h5")
     h5_files = sorted(glob.glob(h5_pattern))
     n_files = len(h5_files)
+    LOGGER.info(f"Found {n_files} files to merge")
 
     # determine the per cosmology shapes
     with h5py.File(h5_files[0], "r") as f:
@@ -284,6 +287,8 @@ def merge(indices, args):
 
     # open the combined file
     with h5py.File(os.path.join(args.dir_out, f"{args.simset}_peaks.h5"), "w") as f_combined:
+        LOGGER.info(f"Created the combined {args.simset} .h5 file")
+
         if args.simset == "grid":
             # define the combined output shapes
             f_combined.create_dataset(name="peaks", shape=(n_files,) + peaks_shape)
@@ -293,7 +298,7 @@ def merge(indices, args):
             f_combined.create_dataset(name="i_sobol", shape=(n_files,) + i_sobol_shape)
 
             # loop over the per cosmology .h5 files
-            for i, h5_file in enumerate(h5_files):
+            for i, h5_file in LOGGER.progressbar(enumerate(h5_files), desc="loop over files", at_level="info"):
                 with h5py.File(h5_file, "r") as f:
                     peaks = f["peaks"][:]
                     cosmo = f["cosmo"][:]
@@ -316,7 +321,7 @@ def merge(indices, args):
             f_combined.create_dataset(name="i_noise", shape=(n_files * i_noise_shape[0],) + i_noise_shape[1:])
 
             # loop over the per .tfrecord file .h5 files
-            for i, h5_file in enumerate(h5_files):
+            for i, h5_file in LOGGER.progressbar(enumerate(h5_files), desc="loop over files", at_level="info"):
                 with h5py.File(h5_file, "r") as f:
                     peaks = f["peaks"][:]
                     i_example = f["i_example"][()]
