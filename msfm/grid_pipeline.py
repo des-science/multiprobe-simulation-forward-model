@@ -80,7 +80,8 @@ class GridPipeline(MSFMpipeline):
         n_noise: int = 1,
         # performance
         n_readers: int = 8,
-        n_prefetch: int = tf.data.AUTOTUNE,
+        n_workers: int = None,
+        n_prefetch: int = None,
         # training
         is_eval: bool = True,
         file_name_shuffle_buffer: int = 128,
@@ -98,8 +99,12 @@ class GridPipeline(MSFMpipeline):
                 the realisations of exactly one cosmology.
             n_noise (int, optional): Number of noise realizations to return, where the noise index always runs from 0
                 to n_noise - 1. Defaults to 1.
-            n_readers (int, optional): Number of parallel readers, i.e. samples read out from different input files
-                concurrently. This should be roughly less than a tenth of the number of files. Defaults to 8.
+            n_readers (int, optional): Number of parallel readers, i.e. different input files read concurrently. This
+                should be roughly less than a tenth of the number of files. Large values cost a lot of RAM, especially
+                in the distributed setting. Defaults to 4.
+            n_workers (int, optional): Number of parallel workers for the file reading, file parsing and preprocessing
+                augmentations. Defaults to None, then tf.data.AUTOTUNE is used. Note that this may lead to unexpected
+                RAM usage, especially if there's more than one dataset within the same script.
             n_prefetch (int, optional): Number of dataset elements to prefetch.
             input_context (Union[tf.distribute.InputContext, deep_lss.utils.distribute.HorovodStrategy], optional):
                 Custom input_context attribute of my HorovodStrategy class or when using the TensorFlow builtin
@@ -122,6 +127,21 @@ class GridPipeline(MSFMpipeline):
             is a tuple containing (i_sobol, i_noise, i_example).
         """
         assert n_noise >= 1, f"n_noise = {n_noise} must be >= 1"
+
+        # parallelization
+        if n_workers is None:
+            LOGGER.info(f"n_workers is not set, using tf.data.AUTOTUNE. This might produce unexpected RAM usage.")
+            n_file_workers = tf.data.AUTOTUNE
+            n_parse_workers = tf.data.AUTOTUNE
+            n_augment_workers = tf.data.AUTOTUNE
+        else:
+            n_file_workers = n_readers
+            n_parse_workers = max((n_workers - n_readers) // 2, 1)
+            n_augment_workers = max((n_workers - n_readers) // 2, 1)
+            LOGGER.info(
+                f"Using n_file_workers = {n_file_workers}, n_parse_workers = {n_parse_workers}, "
+                f"n_augment_workers = {n_augment_workers}"
+            )
 
         # get the file names and dataset them
         dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=(not is_eval), seed=file_name_shuffle_seed)
@@ -150,7 +170,7 @@ class GridPipeline(MSFMpipeline):
             tf.data.TFRecordDataset,
             cycle_length=n_readers,
             block_length=1,
-            num_parallel_calls=tf.data.AUTOTUNE,
+            num_parallel_calls=n_file_workers,
             deterministic=is_eval,
         )
         LOGGER.info(f"Interleaving with n_readers = {n_readers}")
@@ -169,17 +189,12 @@ class GridPipeline(MSFMpipeline):
                 self.with_lensing,
                 self.with_clustering,
             ),
-            num_parallel_calls=tf.data.AUTOTUNE,
+            num_parallel_calls=n_parse_workers,
         )
 
         # map a single example to n_noise examples corresponding to different noise realizations
-        dset = dset.interleave(
-            lambda data_vectors: self._split_noise_realizations(data_vectors, n_noise),
-            cycle_length=1,
-            block_length=1,
-            num_parallel_calls=tf.data.AUTOTUNE,
-            deterministic=True,
-        )
+        # NOTE that interleaving with cycle_lengths > 1 doesn't improve performance
+        dset = dset.flat_map(lambda data_vectors: self._split_noise_realizations(data_vectors, n_noise))
 
         # shuffle the examples
         if not is_eval:
@@ -198,7 +213,7 @@ class GridPipeline(MSFMpipeline):
         # augmentations (all in one function, to make parallelization faster)
         dset = dset.map(
             self._augmentations,
-            num_parallel_calls=tf.data.AUTOTUNE,
+            num_parallel_calls=n_augment_workers,
         )
 
         # prefetch
