@@ -308,6 +308,7 @@ def merge(indices, args):
 
     LOGGER.info(f"Merged the per cosmology files into one and deleted them")
 
+
 def _get_l_ranges(conf):
     """Helper function to get the l ranges for the power spectra from the configuration file to both main and merge"""
 

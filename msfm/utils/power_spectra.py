@@ -87,7 +87,7 @@ def get_cl_bins(l_min, l_max, n_bins):
     return np.linspace(np.sqrt(l_min), np.sqrt(l_max), n_bins, endpoint=True) ** 2
 
 
-def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
+def bin_cls(cls, l_mins, l_maxs, n_bins, n_side=None, with_cross=True, per_cross_binning=True):
     """Take the raw Cls and bin them within a given range of scales. This is done for each cross bin separately,
     always taking the more conservative cut.
 
@@ -99,6 +99,8 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
         l_maxs (list): List of smallest scales, same length as the number of tomographic bins.
         n_bins (int): Number of bins to average the Cls in.
         with_cross (bool, optional): Whether to calculate the cross spectra or auto only. Defaults to True.
+        per_cross_binning (bool, optional): Whether to use the same binning for all cross bins or different binning for
+            each cross bin. Defaults to True.
 
     Returns:
         (np.ndarray, np.ndarray): binned_cls has shape (n_bins-1, n_z) or (n_examples, n_bins-1, n_z) and contains the
@@ -110,6 +112,15 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
     ), f"cls has shape {cls.shape}, which is not 2, 3 or 4 dimensional"
     assert len(l_mins) == len(l_maxs), f"l_mins and l_maxs have different lengths: {len(l_mins)} and {len(l_maxs)}"
     n_z = len(l_mins)
+
+    if n_side is not None:
+        l_mins = np.array(l_mins)
+        l_maxs = np.array(l_maxs)
+        l_mins = np.clip(l_mins, 0, 3 * n_side - 1)
+        l_maxs = np.clip(l_maxs, 0, 3 * n_side - 1)
+
+    if not per_cross_binning:
+        LOGGER.warning(f"Using the same binning for all cross bins, this is currently hardcoded and only experimental")
 
     # minus indexing to be compatible with both the 2d and 3d case
     n_cross_z = cls.shape[-1]
@@ -135,7 +146,13 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
                 cross_l_mins.append(l_min)
                 cross_l_maxs.append(l_max)
 
-                bins = get_cl_bins(l_min, l_max, n_bins)
+                if per_cross_binning:
+                    # different binning for each cross bin
+                    bins = get_cl_bins(l_min, l_max, n_bins)
+                else:
+                    # the same binning for all cross bins NOTE this is hardcoded for now
+                    bins = get_cl_bins(30, 1500, n_bins)
+
                 cross_bins.append(bins)
 
     assert len(cross_bins) == n_cross_z
@@ -149,17 +166,23 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, with_cross=True):
     bin_edges = []
     for i in range(n_cross_z):
         # select a single (cross) tomographic bin
+        current_ell = ell
         current_cls = cls[..., i]
         current_bins = cross_bins[i]
-        current_ell = ell
+        current_l_min = cross_l_mins[i]
+        current_l_max = cross_l_maxs[i]
 
         # smooth in the same way as the maps
-        current_cls = scales.cls_to_smoothed_cls(current_cls, l_min=cross_l_mins[i], l_max=cross_l_maxs[i])
+        current_cls = scales.cls_to_smoothed_cls(current_cls, l_min=current_l_min, l_max=current_l_max)
 
         # scipy.stats.binned_statistic includes values outside the bin range in the first/last bin, so those have to be
         # manually removed first
-        # current_cls = current_cls[...,(cross_l_mins[i] < ell) & (ell < cross_l_maxs[i])]
-        # current_ell = ell[(cross_l_mins[i] < ell) & (ell < cross_l_maxs[i])]
+        if per_cross_binning:
+            scale_cut = (current_l_min < ell) & (ell < current_l_max)
+        else:
+            scale_cut = (30 < ell) & (ell < 1500)
+        current_cls = current_cls[..., scale_cut]
+        current_ell = ell[scale_cut]
 
         binned = scipy.stats.binned_statistic(current_ell, current_cls, statistic="mean", bins=current_bins)
 
