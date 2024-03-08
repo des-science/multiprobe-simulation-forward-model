@@ -95,11 +95,12 @@ class FiducialPipeline(MSFMpipeline):
         n_prefetch: int = None,
         file_name_shuffle_buffer: int = 16,
         examples_shuffle_buffer: int = 64,
-        # random seeds
+        # training/evaluation
+        is_eval: bool = False,
+        drop_remainder: bool = None,
+        eval_seed: int = 32,
         file_name_shuffle_seed: int = 17,
         examples_shuffle_seed: int = 67,
-        is_eval: bool = False,
-        eval_seed: int = 32,
         # distribution
         input_context: tf.distribute.InputContext = None,
     ) -> tf.data.Dataset:
@@ -125,11 +126,14 @@ class FiducialPipeline(MSFMpipeline):
                 128.
             examples_shuffle_buffer (int, optional): Size of the shuffle buffer for the non-batched examples. Defaults
                 to 128.
-            file_name_shuffle_seed (int, optional): Defaults to 17.
-            examples_shuffle_seed (int, optional): Defaults to 67.
             is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can
                 go through it deterministically exactly once. Defaults to False.
+            drop_remainder (bool, optional): Whether to drop the remainder of the dataset when the batch size does not
+                evenly divide the number of samples. If None, then it is set to False for evaluation and True for
+                training. Defaults to None.
             eval_seed (int, optional): Fixed seed for evaluation. Defaults to 32.
+            file_name_shuffle_seed (int, optional): Defaults to 17.
+            examples_shuffle_seed (int, optional): Defaults to 67.
             input_context (Union[tf.distribute.InputContext, deep_lss.utils.distribute.HorovodStrategy], optional):
                 Custom input_context attribute of my HorovodStrategy class or when using the TensorFlow builtin
                 distribution strategies, this is passed to the dataset_fn like in
@@ -165,6 +169,13 @@ class FiducialPipeline(MSFMpipeline):
                 f"Using n_file_workers = {n_file_workers}, n_parse_workers = {n_parse_workers}, "
                 f"n_augment_workers = {n_augment_workers}"
             )
+
+        if drop_remainder is None:
+            if is_eval:
+                drop_remainder = False
+            else:
+                drop_remainder = True
+            LOGGER.info(f"drop_remainder is not set, using drop_remainder = {drop_remainder}")
 
         if is_eval:
             tf.random.set_seed(eval_seed)
@@ -247,11 +258,8 @@ class FiducialPipeline(MSFMpipeline):
             LOGGER.warning(f"Examples are not shuffled, which is underisable for is_eval = {is_eval}")
 
         # batch (first, for vectorization)
-        if not is_eval:
-            dset = dset.batch(local_batch_size, drop_remainder=True)
-        if is_eval:
-            dset = dset.batch(local_batch_size, drop_remainder=False)
-        LOGGER.info(f"Batching into {local_batch_size} elements locally")
+        dset = dset.batch(local_batch_size, drop_remainder=drop_remainder)
+        LOGGER.info(f"Batching into {local_batch_size} elements locally with drop_remainder = {drop_remainder}")
 
         # augmentations (all in one function, to make parallelization faster)
         dset = dset.map(

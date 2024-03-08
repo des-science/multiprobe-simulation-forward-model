@@ -82,10 +82,12 @@ class GridPipeline(MSFMpipeline):
         n_readers: int = 8,
         n_workers: int = None,
         n_prefetch: int = None,
-        # training
-        is_eval: bool = True,
         file_name_shuffle_buffer: int = 128,
         examples_shuffle_buffer: int = 128,
+        # training/evaluation
+        is_eval: bool = True,
+        drop_remainder: bool = None,
+        eval_seed: int = 33,
         file_name_shuffle_seed: int = 11,
         examples_shuffle_seed: int = 12,
         # distribution
@@ -106,6 +108,11 @@ class GridPipeline(MSFMpipeline):
                 augmentations. Defaults to None, then tf.data.AUTOTUNE is used. Note that this may lead to unexpected
                 RAM usage, especially if there's more than one dataset within the same script.
             n_prefetch (int, optional): Number of dataset elements to prefetch.
+            is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can
+                go through it deterministically exactly once. Defaults to False.
+            eval_seed (int, optional): Fixed seed for evaluation. Defaults to 32.
+            file_name_shuffle_seed (int, optional): Defaults to 17.
+            examples_shuffle_seed (int, optional): Defaults to 67.
             input_context (Union[tf.distribute.InputContext, deep_lss.utils.distribute.HorovodStrategy], optional):
                 Custom input_context attribute of my HorovodStrategy class or when using the TensorFlow builtin
                 distribution strategies, this is passed to the dataset_fn like in
@@ -142,6 +149,16 @@ class GridPipeline(MSFMpipeline):
                 f"Using n_file_workers = {n_file_workers}, n_parse_workers = {n_parse_workers}, "
                 f"n_augment_workers = {n_augment_workers}"
             )
+
+        if drop_remainder is None:
+            if is_eval:
+                drop_remainder = False
+            else:
+                drop_remainder = True
+            LOGGER.info(f"drop_remainder is not set, using drop_remainder = {drop_remainder}")
+
+        if is_eval:
+            tf.random.set_seed(eval_seed)
 
         # get the file names and dataset them
         dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=(not is_eval), seed=file_name_shuffle_seed)
@@ -207,7 +224,7 @@ class GridPipeline(MSFMpipeline):
             n_perms_per_cosmo = self.conf["analysis"]["grid"]["n_perms_per_cosmo"]
             local_batch_size = n_patches * n_perms_per_cosmo * n_noise
             LOGGER.info(f"The dset is batched by cosmology")
-        dset = dset.batch(local_batch_size, drop_remainder=False)
+        dset = dset.batch(local_batch_size, drop_remainder=drop_remainder)
         LOGGER.info(f"Batching into {local_batch_size} elements locally")
 
         # augmentations (all in one function, to make parallelization faster)
