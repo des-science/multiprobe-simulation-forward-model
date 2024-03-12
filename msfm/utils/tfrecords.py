@@ -80,7 +80,7 @@ def parse_forward_grid(kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_exampl
 
 def parse_inverse_grid(
     serialized_example,
-    n_noise=1,
+    noise_indices=[0],
     # shapes
     n_pix=None,
     n_z_metacal=None,
@@ -95,8 +95,8 @@ def parse_inverse_grid(
 
     Args:
         serialized_example (tf.train.Example.SerializeToString()): The stored data.
-        n_noise (int, optional): Number of noise realizations to return, where the noise index always runs from 0 to
-            n_noise - 1. Defaults to 1.
+        noise_indices (Union[list, range], optional): Realizations corresponding to these noise indices are returned.
+            Defaults to [0].
         n_pix (int, optional): Fixes the size of the tensors. Defaults to None.
         n_z_metacal (int, optional): Fixes the size of the tensors. Defaults to None.
         n_z_maglim (int, optional): Fixes the size of the tensors. Defaults to None.
@@ -122,12 +122,12 @@ def parse_inverse_grid(
 
     if with_lensing:
         features["n_z_metacal"] = tf.io.FixedLenFeature([], tf.int64)
-        for i in range(n_noise):
+        for i in noise_indices:
             features[f"kg_{i}"] = tf.io.FixedLenFeature([], tf.string)
 
     if with_clustering:
         features["n_z_maglim"] = tf.io.FixedLenFeature([], tf.int64)
-        for i in range(n_noise):
+        for i in noise_indices:
             features[f"dg_{i}"] = tf.io.FixedLenFeature([], tf.string)
 
     serialized_data = tf.io.parse_single_example(serialized_example, features)
@@ -142,7 +142,7 @@ def parse_inverse_grid(
         cosmo = tf.ensure_shape(cosmo, shape=(n_params,))
     output_data["cosmo"] = cosmo
 
-    for i in range(n_noise):
+    for i in noise_indices:
         if with_lensing:
             output_data = _parse_and_reshape_data_vector(
                 output_data, serialized_data, f"kg_{i}", f"kg_{i}", n_pix, n_z_metacal, "n_z_metacal"
@@ -327,7 +327,7 @@ def parse_forward_fiducial(
 def parse_inverse_fiducial(
     serialized_example,
     pert_labels,
-    n_noise=1,
+    noise_indices=[0],
     # shapes
     n_pix=None,
     n_z_metacal=None,
@@ -343,8 +343,8 @@ def parse_inverse_fiducial(
         serialized_example (tf.train.Example.SerializeToString()): The data loaded from the .tfrecord file.
         pert_labels (list): List of strings that contain the labels defining the keys. These include all parameters,
             so cosmological and astrophysics (intrinsic alignment and galaxy clustering).
-        n_noise (int, optional): Number of noise realizations to return, where the noise index always runs from 0 to
-            n_noise - 1. Defaults to 1.
+        noise_indices (Union[list, range], optional): Realizations corresponding to these noise indices are returned.
+            Defaults to [0].
         n_pix (int, optional): Fixes the size of the tensors. Defaults to None.
         n_z_metacal (int, optional): Fixes the size of the tensors. Defaults to None.
         n_z_maglim (int, optional): Fixes the size of the tensors. Defaults to None.
@@ -377,7 +377,7 @@ def parse_inverse_fiducial(
             features[f"dg_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
     # all desired noise realizations
-    for i in range(n_noise):
+    for i in noise_indices:
         if with_lensing:
             # shape noise
             features[f"sn_{i}"] = tf.io.FixedLenFeature([], tf.string)
@@ -406,7 +406,7 @@ def parse_inverse_fiducial(
             )
 
     # all desired noise realizations
-    for i in range(n_noise):
+    for i in noise_indices:
         # shape noise
         if with_lensing:
             output_data = _parse_and_reshape_data_vector(
@@ -499,6 +499,7 @@ def _parse_and_reshape_data_vector(out_dict, serialized_example, key_in, key_out
 
 
 # features ############################################################################################################
+
 
 # https://www.tensorflow.org/tutorials/load_data/tfrecord#data_types_for_tftrainexample
 def _bytes_feature(value):

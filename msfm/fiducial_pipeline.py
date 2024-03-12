@@ -11,6 +11,7 @@ by Janis Fluri
 
 import tensorflow as tf
 import warnings
+from typing import Union
 
 from msfm.utils import logger, tfrecords, parameters
 from msfm.utils.base_pipeline import MSFMpipeline
@@ -87,7 +88,7 @@ class FiducialPipeline(MSFMpipeline):
         self,
         tfr_pattern: str,
         local_batch_size: int,
-        n_noise: int = 1,
+        noise_indices: Union[int, list, range] = 1,
         # performance
         is_cached: bool = False,
         n_readers: int = 8,
@@ -110,8 +111,9 @@ class FiducialPipeline(MSFMpipeline):
             tfr_pattern (str): Glob pattern of the fiducial .tfrecord files.
             local_batch_size (int): Local batch size, will be multiplied with the number of deltas for the total batch
                 size.
-            n_noise (int, optional): Number of noise realizations to return, where the noise index always runs from 0
-                to n_noise - 1. Defaults to 1.
+            noise_indices (int, optional): The noise indices to return. When this is an integer, the value is
+                interpreted as range(noise_indices). Python lists and ranges are also accepted and not modified.
+                Defaults to 1, then only the single noise realization with index 0 is returned.
             is_cached (bool): Whether to cache on the level on the deserialized tensors. This is only feasible if all of
                 the fiducial .tfrecords fit into RAM. Defaults to False.
             n_readers (int, optional): Number of parallel readers, i.e. different input files read concurrently. This
@@ -153,7 +155,20 @@ class FiducialPipeline(MSFMpipeline):
             tf.data.Dataset: A dataset that returns samples with a given batchsize in the right ordering for the delta
             loss. The index label consists of (i_example, i_noise)
         """
-        assert n_noise >= 1, f"n_noise = {n_noise} must be >= 1"
+
+        if is_eval:
+            tf.random.set_seed(eval_seed)
+
+            # parameters that are not used
+            file_name_shuffle_seed = None
+            examples_shuffle_buffer = None
+            file_name_shuffle_seed = None
+            examples_shuffle_seed = None
+
+            LOGGER.warning(
+                f"Evaluation mode is activated: the random seed is fixed, the shuffle arguments ignored, and the "
+                f"dataset is not repeated"
+            )
 
         # parallelization
         if n_workers is None:
@@ -170,6 +185,7 @@ class FiducialPipeline(MSFMpipeline):
                 f"n_augment_workers = {n_augment_workers}"
             )
 
+        # batching
         if drop_remainder is None:
             if is_eval:
                 drop_remainder = False
@@ -177,19 +193,18 @@ class FiducialPipeline(MSFMpipeline):
                 drop_remainder = True
             LOGGER.info(f"drop_remainder is not set, using drop_remainder = {drop_remainder}")
 
-        if is_eval:
-            tf.random.set_seed(eval_seed)
-
-            # parameters that are not used
-            file_name_shuffle_seed = None
-            examples_shuffle_buffer = None
-            file_name_shuffle_seed = None
-            examples_shuffle_seed = None
-
-            LOGGER.warning(
-                f"Evaluation mode is activated: the random seed is fixed, the shuffle arguments ignored, and the "
-                f"dataset is not repeated"
-            )
+        # noise indexing
+        if isinstance(noise_indices, int):
+            assert noise_indices >= 1, f"for an integer, noise_indices = {noise_indices} must be >= 1"
+            noise_indices = range(noise_indices)
+        elif isinstance(noise_indices, list):
+            assert len(noise_indices) >= 1, f"noise_indices = {noise_indices} must be a list of length >= 1"
+            assert all(isinstance(i, int) for i in noise_indices), "All elements in noise_indices must be integers"
+        elif isinstance(noise_indices, range):
+            pass
+        else:
+            raise TypeError(f"noise_indices = {noise_indices} must be an integer, a list of integers or a range")
+        LOGGER.info(f"Including noise_indices = {list(noise_indices)}")
 
         # get the file names
         dset = tf.data.Dataset.list_files(tfr_pattern, shuffle=(not is_eval))
@@ -226,7 +241,7 @@ class FiducialPipeline(MSFMpipeline):
             lambda serialized_example: tfrecords.parse_inverse_fiducial(
                 serialized_example,
                 self.pert_labels,
-                n_noise,
+                noise_indices,
                 # dimensions
                 self.n_dv_pix,
                 self.n_z_metacal,
@@ -246,9 +261,9 @@ class FiducialPipeline(MSFMpipeline):
             # TODO
             LOGGER.error(f"CACHING SEEMS TO PRODUCE BUGGY BEHAVIOR")
 
-        # map a single example to n_noise examples corresponding to different noise realizations
-        # NOTE that interleaving with cycle_lengths > 1 doesn't improve performance
-        dset = dset.flat_map(lambda data_vectors: self._split_noise_realizations(data_vectors, n_noise))
+        # map a single example to len(noise_indices) examples corresponding to different noise realizations
+        # NOTE that interleaving with cycle_lengths > 1 doesn't improve performance, so we use flat_map
+        dset = dset.flat_map(lambda data_vectors: self._split_noise_realizations(data_vectors, noise_indices))
 
         # shuffle the examples
         if (not is_eval) and (examples_shuffle_buffer is not None) and (examples_shuffle_buffer > 0):
@@ -275,21 +290,19 @@ class FiducialPipeline(MSFMpipeline):
             dset = dset.prefetch(n_prefetch)
             LOGGER.info(f"Prefetching {n_prefetch} elements")
 
-        LOGGER.info(
-            f"Successfully generated the fiducial training set with element_spec {dset.element_spec} for i_noise in"
-            f" [0, {n_noise})"
-        )
+        LOGGER.info(f"Successfully generated the fiducial training set with element_spec {dset.element_spec}")
         return dset
 
-    def _split_noise_realizations(self, data_vectors: dict, n_noise: int) -> tf.data.Dataset:
+    def _split_noise_realizations(self, data_vectors: dict, noise_indices: Union[list, range]) -> tf.data.Dataset:
         """Split the dictionary stored within the .tfrecord files into the separate noise realizations stored within.
         For this, the signal maps are copied in memory and paired with the noise realizations. So a single element
-        of the dataset is mapped to a new dataset containing n_noise examples. Therefore, this function should be
-        applied as flat_map or interleave.
+        of the dataset is mapped to a new dataset containing len(noise_indices) examples. Therefore, this function
+        should be applied as flat_map or interleave.
 
         Args:
             data_vectors (dict): Full dictionary containing all kg perturbations, dg perturbations, i_example and
                 i_noise indices.
+            noise_indices (list, range): The noise indices to return.
 
         Returns:
             tf.data.Dataset: Dataset containing the separate noise realizations.
@@ -299,20 +312,20 @@ class FiducialPipeline(MSFMpipeline):
         if self.with_lensing:
             sn = []
             i_noise = []
-            for i in range(n_noise):
+            for i in noise_indices:
                 sn.append(data_vectors.pop(f"sn_{i}"))
                 i_noise.append(i)
 
         if self.with_clustering:
             pn = []
             i_noise = []
-            for i in range(n_noise):
+            for i in noise_indices:
                 pn.append(data_vectors.pop(f"pn_{i}"))
                 i_noise.append(i)
 
         # repeat the signal as often as there are different noise realizations
         for key in data_vectors.keys():
-            data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), n_noise, axis=0)
+            data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), len(noise_indices), axis=0)
 
         # update the dictionary
         if self.with_lensing:
@@ -321,7 +334,7 @@ class FiducialPipeline(MSFMpipeline):
             data_vectors["pn"] = pn
         data_vectors["i_noise"] = i_noise
 
-        # return a dataset containing n_noise elements
+        # return a dataset containing len(noise_indices) elements
         return tf.data.Dataset.from_tensor_slices(data_vectors)
 
     def _augmentations(self, data_vectors: dict) -> tf.Tensor:

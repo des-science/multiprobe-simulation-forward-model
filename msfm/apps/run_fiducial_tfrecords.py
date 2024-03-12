@@ -428,7 +428,7 @@ def main(indices, args):
 
                 # check correctness
                 inv_data_vectors = tfrecords.parse_inverse_fiducial(
-                    serialized, cosmo_pert_labels + ia_pert_labels + bg_pert_labels, n_noise_per_example
+                    serialized, cosmo_pert_labels + ia_pert_labels + bg_pert_labels, range(n_noise_per_example)
                 )
                 inv_kg_perts = tf.stack(
                     [inv_data_vectors[f"kg_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0

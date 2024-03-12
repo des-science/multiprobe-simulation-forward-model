@@ -426,7 +426,7 @@ def main(indices, args):
                     ).SerializeToString()
 
                     # check correctness
-                    inv_maps = tfrecords.parse_inverse_grid(serialized, n_noise_per_example)
+                    inv_maps = tfrecords.parse_inverse_grid(serialized, range(n_noise_per_example))
 
                     for i_noise in range(n_noise_per_example):
                         assert np.allclose(inv_maps[f"kg_{i_noise}"], kg + sn_realz[i_noise])
