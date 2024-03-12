@@ -181,7 +181,11 @@ def main(indices, args):
                 conf, with_lensing=True, with_clustering=True, with_padding=False, apply_norm=False
             )
             dset = pipe.get_dset(
-                tfr_pattern=tfrecord, local_batch_size="cosmo", n_noise=n_noise_per_example, n_readers=1, n_prefetch=0
+                tfr_pattern=tfrecord,
+                local_batch_size="cosmo",
+                noise_indices=n_noise_per_example,
+                n_readers=1,
+                n_prefetch=0,
             )
             dset = dset.as_numpy_iterator()
 
@@ -227,7 +231,7 @@ def main(indices, args):
             dset = pipe.get_dset(
                 tfr_pattern=tfrecord,
                 local_batch_size=1,
-                n_noise=n_noise_per_example,
+                noise_indices=n_noise_per_example,
                 n_readers=1,
                 n_prefetch=0,
                 is_eval=True,
