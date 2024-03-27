@@ -15,10 +15,9 @@ TODO clean this up as there is way too much nesting.
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-import os, argparse, warnings, h5py, time, yaml
+import os, argparse, warnings, h5py, time, yaml, copy_guardian
 
-from msfm.utils import files, lensing, logger, input_output, maps, cosmogrid, clustering, imports
-from msfm.utils.filenames import *
+from msfm.utils import files, lensing, logger, input_output, maps, cosmogrid, clustering, imports, filenames
 
 hp = imports.import_healpy(parallel=True)
 
@@ -29,7 +28,21 @@ LOGGER = logger.get_logger(__file__)
 
 
 def resources(args):
-    return dict(main_memory=2048, main_time=4, main_scratch=0, main_n_cores=4)
+    args = setup(args)
+
+    resources = {
+        "main_memory": 2048,
+        "main_time": 4,
+        "main_n_cores": 4,
+    }
+
+    if args.from_san:
+        # in MB. One projected_probes_maps_v11dmb.h5 should be around 1 GB
+        resources["main_scratch"] = 2000
+    else:
+        resources["main_scratch"] = 0
+
+    return resources
 
 
 def setup(args):
@@ -71,6 +84,15 @@ def setup(args):
         default=120,
         help="set the maximal amount of time to sleep before copying to avoid clashes",
     )
+    parser.add_argument(
+        "--from_san",
+        action="store_true",
+        help="copy the CosmoGrid files from the SAN instead of accessing them locally",
+    )
+    parser.add_argument(
+        "--cosmogrid_version", type=str, default="1.1", choices=["1.1", "1"], help="version of the input CosmoGrid"
+    )
+    parser.add_argument("--with_bary", action="store_true", help="whether to include the baryonification in the input")
     parser.add_argument("--debug", action="store_true", help="activate debug mode")
     parser.add_argument("--store_counts", action="store_true", help="whether to store the metacal galaxy count maps")
 
@@ -80,6 +102,9 @@ def setup(args):
     logger.set_all_loggers_level(args.verbosity)
     for key, value in vars(args).items():
         LOGGER.info(f"{key} = {value}")
+
+    if args.from_san:
+        LOGGER.warning(f"Copying the CosmoGrid directly from the SAN")
 
     args.config = os.path.abspath(args.config)
 
@@ -154,10 +179,17 @@ def main(indices, args):
 
     # remove baryon perturbations for the fiducial set
     if args.simset == "fiducial":
-        cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs if not "bary" in cosmo_dir]
+        if args.with_bary:
+            cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs]
+            LOGGER.info(f"Using the baryonified inputs, then there's {len(cosmo_dirs) - 1} fiducial perturbations")
+        else:
+            cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs if not "bary" in cosmo_dir]
+            LOGGER.info(
+                f"Using the dark matter only inputs, then there's {len(cosmo_dirs) - 1} fiducial perturbations"
+            )
 
-    cosmo_dirs_in = [os.path.join(args.dir_in, cosmo_dir) for cosmo_dir in cosmo_dirs]
-    cosmo_dirs_out = [os.path.join(args.dir_out, cosmo_dir) for cosmo_dir in cosmo_dirs]
+    cosmo_dirs_in = [os.path.join(args.dir_in, args.simset, cosmo_dir) for cosmo_dir in cosmo_dirs]
+    cosmo_dirs_out = [os.path.join(args.dir_out, args.simset, cosmo_dir) for cosmo_dir in cosmo_dirs]
 
     n_cosmos = len(cosmo_dirs_in)
     LOGGER.info(f"Got simulation set {args.simset} of size {n_cosmos} with base path {args.dir_in}")
@@ -170,7 +202,9 @@ def main(indices, args):
         cosmo_dir_out = cosmo_dirs_out[index]
         if not os.path.isdir(cosmo_dir_out):
             input_output.robust_makedirs(cosmo_dir_out)
-        data_vec_file = get_filename_data_vectors(cosmo_dir_out, with_bary=False)
+        data_vec_file = filenames.get_filename_data_vectors(
+            cosmo_dir_out, with_bary=args.with_bary, version=args.cosmogrid_version
+        )
         LOGGER.info(f"Index {index} takes input from {cosmo_dir_in} and writes to {data_vec_file}")
 
         for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Loop over permutations\n", at_level="info"):
@@ -181,9 +215,32 @@ def main(indices, args):
             LOGGER.timer.start("permutation")
             LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
-            # TODO copy the file to local scratch first?
+            # prepare the full sky input file
             perm_dir_in = os.path.join(cosmo_dir_in, f"perm_{i_perm:04d}")
-            full_maps_file = get_filename_full_maps(perm_dir_in, with_bary=False)
+            full_maps_file = filenames.get_filename_full_maps(
+                perm_dir_in, with_bary=args.with_bary, version=args.cosmogrid_version
+            )
+
+            if args.from_san:
+                san_conf = conf["dirs"]["connections"]["san"]
+                local_scratch_dir = os.environ["TMPDIR"]
+
+                t0_rsync = time.time()
+                with copy_guardian.BoundedSemaphore(san_conf["max_connections"], timeout=san_conf["timeout"]):
+                    connection = copy_guardian.Connection(
+                        host=san_conf["host"], user=san_conf["user"], private_key=san_conf["private_key"], port=22
+                    )
+                    # overwrite the local scratch file within the loop iterations
+                    connection.rsync_from(full_maps_file, local_scratch_dir)
+
+                tdelta_rsync = time.time() - t0_rsync
+                assert (
+                    tdelta_rsync > 1
+                ), f"Rsync took only {tdelta_rsync:.2f}s, which indicates that nothing was actually transferred"
+                LOGGER.info(f"Rsynced {full_maps_file} to {local_scratch_dir} after {tdelta_rsync:.2f}s")
+                full_maps_file = filenames.get_filename_full_maps(
+                    local_scratch_dir, with_bary=args.with_bary, version=args.cosmogrid_version
+                )
 
             # output containers, one for each permutation, in NEST ordering with padding
             data_vec_container = {}
@@ -231,6 +288,13 @@ def main(indices, args):
                         map_dir = f"{in_map_type}/{z_bin}"
                         with h5py.File(full_maps_file, "r") as f:
                             map_full = f[map_dir][:]
+
+                            # to convert from nside 512 to 1024
+                            if map_full.shape[0] != n_pix:
+                                map_full = hp.ud_grade(
+                                    map_full, nside_out=n_side, order_in="RING", order_out="RING", pess=False
+                                )
+
                         LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
 
                         # lensing, metacal sample #####################################################################

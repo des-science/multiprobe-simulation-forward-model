@@ -19,11 +19,17 @@ def get_filename_data_patches(out_dir, with_bary=False):
     return os.path.join(out_dir, file_name)
 
 
-def get_filename_full_maps(grid_dir, with_bary=False):
+def get_filename_full_maps(grid_dir="", with_bary=False, version="1.1"):
     if with_bary:
-        file_name = "projected_probes_maps_baryonified512.h5"
+        if version == "1":
+            file_name = "projected_probes_maps_baryonified512.h5"
+        elif version == "1.1":
+            file_name = "projected_probes_maps_v11dmb.h5"
     else:
-        file_name = "projected_probes_maps_nobaryons512.h5"
+        if version == "1":
+            file_name = "projected_probes_maps_nobaryons512.h5"
+        elif version == "1.1":
+            file_name = "projected_probes_maps_v11dmo.h5"
 
     return os.path.join(grid_dir, file_name)
 

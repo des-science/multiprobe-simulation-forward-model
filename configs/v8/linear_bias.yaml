@@ -9,13 +9,13 @@ dirs:
       host: "login.phys.ethz.ch"
       user: "athomsen"
       private_key: "/cluster/home/athomsen/.ssh/id_ed25519_san"
-      n_max_rsync: 20
-      timeout: 300
+      max_connections: 20
+      timeout: 600
 
 files:
   # relative to the root of this repository
-  pixels: data/DESY3_pixels_512.h5
-  noise: data/DESY3_noise.h5
+  pixels: data/DESY3_pixels_v11_512.h5
+  noise: data/DESY3_noise_v11.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
   peak_binning: data/peaks/binning/v7_linear_bias.h5
