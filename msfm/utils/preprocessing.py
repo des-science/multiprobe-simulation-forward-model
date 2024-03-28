@@ -9,13 +9,13 @@ hp = imports.import_healpy(parallel=True)
 LOGGER = logger.get_logger(__file__)
 
 
-def preprocess_permutations(args, conf, simset, cosmo_dir_in, pixel_file, noise_file):
+def preprocess_grid_permutations(args, conf, simset, cosmo_dir_in, pixel_file, noise_file):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"][simset]["n_perms_per_cosmo"]
 
     # output container, one for each cosmology
     data_vec_container = _set_up_per_cosmo_dv_container(conf, simset, pixel_file)
-    for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Loop over permutations\n", at_level="info"):
+    for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Looping through permutations\n", at_level="info"):
         LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
         if args.debug and i_perm > 5:
@@ -52,11 +52,15 @@ def preprocess_permutations(args, conf, simset, cosmo_dir_in, pixel_file, noise_
                     elif sample == "maglim":
                         data_vecs = preprocess_maglim_bin(conf, full_sky_bin, in_map_type, i_z, pixel_file)
 
-                # collect the different permutations along the first axis
-                data_vec_container[out_map_type][n_patches * i_perm : n_patches * (i_perm + 1), ..., i_z] = data_vecs
+                    # collect the different permutations along the first axis
+                    data_vec_container[out_map_type][
+                        n_patches * i_perm : n_patches * (i_perm + 1), ..., i_z
+                    ] = data_vecs
 
                 LOGGER.info(f"Done with map type {out_map_type} after {LOGGER.timer.elapsed('map_type')}")
             LOGGER.info(f"Done with sample {sample} after {LOGGER.timer.elapsed('sample')}")
+
+    return data_vec_container
 
 
 def preprocess_metacal_bin(conf, full_sky_map, in_map_type, i_z, simset, pixel_file, noise_file):
