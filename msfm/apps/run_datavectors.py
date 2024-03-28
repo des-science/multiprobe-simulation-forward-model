@@ -202,9 +202,7 @@ def main(indices, args):
         cosmo_dir_out = cosmo_dirs_out[index]
         if not os.path.isdir(cosmo_dir_out):
             input_output.robust_makedirs(cosmo_dir_out)
-        data_vec_file = filenames.get_filename_data_vectors(
-            cosmo_dir_out, with_bary=args.with_bary, version=args.cosmogrid_version
-        )
+        data_vec_file = filenames.get_filename_data_vectors(cosmo_dir_out, with_bary=args.with_bary)
         LOGGER.info(f"Index {index} takes input from {cosmo_dir_in} and writes to {data_vec_file}")
 
         for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Loop over permutations\n", at_level="info"):
@@ -234,10 +232,10 @@ def main(indices, args):
                     connection.rsync_from(full_maps_file, local_scratch_dir)
 
                 tdelta_rsync = time.time() - t0_rsync
+                LOGGER.info(f"Rsynced {full_maps_file} to {local_scratch_dir} after {tdelta_rsync:.2f}s")
                 assert (
                     tdelta_rsync > 1
                 ), f"Rsync took only {tdelta_rsync:.2f}s, which indicates that nothing was actually transferred"
-                LOGGER.info(f"Rsynced {full_maps_file} to {local_scratch_dir} after {tdelta_rsync:.2f}s")
                 full_maps_file = filenames.get_filename_full_maps(
                     local_scratch_dir, with_bary=args.with_bary, version=args.cosmogrid_version
                 )

@@ -1,0 +1,327 @@
+import numpy as np
+import tensorflow as tf
+import tensorflow_probability as tfp
+import os, time, h5py, copy_guardian
+from msfm.utils import logger, filenames, imports, lensing, clustering, maps
+
+hp = imports.import_healpy(parallel=True)
+
+LOGGER = logger.get_logger(__file__)
+
+
+def preprocess_permutations(args, conf, simset, cosmo_dir_in, pixel_file, noise_file):
+    n_patches = conf["analysis"]["n_patches"]
+    n_perms_per_cosmo = conf["analysis"][simset]["n_perms_per_cosmo"]
+
+    # output container, one for each cosmology
+    data_vec_container = _set_up_per_cosmo_dv_container(conf, simset, pixel_file)
+    for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Loop over permutations\n", at_level="info"):
+        LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
+
+        if args.debug and i_perm > 5:
+            LOGGER.warning("Debug mode, aborting after 5 permutations")
+            break
+
+        full_maps_file = _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm)
+
+        for sample in ["metacal", "maglim"]:
+            LOGGER.timer.start("sample")
+            LOGGER.info(f"Starting with sample {sample}")
+
+            # sample specific
+            in_map_types = conf["survey"][sample]["map_types"]["input"]
+            out_map_types = conf["survey"][sample]["map_types"]["output"]
+            z_bins = conf["survey"][sample]["z_bins"]
+
+            for in_map_type, out_map_type in zip(in_map_types, out_map_types):
+                # some fiducial perturbations are skipped for lensing
+                if ("delta" in cosmo_dir_in) and (sample == "metacal") and (in_map_type == "dg"):
+                    LOGGER.info(f"Skipping input map type {in_map_type} for this perturbation")
+                    continue
+
+                LOGGER.info(f"Starting with input map type {in_map_type}")
+                LOGGER.timer.start("map_type")
+
+                for i_z, z_bin in enumerate(z_bins):
+                    full_sky_bin = _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin)
+
+                    if sample == "metacal":
+                        data_vecs = preprocess_metacal_bin(
+                            conf, full_sky_bin, in_map_type, i_z, simset, pixel_file, noise_file
+                        )
+                    elif sample == "maglim":
+                        data_vecs = preprocess_maglim_bin(conf, full_sky_bin, in_map_type, i_z, pixel_file)
+
+                # collect the different permutations along the first axis
+                data_vec_container[out_map_type][n_patches * i_perm : n_patches * (i_perm + 1), ..., i_z] = data_vecs
+
+                LOGGER.info(f"Done with map type {out_map_type} after {LOGGER.timer.elapsed('map_type')}")
+            LOGGER.info(f"Done with sample {sample} after {LOGGER.timer.elapsed('sample')}")
+
+
+def preprocess_metacal_bin(conf, full_sky_map, in_map_type, i_z, simset, pixel_file, noise_file):
+    if in_map_type in ["kg", "ia"]:
+        kappa_dvs = preprocess_lensing(full_sky_map, conf, pixel_file, i_z)
+    elif in_map_type == "dg":
+        kappa_dvs = preprocess_shape_noise(full_sky_map, conf, simset, pixel_file, noise_file, i_z)
+
+    return kappa_dvs
+
+
+def preprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
+    n_side = conf["analysis"]["n_side"]
+    n_pix = conf["analysis"]["n_pix"]
+    n_patches = conf["analysis"]["n_patches"]
+
+    # pixel file
+    data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs = pixel_file
+    patches_pix = patches_pix_dict["metacal"][i_z]
+    corresponding_pix = corresponding_pix_dict["metacal"][i_z]
+    data_vec_len = len(data_vec_pix)
+    base_patch_pix = patches_pix[0]
+
+    kappa2gamma_fac, gamma2kappa_fac, _ = lensing.get_kaiser_squires_factors(3 * n_side - 1)
+
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
+
+    # kappa -> gamma (full sky)
+    kappa_alm = hp.map2alm(
+        kappa_full_sky,
+        use_pixel_weights=True,
+        datapath=hp_datapath,
+    )
+
+    gamma_alm = kappa_alm * kappa2gamma_fac
+    _, gamma1_full, gamma2_full = hp.alm2map(
+        [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
+    )
+
+    kappa_dvs = np.zeros((n_patches, data_vec_len), dtype=np.float32)
+    for i_patch, patch_pix in enumerate(patches_pix):
+        # The 90° rots do NOT change the shear, however, the mirroring does,
+        # therefore we have to swap sign of gamma2 for the last 2 patches!
+        gamma2_sign = gamma2_signs[i_patch]
+        LOGGER.debug(f"Using gamma2 sign {gamma2_sign} for patch index {i_patch}")
+
+        gamma1_patch = np.zeros(n_pix, dtype=np.float32)
+        gamma1_patch[base_patch_pix] = gamma1_full[patch_pix]
+
+        gamma2_patch = np.zeros(n_pix, dtype=np.float32)
+        gamma2_patch[base_patch_pix] = gamma2_full[patch_pix]
+
+        # fix the sign
+        gamma2_patch *= gamma2_sign
+
+        # kappa_patch is a full sky map, but only the patch is occupied
+        kappa_patch = lensing.mode_removal(
+            gamma1_patch,
+            gamma2_patch,
+            gamma2kappa_fac,
+            n_side,
+            apply_smoothing=False,
+            hp_datapath=hp_datapath,
+        )
+
+        # cut out padded data vector
+        kappa_dv = maps.map_to_data_vec(
+            hp_map=kappa_patch,
+            data_vec_len=data_vec_len,
+            corresponding_pix=corresponding_pix,
+            cutout_pix=base_patch_pix,
+            remove_mean=True,
+        )
+
+        kappa_dvs[i_patch] = kappa_dv
+
+    # shape (n_patches, data_vec_len)
+    return kappa_dvs
+
+
+def preprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file, i_z):
+    n_side = conf["analysis"]["n_side"]
+    n_pix = conf["analysis"]["n_pix"]
+    n_patches = conf["analysis"]["n_patches"]
+    n_noise_per_example = conf["analysis"][simset]["n_noise_per_example"]
+
+    # pixel file
+    data_vec_pix, patches_pix_dict, corresponding_pix_dict, _ = pixel_file
+    patches_pix = patches_pix_dict["metacal"][i_z]
+    corresponding_pix = corresponding_pix_dict["metacal"][i_z]
+    data_vec_len = len(data_vec_pix)
+    base_patch_pix = patches_pix[0]
+
+    # noise file
+    tomo_gamma_cat, _ = noise_file
+    gamma_cat = tomo_gamma_cat[i_z]
+
+    # TODO the clustering bias for metacal still has to be determined
+    tomo_bias = conf["survey"]["metacal"]["galaxy_bias"]
+    bias = tomo_bias[i_z]
+    tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
+    n_bar = tomo_n_gal[i_z]
+
+    _, gamma2kappa_fac, _ = lensing.get_kaiser_squires_factors(3 * n_side - 1)
+
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
+
+    # create joint distribution, as this is faster than random indexing
+    gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
+    w = gamma_cat[:, 2]
+    cat_dist = tfp.distributions.Empirical(samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1)
+
+    # normalize to number density contrast
+    delta_full_sky = (delta_full_sky - np.mean(delta_full_sky)) / np.mean(delta_full_sky)
+
+    # number of galaxies per pixel
+    counts_full = clustering.galaxy_density_to_count(
+        delta_full_sky, n_bar, bias, conf=conf, systematics_map=None
+    ).astype(int)
+
+    kappa_dvs = np.zeros((n_patches, n_noise_per_example, data_vec_len), dtype=np.float32)
+    for i_patch, patch_pix in enumerate(patches_pix):
+        # not a full healpy map, just the patch with no zeros
+        counts = counts_full[patch_pix]
+
+        # vectorized sampling, shape (len(counts), n_noise_per_example)
+        gamma1, gamma2 = lensing.noise_gen(counts, cat_dist, n_noise_per_example)
+
+        # not vectorized because of the healpy alm transform
+        for i_noise in range(n_noise_per_example):
+            # full healpy map with zeros outside the footprint
+            gamma1_patch = np.zeros(n_pix, dtype=np.float32)
+            gamma1_patch[base_patch_pix] = gamma1[:, i_noise]
+
+            gamma2_patch = np.zeros(n_pix, dtype=np.float32)
+            gamma2_patch[base_patch_pix] = gamma2[:, i_noise]
+
+            kappa_patch = lensing.mode_removal(
+                gamma1_patch,
+                gamma2_patch,
+                gamma2kappa_fac,
+                n_side,
+                apply_smoothing=False,
+                hp_datapath=hp_datapath,
+            )
+
+            # cut out padded data vector
+            kappa_dv = maps.map_to_data_vec(
+                hp_map=kappa_patch,
+                data_vec_len=data_vec_len,
+                corresponding_pix=corresponding_pix,
+                cutout_pix=base_patch_pix,
+                remove_mean=True,
+            )
+
+            kappa_dvs[i_patch, i_noise] = kappa_dv
+
+    # shape (n_patches, n_noise_per_example, data_vec_len)
+    return kappa_dvs
+
+
+def preprocess_maglim_bin(conf, full_sky_map, in_map_type, i_z, pixel_file):
+    n_pix = conf["analysis"]["n_pix"]
+    n_patches = conf["analysis"]["n_patches"]
+
+    # TODO add quadratic bias
+    # if in_map_type in ["dg", "dg2"]
+
+    # pixel file
+    data_vec_pix, patches_pix_dict, corresponding_pix_dict, _ = pixel_file
+    patches_pix = patches_pix_dict["metacal"][i_z]
+    corresponding_pix = corresponding_pix_dict["metacal"][i_z]
+    data_vec_len = len(data_vec_pix)
+    base_patch_pix = patches_pix[0]
+
+    delta_full = full_sky_map
+
+    delta_dvs = np.zeros((n_patches, data_vec_len), dtype=np.float32)
+    for i_patch, patch_pix in enumerate(patches_pix):
+        # always populate the same patch
+        delta_patch = np.zeros(n_pix, dtype=np.float32)
+        delta_patch[base_patch_pix] = delta_full[patch_pix]
+
+        # cut out padded data vector
+        delta_dv = maps.map_to_data_vec(
+            delta_patch, data_vec_len, corresponding_pix, base_patch_pix, divide_by_mean=True
+        )
+
+        delta_dvs[i_patch] = delta_dv
+
+    # shape (n_patches, data_vec_len)
+    return delta_dvs
+
+
+def _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm):
+    # prepare the full sky input file
+    perm_dir_in = os.path.join(cosmo_dir_in, f"perm_{i_perm:04d}")
+    full_maps_file = filenames.get_filename_full_maps(
+        perm_dir_in, with_bary=args.with_bary, version=args.cosmogrid_version
+    )
+
+    if args.from_san:
+        san_conf = conf["dirs"]["connections"]["san"]
+        local_scratch_dir = os.environ["TMPDIR"]
+
+        t0_rsync = time.time()
+        with copy_guardian.BoundedSemaphore(san_conf["max_connections"], timeout=san_conf["timeout"]):
+            connection = copy_guardian.Connection(
+                host=san_conf["host"], user=san_conf["user"], private_key=san_conf["private_key"], port=22
+            )
+            # overwrite the local scratch file within the loop iterations
+            connection.rsync_from(full_maps_file, local_scratch_dir)
+
+        tdelta_rsync = time.time() - t0_rsync
+        LOGGER.info(f"Rsynced {full_maps_file} to {local_scratch_dir} after {tdelta_rsync:.2f}s")
+        assert (
+            tdelta_rsync > 1
+        ), f"Rsync took only {tdelta_rsync:.2f}s, which indicates that nothing was actually transferred"
+        full_maps_file = filenames.get_filename_full_maps(
+            local_scratch_dir, with_bary=args.with_bary, version=args.cosmogrid_version
+        )
+
+    return full_maps_file
+
+
+def _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin):
+    n_pix = conf["analysis"]["n_pix"]
+    n_side = conf["analysis"]["n_side"]
+
+    # load the full sky maps
+    map_dir = f"{in_map_type}/{z_bin}"
+    with h5py.File(full_maps_file, "r") as f:
+        map_full = f[map_dir][:]
+
+        # to convert from nside 512 to 1024
+        if map_full.shape[0] != n_pix:
+            map_full = hp.ud_grade(map_full, nside_out=n_side, order_in="RING", order_out="RING", pess=False)
+
+    LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
+    return map_full
+
+
+def _set_up_per_cosmo_dv_container(conf, simset, pixel_file):
+    n_patches = conf["analysis"]["n_patches"]
+    n_perms_per_cosmo = conf["analysis"][simset]["n_perms_per_cosmo"]
+    n_noise_per_example = conf["analysis"][simset]["n_noise_per_example"]
+
+    data_vec_pix, _, _, _ = pixel_file
+    data_vec_len = len(data_vec_pix)
+
+    data_vec_container = {}
+    for out_map_type in ["kg", "ia", "dg"]:
+        if out_map_type in ["kg", "ia"]:
+            n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+        else:
+            n_z_bins = len(conf["survey"]["maglim"]["z_bins"])
+        dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
+        data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
+    for out_map_type in ["sn"]:
+        n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+        dvs_shape = (n_perms_per_cosmo * n_patches, n_noise_per_example, data_vec_len, n_z_bins)
+        data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
+
+    return data_vec_container
