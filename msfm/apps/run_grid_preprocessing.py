@@ -20,6 +20,7 @@ Meant for
 import numpy as np
 import tensorflow as tf
 import os, argparse, warnings, time, yaml, h5py
+
 from sobol_seq import i4_sobol
 
 from msfm.utils import (
@@ -186,7 +187,7 @@ def main(indices, args):
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo * n_noise_per_example
     LOGGER.info(
         f"For every cosmology, theres {n_examples_per_cosmo} examples: "
-        f"{n_perms_per_cosmo} permutations and {n_noise_per_example} noise realizations"
+        f"{n_patches} patches times {n_perms_per_cosmo} permutations times {n_noise_per_example} noise realizations"
     )
 
     # .tfrecords
@@ -225,20 +226,19 @@ def main(indices, args):
         je = (index + 1) * n_cosmos_per_file
         LOGGER.info(f"And includes {cosmo_dirs[js : je]}")
 
-        n_done = 0
         with tf.io.TFRecordWriter(tfr_file) as file_writer:
             # loop over the cosmological parameters
             for i_cosmo, cosmo_dir_in in LOGGER.progressbar(
                 zip(range(js, je), cosmo_dirs_in[js:je]),
-                at_level="info",
-                desc="Looping through cosmologies",
+                at_level="debug",
+                desc="Looping through cosmologies\n",
                 total=je - js,
             ):
                 LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
 
                 # cut out the survey footprints, generate the shape noise, perform mode removal, ...
                 data_vec_container = preprocessing.preprocess_grid_permutations(
-                    args, conf, "grid", cosmo_dir_in, pixel_file, noise_file
+                    args, conf, cosmo_dir_in, pixel_file, noise_file
                 )
                 # (n_examples_per_cosmo, n_pix, n_z_bins)
                 kg_examples = data_vec_container["kg"]
@@ -285,9 +285,8 @@ def main(indices, args):
 
                     file_writer.write(serialized)
 
-                n_done += 1
-
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
+        yield index
 
 
 def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file):
@@ -375,12 +374,11 @@ def _get_clustering_transform(conf, pixel_file):
     tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
     tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
+    # survey systematics
     if conf["analysis"]["modelling"]["maglim_survey_systematics_map"]:
         tomo_maglim_sys_dv = files.get_clustering_systematics(conf, pixel_type="data_vector")
     else:
         tomo_maglim_sys_dv = None
-
-    data_vec_pix, _, _, _ = pixel_file
 
     def clustering_smoothing(dg, np_seed):
         dg, alm = _data_vector_smoothing(
@@ -414,7 +412,7 @@ def _get_clustering_transform(conf, pixel_file):
                 tomo_bg2,
                 conf=conf,
                 stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
-                data_vec_pix=data_vec_pix,
+                data_vec_pix=pixel_file[0],
                 systematics_map=tomo_maglim_sys_dv,
                 mask=maglim_mask,
                 np_seed=np_seed + 1,
@@ -426,7 +424,7 @@ def _get_clustering_transform(conf, pixel_file):
                 tomo_bg,
                 conf=conf,
                 stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
-                data_vec_pix=data_vec_pix,
+                data_vec_pix=pixel_file[0],
                 systematics_map=tomo_maglim_sys_dv,
                 mask=maglim_mask,
                 np_seed=np_seed + 1,

@@ -1,3 +1,13 @@
+# Copyright (C) 2024 ETH Zurich, Institute for Particle Physics and Astrophysics
+
+"""
+Created March 2024
+Author: Arne Thomsen
+
+These utils used to be in run_data_vectors.py, but were moved here to facilitate the CosmoGridV1.1 all-in-one 
+processing where no intermediate .h5 files are stored.
+"""
+
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -9,12 +19,61 @@ hp = imports.import_healpy(parallel=True)
 LOGGER = logger.get_logger(__file__)
 
 
-def preprocess_grid_permutations(args, conf, simset, cosmo_dir_in, pixel_file, noise_file):
+def preprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_file, noise_file):
+    LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
+
+    full_maps_file = _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm)
+
+    is_fiducial = "cosmo_fiducial" in cosmo_dir_in
+
+    # output container, one for each example
+    data_vec_container = _set_up_per_example_dv_container(conf, pixel_file, is_fiducial)
+    for sample in ["metacal", "maglim"]:
+        LOGGER.timer.start("sample")
+        LOGGER.info(f"Starting with sample {sample}")
+
+        # sample specific
+        in_map_types = conf["survey"][sample]["map_types"]["input"]
+        out_map_types = conf["survey"][sample]["map_types"]["output"]
+        z_bins = conf["survey"][sample]["z_bins"]
+
+        for in_map_type, out_map_type in zip(in_map_types, out_map_types):
+            # some fiducial perturbations are skipped for lensing
+            if (not is_fiducial) and (sample == "metacal") and (in_map_type == "dg"):
+                LOGGER.info(f"Skipping input map type {in_map_type} for this perturbation")
+                continue
+
+            LOGGER.info(f"Starting with input map type {in_map_type}")
+            LOGGER.timer.start("map_type")
+
+            for i_z, z_bin in enumerate(z_bins):
+                full_sky_bin = _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin)
+
+                if sample == "metacal":
+                    data_vecs = preprocess_metacal_bin(
+                        conf, full_sky_bin, in_map_type, i_z, "fiducial", pixel_file, noise_file
+                    )
+                elif sample == "maglim":
+                    data_vecs = preprocess_maglim_bin(conf, full_sky_bin, in_map_type, i_z, pixel_file)
+
+                # collect the different permutations along the first axis
+                data_vec_container[out_map_type][..., i_z] = data_vecs
+
+            LOGGER.info(f"Done with map type {out_map_type} after {LOGGER.timer.elapsed('map_type')}")
+        LOGGER.info(f"Done with sample {sample} after {LOGGER.timer.elapsed('sample')}")
+
+    return data_vec_container
+
+
+def preprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_file):
     n_patches = conf["analysis"]["n_patches"]
-    n_perms_per_cosmo = conf["analysis"][simset]["n_perms_per_cosmo"]
+    n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
+    all_out_map_types = (
+        conf["survey"]["metacal"]["map_types"]["output"] + conf["survey"]["maglim"]["map_types"]["output"]
+    )
 
     # output container, one for each cosmology
-    data_vec_container = _set_up_per_cosmo_dv_container(conf, simset, pixel_file)
+    data_vec_container = _set_up_per_cosmo_dv_container(conf, pixel_file, all_out_map_types)
     for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Looping through permutations\n", at_level="info"):
         LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
@@ -34,11 +93,6 @@ def preprocess_grid_permutations(args, conf, simset, cosmo_dir_in, pixel_file, n
             z_bins = conf["survey"][sample]["z_bins"]
 
             for in_map_type, out_map_type in zip(in_map_types, out_map_types):
-                # some fiducial perturbations are skipped for lensing
-                if ("delta" in cosmo_dir_in) and (sample == "metacal") and (in_map_type == "dg"):
-                    LOGGER.info(f"Skipping input map type {in_map_type} for this perturbation")
-                    continue
-
                 LOGGER.info(f"Starting with input map type {in_map_type}")
                 LOGGER.timer.start("map_type")
 
@@ -47,7 +101,7 @@ def preprocess_grid_permutations(args, conf, simset, cosmo_dir_in, pixel_file, n
 
                     if sample == "metacal":
                         data_vecs = preprocess_metacal_bin(
-                            conf, full_sky_bin, in_map_type, i_z, simset, pixel_file, noise_file
+                            conf, full_sky_bin, in_map_type, i_z, "grid", pixel_file, noise_file
                         )
                     elif sample == "maglim":
                         data_vecs = preprocess_maglim_bin(conf, full_sky_bin, in_map_type, i_z, pixel_file)
@@ -65,8 +119,10 @@ def preprocess_grid_permutations(args, conf, simset, cosmo_dir_in, pixel_file, n
 
 def preprocess_metacal_bin(conf, full_sky_map, in_map_type, i_z, simset, pixel_file, noise_file):
     if in_map_type in ["kg", "ia"]:
+        # shape (n_patches, data_vec_len)
         kappa_dvs = preprocess_lensing(full_sky_map, conf, pixel_file, i_z)
     elif in_map_type == "dg":
+        # shape (n_patches, n_noise_per_example, data_vec_len)
         kappa_dvs = preprocess_shape_noise(full_sky_map, conf, simset, pixel_file, noise_file, i_z)
 
     return kappa_dvs
@@ -281,7 +337,7 @@ def _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm):
         tdelta_rsync = time.time() - t0_rsync
         LOGGER.info(f"Rsynced {full_maps_file} to {local_scratch_dir} after {tdelta_rsync:.2f}s")
         assert (
-            tdelta_rsync > 1
+            tdelta_rsync > 1 or args.debug
         ), f"Rsync took only {tdelta_rsync:.2f}s, which indicates that nothing was actually transferred"
         full_maps_file = filenames.get_filename_full_maps(
             local_scratch_dir, with_bary=args.with_bary, version=args.cosmogrid_version
@@ -307,25 +363,73 @@ def _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin):
     return map_full
 
 
-def _set_up_per_cosmo_dv_container(conf, simset, pixel_file):
+def _set_up_per_cosmo_dv_container(conf, pixel_file, out_map_types):
     n_patches = conf["analysis"]["n_patches"]
-    n_perms_per_cosmo = conf["analysis"][simset]["n_perms_per_cosmo"]
-    n_noise_per_example = conf["analysis"][simset]["n_noise_per_example"]
-
-    data_vec_pix, _, _, _ = pixel_file
-    data_vec_len = len(data_vec_pix)
+    n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
+    n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
+    data_vec_len = len(pixel_file[0])
 
     data_vec_container = {}
-    for out_map_type in ["kg", "ia", "dg"]:
+    for out_map_type in out_map_types:
         if out_map_type in ["kg", "ia"]:
             n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
-        else:
+            dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
+        elif out_map_type == "dg":
             n_z_bins = len(conf["survey"]["maglim"]["z_bins"])
-        dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
+            dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
+        elif out_map_type == "sn":
+            n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+            dvs_shape = (n_perms_per_cosmo * n_patches, n_noise_per_example, data_vec_len, n_z_bins)
+
         data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
-    for out_map_type in ["sn"]:
-        n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
-        dvs_shape = (n_perms_per_cosmo * n_patches, n_noise_per_example, data_vec_len, n_z_bins)
-        data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
+
+    return data_vec_container
+
+
+# def _set_up_per_cosmo_dv_container(conf, pixel_file):
+#     n_patches = conf["analysis"]["n_patches"]
+#     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
+#     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
+#     data_vec_len = len(pixel_file[0])
+
+#     data_vec_container = {}
+#     for out_map_type in ["kg", "ia", "dg"]:
+#         if out_map_type in ["kg", "ia"]:
+#             n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+#         else:
+#             n_z_bins = len(conf["survey"]["maglim"]["z_bins"])
+#         dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
+#         data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
+#     for out_map_type in ["sn"]:
+#         n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+#         dvs_shape = (n_perms_per_cosmo * n_patches, n_noise_per_example, data_vec_len, n_z_bins)
+#         data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
+
+#     return data_vec_container
+
+
+def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
+    n_patches = conf["analysis"]["n_patches"]
+    n_noise_per_example = conf["analysis"]["fiducial"]["n_noise_per_example"]
+    data_vec_len = len(pixel_file[0])
+    out_map_types = conf["survey"]["metacal"]["map_types"]["output"] + conf["survey"]["maglim"]["map_types"]["output"]
+
+    data_vec_container = {}
+    for out_map_type in out_map_types:
+        if out_map_type in ["kg", "ia"]:
+            n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+            dvs_shape = (n_patches, data_vec_len, n_z_bins)
+        elif out_map_type == "sn":
+            n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+            if is_fiducial:
+                dvs_shape = (n_patches, n_noise_per_example, data_vec_len, n_z_bins)
+            else:
+                dvs_shape = None
+        elif out_map_type == "dg":
+            n_z_bins = len(conf["survey"]["maglim"]["z_bins"])
+            dvs_shape = (n_patches, data_vec_len, n_z_bins)
+
+        if dvs_shape is not None:
+            data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
 
     return data_vec_container
