@@ -35,13 +35,15 @@ def get_filename_full_maps(grid_dir="", with_bary=False, version="1.1"):
 
 
 def get_filename_tfrecords(out_dir, index, tag, simset, with_bary=False, return_pattern=False):
-    if with_bary:
-        file_name = f"{tag}_{simset}_baryonified_{index:04d}.tfrecord"
+    if return_pattern:
+        index = "????"
     else:
-        if return_pattern:
-            file_name = f"{tag}_{simset}_????.tfrecord"
-        else:
-            file_name = f"{tag}_{simset}_{index:04d}.tfrecord"
+        index = f"{index:04d}"
+
+    if with_bary:
+        file_name = f"{tag}_{simset}_dmb_{index}.tfrecord"
+    else:
+        file_name = f"{tag}_{simset}_dmo_{index}.tfrecord"
 
     return os.path.join(out_dir, file_name)
 

@@ -21,6 +21,7 @@ LOGGER = logger.get_logger(__file__)
 
 def preprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_file, noise_file):
     LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
+    LOGGER.timer.start("permutation")
 
     full_maps_file = _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm)
 
@@ -61,6 +62,7 @@ def preprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fil
 
             LOGGER.info(f"Done with map type {out_map_type} after {LOGGER.timer.elapsed('map_type')}")
         LOGGER.info(f"Done with sample {sample} after {LOGGER.timer.elapsed('sample')}")
+    LOGGER.info(f"Done with permutation {i_perm:04d} after {LOGGER.timer.elapsed('permutation')}")
 
     return data_vec_container
 
@@ -68,12 +70,9 @@ def preprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fil
 def preprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_file):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
-    all_out_map_types = (
-        conf["survey"]["metacal"]["map_types"]["output"] + conf["survey"]["maglim"]["map_types"]["output"]
-    )
 
     # output container, one for each cosmology
-    data_vec_container = _set_up_per_cosmo_dv_container(conf, pixel_file, all_out_map_types)
+    data_vec_container = _set_up_per_cosmo_dv_container(conf, pixel_file)
     for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Looping through permutations\n", at_level="info"):
         LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
@@ -363,11 +362,12 @@ def _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin):
     return map_full
 
 
-def _set_up_per_cosmo_dv_container(conf, pixel_file, out_map_types):
+def _set_up_per_cosmo_dv_container(conf, pixel_file):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
     data_vec_len = len(pixel_file[0])
+    out_map_types = conf["survey"]["metacal"]["map_types"]["output"] + conf["survey"]["maglim"]["map_types"]["output"]
 
     data_vec_container = {}
     for out_map_type in out_map_types:
@@ -384,28 +384,6 @@ def _set_up_per_cosmo_dv_container(conf, pixel_file, out_map_types):
         data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
 
     return data_vec_container
-
-
-# def _set_up_per_cosmo_dv_container(conf, pixel_file):
-#     n_patches = conf["analysis"]["n_patches"]
-#     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
-#     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
-#     data_vec_len = len(pixel_file[0])
-
-#     data_vec_container = {}
-#     for out_map_type in ["kg", "ia", "dg"]:
-#         if out_map_type in ["kg", "ia"]:
-#             n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
-#         else:
-#             n_z_bins = len(conf["survey"]["maglim"]["z_bins"])
-#         dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
-#         data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
-#     for out_map_type in ["sn"]:
-#         n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
-#         dvs_shape = (n_perms_per_cosmo * n_patches, n_noise_per_example, data_vec_len, n_z_bins)
-#         data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
-
-#     return data_vec_container
 
 
 def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):

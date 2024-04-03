@@ -222,17 +222,17 @@ def main(indices, args):
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
         # index for the cosmological parameters
-        js = index * n_cosmos_per_file
-        je = (index + 1) * n_cosmos_per_file
-        LOGGER.info(f"And includes {cosmo_dirs[js : je]}")
+        i_cosmo_start = index * n_cosmos_per_file
+        i_cosmo_end = (index + 1) * n_cosmos_per_file
+        LOGGER.info(f"And includes {cosmo_dirs[i_cosmo_start : i_cosmo_end]}")
 
         with tf.io.TFRecordWriter(tfr_file) as file_writer:
             # loop over the cosmological parameters
             for i_cosmo, cosmo_dir_in in LOGGER.progressbar(
-                zip(range(js, je), cosmo_dirs_in[js:je]),
+                zip(range(i_cosmo_start, i_cosmo_end), cosmo_dirs_in[i_cosmo_start:i_cosmo_end]),
                 at_level="debug",
                 desc="Looping through cosmologies\n",
-                total=je - js,
+                total=i_cosmo_end - i_cosmo_start,
             ):
                 LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
 
@@ -240,6 +240,7 @@ def main(indices, args):
                 data_vec_container = preprocessing.preprocess_grid_permutations(
                     args, conf, cosmo_dir_in, pixel_file, noise_file
                 )
+
                 # (n_examples_per_cosmo, n_pix, n_z_bins)
                 kg_examples = data_vec_container["kg"]
                 ia_examples = data_vec_container["ia"]
@@ -252,35 +253,37 @@ def main(indices, args):
                 )
 
                 # redshift evolution, only calculate the integrals once here
-                current_lensing_transform = lambda kg, ia, sn_realz, np_seed: lensing_transform(
-                    kg, ia, sn_realz, Aia, n_Aia, np_seed
+                current_lensing_transform = lambda kg, ia, sn_samples, np_seed: lensing_transform(
+                    kg, ia, sn_samples, Aia, n_Aia, np_seed
                 )
                 current_clustering_transform = lambda dg, np_seed: clustering_transform(
                     dg, bg, n_bg, bg2, n_bg2, np_seed
                 )
 
                 # loop over the n_examples_per_cosmo
-                for i_example, (kg, ia, sn_realz, dg) in LOGGER.progressbar(
+                for i_example, (kg, ia, sn_samples, dg) in LOGGER.progressbar(
                     enumerate(zip(kg_examples, ia_examples, sn_examples, dg_examples)),
                     at_level="info",
                     desc="Looping through the per cosmology examples",
                     total=n_examples_per_cosmo // n_noise_per_example,
                 ):
                     # maps
-                    kg, sn_realz, alm_kg, alm_sn_realz = current_lensing_transform(
-                        kg, ia, sn_realz, np_seed=i_sobol + i_example
+                    kg, sn_samples, alm_kg, alm_sn_samples = current_lensing_transform(
+                        kg, ia, sn_samples, np_seed=i_sobol + i_example
                     )
-                    dg, pn_realz, alm_dg, alm_pn_realz = current_clustering_transform(dg, np_seed=i_sobol + i_example)
+                    dg, pn_samples, alm_dg, alm_pn_samples = current_clustering_transform(
+                        dg, np_seed=i_sobol + i_example
+                    )
 
                     # power spectra
-                    cls = power_spectra.run_tfrecords_alm_to_cl(alm_kg, alm_sn_realz, alm_dg, alm_pn_realz)
+                    cls = power_spectra.run_tfrecords_alm_to_cl(alm_kg, alm_sn_samples, alm_dg, alm_pn_samples)
 
                     serialized = tfrecords.parse_forward_grid(
-                        kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_example
+                        kg, sn_samples, dg, pn_samples, cls, cosmo, i_sobol, i_example
                     ).SerializeToString()
 
                     _verify_tfrecord(
-                        serialized, n_noise_per_example, kg, sn_realz, dg, pn_realz, cosmo, i_sobol, i_example, cls
+                        serialized, n_noise_per_example, kg, sn_samples, dg, pn_samples, cosmo, i_sobol, i_example, cls
                     )
 
                     file_writer.write(serialized)
@@ -333,7 +336,7 @@ def _get_lensing_transform(conf, pixel_file):
 
         return kg, alm
 
-    def lensing_transform(kg, ia, sn_realz, Aia, n_Aia, np_seed=None):
+    def lensing_transform(kg, ia, sn_samples, Aia, n_Aia, np_seed=None):
         # intrinsic alignment
         tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
         LOGGER.debug(f"Per z bin Aia = {tomo_Aia}")
@@ -347,19 +350,19 @@ def _get_lensing_transform(conf, pixel_file):
         kg *= metacal_mask
         kg, alm_kg = lensing_smoothing(kg, np_seed)
 
-        smooth_sn_realz, alm_sn_realz = [], []
-        for shape_noise in sn_realz:
+        smooth_sn_samples, alm_sn_samples = [], []
+        for shape_noise in sn_samples:
             shape_noise *= metacal_mask
 
             smooth_sn, alm_sn = lensing_smoothing(shape_noise, np_seed)
 
-            smooth_sn_realz.append(smooth_sn)
-            alm_sn_realz.append(alm_sn)
+            smooth_sn_samples.append(smooth_sn)
+            alm_sn_samples.append(alm_sn)
 
-        sn_realz = np.stack(smooth_sn_realz, axis=0)
-        alm_sn_realz = np.stack(alm_sn_realz, axis=0)
+        sn_samples = np.stack(smooth_sn_samples, axis=0)
+        alm_sn_samples = np.stack(alm_sn_samples, axis=0)
 
-        return kg, sn_realz, alm_kg, alm_sn_realz
+        return kg, sn_samples, alm_kg, alm_sn_samples
 
     return lensing_transform
 
@@ -431,26 +434,26 @@ def _get_clustering_transform(conf, pixel_file):
             )
 
         # draw noise, mask, smooth
-        pn_realz = clustering.galaxy_count_to_noise(dg, n_noise_per_example, np_seed=np_seed + 2)
+        pn_samples = clustering.galaxy_count_to_noise(dg, n_noise_per_example, np_seed=np_seed + 2)
 
-        smooth_pn_realz, alm_pn_realz = [], []
-        for pn in pn_realz:
+        smooth_pn_samples, alm_pn_samples = [], []
+        for pn in pn_samples:
             pn *= maglim_mask
 
             smooth_pn, alm_smooth_pn = clustering_smoothing(pn, np_seed)
 
-            smooth_pn_realz.append(smooth_pn)
-            alm_pn_realz.append(alm_smooth_pn)
+            smooth_pn_samples.append(smooth_pn)
+            alm_pn_samples.append(alm_smooth_pn)
 
-        pn_realz = np.stack(smooth_pn_realz, axis=0)
-        alm_pn_realz = np.stack(alm_pn_realz, axis=0)
+        pn_samples = np.stack(smooth_pn_samples, axis=0)
+        alm_pn_samples = np.stack(alm_pn_samples, axis=0)
 
         # noiseless
         dg, alm_dg = clustering_smoothing(dg, np_seed)
 
         # shapes (n_pix, n_z_maglim), (n_noise_per_example, n_pix, n_z_maglim)
         # (n_noise_per_example, )
-        return dg, pn_realz, alm_dg, alm_pn_realz
+        return dg, pn_samples, alm_dg, alm_pn_samples
 
     return clustering_transform
 
@@ -497,12 +500,12 @@ def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
     return i_sobol, cosmo, Aia, n_Aia, bg, n_bg, bg2, n_bg2
 
 
-def _verify_tfrecord(serialized, n_noise_per_example, kg, sn_realz, dg, pn_realz, cosmo, i_sobol, i_example, cls):
+def _verify_tfrecord(serialized, n_noise_per_example, kg, sn_samples, dg, pn_samples, cosmo, i_sobol, i_example, cls):
     inv_maps = tfrecords.parse_inverse_grid(serialized, range(n_noise_per_example))
 
     for i_noise in range(n_noise_per_example):
-        assert np.allclose(inv_maps[f"kg_{i_noise}"], kg + sn_realz[i_noise])
-        assert np.allclose(inv_maps[f"dg_{i_noise}"], dg + pn_realz[i_noise])
+        assert np.allclose(inv_maps[f"kg_{i_noise}"], kg + sn_samples[i_noise])
+        assert np.allclose(inv_maps[f"dg_{i_noise}"], dg + pn_samples[i_noise])
     assert np.allclose(inv_maps["cosmo"], cosmo)
     assert np.allclose(inv_maps["i_sobol"], i_sobol)
     assert np.allclose(inv_maps["i_example"], i_example)
