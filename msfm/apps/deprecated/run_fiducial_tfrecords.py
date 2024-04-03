@@ -348,6 +348,7 @@ def main(indices, args):
         )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
+        # used to index examples in the .h5 files
         js = index * n_examples_per_file
         je = (index + 1) * n_examples_per_file
 
