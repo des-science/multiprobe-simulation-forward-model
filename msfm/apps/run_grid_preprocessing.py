@@ -19,7 +19,7 @@ Meant for
 
 import numpy as np
 import tensorflow as tf
-import os, argparse, warnings, time, yaml, h5py
+import os, argparse, warnings, time, yaml, h5py, copy_guardian
 
 from sobol_seq import i4_sobol
 
@@ -51,8 +51,8 @@ LOGGER = logger.get_logger(__file__)
 def resources(args):
     args = setup(args)
 
-    # TODO
-    resources = {"main_memory": 4096, "main_time": 4, "main_n_cores": 4, "merge_memory": 32768, "merge_n_cores": 16}
+    # TODO, check if this runs at scale
+    resources = {"main_memory": 4096, "main_time": 4, "main_n_cores": 4, "merge_memory": 4096, "merge_n_cores": 16}
 
     if args.from_san:
         # in MB. One projected_probes_maps_v11dmb.h5 should be around 1 GB
@@ -104,11 +104,6 @@ def setup(args):
         help="whether to include the baryonification in the input",
     )
     parser.add_argument(
-        "--from_san",
-        action="store_true",
-        help="copy the CosmoGrid files from the SAN instead of accessing them locally",
-    )
-    parser.add_argument(
         "--file_suffix",
         type=str,
         default="",
@@ -139,7 +134,15 @@ def setup(args):
 
     # paths
     args.config = os.path.abspath(args.config)
-    if not os.path.isdir(args.dir_out):
+
+    args.from_san = "/home/ipa/refreg" in args.dir_in
+    if args.from_san:
+        LOGGER.warning("Reading the CosmoGrid from the SAN")
+
+    args.to_san = "/home/ipa/refreg" in args.dir_out
+    if args.to_san:
+        LOGGER.warning("Writing the .tfrecords to the SAN")
+    elif not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
 
     # compute
@@ -167,8 +170,9 @@ def main(indices, args):
 
     # configuration
     conf = files.load_config(args.config)
-    with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
-        yaml.dump(conf, f)
+    if not args.to_san:
+        with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
+            yaml.dump(conf, f)
 
     # directories
     file_dir = os.path.dirname(__file__)
@@ -216,8 +220,17 @@ def main(indices, args):
     for index in indices:
         LOGGER.timer.start("index")
 
+        if args.to_san:
+            LOGGER.info("Writing the .tfrecord to local scratch to be later copied to the SAN")
+            san_dir_out = args.dir_out
+            args.dir_out = os.environ["TMPDIR"]
+
         tfr_file = filenames.get_filename_tfrecords(
-            args.dir_out, tag=conf["survey"]["name"] + args.file_suffix, index=index, simset="grid"
+            args.dir_out,
+            tag=conf["survey"]["name"] + args.file_suffix,
+            index=index,
+            simset="grid",
+            with_bary=args.with_bary,
         )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
@@ -267,6 +280,10 @@ def main(indices, args):
                     desc="Looping through the per cosmology examples",
                     total=n_examples_per_cosmo // n_noise_per_example,
                 ):
+                    if args.debug and i_example > 2 * n_patches:
+                        LOGGER.warning(f"Debug mode, only processing the first {2*n_patches} examples")
+                        break
+
                     # maps
                     kg, sn_samples, alm_kg, alm_sn_samples = current_lensing_transform(
                         kg, ia, sn_samples, np_seed=i_sobol + i_example
@@ -287,6 +304,8 @@ def main(indices, args):
                     )
 
                     file_writer.write(serialized)
+
+        _rsync_tfrecord_to_san(conf, args, tfr_file, san_dir_out)
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
@@ -518,6 +537,25 @@ def _verify_tfrecord(serialized, n_noise_per_example, kg, sn_samples, dg, pn_sam
     assert np.allclose(inv_cls["i_sobol"], i_sobol)
     assert np.allclose(inv_cls["i_example"], i_example)
     LOGGER.debug("Decoded the cls part of the .tfrecord successfully")
+
+
+def _rsync_tfrecord_to_san(conf, args, tfr_file, san_dir_out):
+    # like in run_fiducial_preprocessing.py
+    if args.to_san:
+        LOGGER.info("Copying the .tfrecord to the SAN")
+        LOGGER.timer.start("copy_to_san")
+
+        san_conf = conf["dirs"]["connections"]["san"]
+        with copy_guardian.BoundedSemaphore(san_conf["max_connections"], timeout=san_conf["timeout"]):
+            connection = copy_guardian.Connection(
+                host=san_conf["host"],
+                user=san_conf["user"],
+                private_key=san_conf["private_key"],
+                port=san_conf["port"],
+            )
+            connection.rsync_to(tfr_file, os.path.join(san_dir_out, os.path.basename(tfr_file)))
+
+        LOGGER.info(f"Done copying {tfr_file} to the SAN after {LOGGER.timer.elapsed('copy_to_san')}")
 
 
 def merge(indices, args):

@@ -76,8 +76,8 @@ def preprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fil
     for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Looping through permutations\n", at_level="info"):
         LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
-        if args.debug and i_perm > 5:
-            LOGGER.warning("Debug mode, aborting after 5 permutations")
+        if args.debug and i_perm > 2:
+            LOGGER.warning("Debug mode, aborting after 2 permutations")
             break
 
         full_maps_file = _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm)
@@ -328,7 +328,10 @@ def _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm):
         t0_rsync = time.time()
         with copy_guardian.BoundedSemaphore(san_conf["max_connections"], timeout=san_conf["timeout"]):
             connection = copy_guardian.Connection(
-                host=san_conf["host"], user=san_conf["user"], private_key=san_conf["private_key"], port=22
+                host=san_conf["host"],
+                user=san_conf["user"],
+                private_key=san_conf["private_key"],
+                port=san_conf["port"],
             )
             # overwrite the local scratch file within the loop iterations
             connection.rsync_from(full_maps_file, local_scratch_dir)
@@ -356,7 +359,7 @@ def _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin):
 
         # to convert from nside 512 to 1024
         if map_full.shape[0] != n_pix:
-            map_full = hp.ud_grade(map_full, nside_out=n_side, order_in="RING", order_out="RING", pess=False)
+            map_full = hp.ud_grade(map_full, nside_out=n_side, order_in="RING", order_out="RING", pess=True)
 
     LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
     return map_full
