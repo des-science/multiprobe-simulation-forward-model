@@ -95,11 +95,6 @@ def setup(args):
         help="version of the input CosmoGrid",
     )
     parser.add_argument(
-        "--with_bary",
-        action="store_true",
-        help="whether to include the baryonification in the input",
-    )
-    parser.add_argument(
         "--file_suffix",
         type=str,
         default="",
@@ -170,6 +165,8 @@ def main(indices, args):
         with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
             yaml.dump(conf, f)
 
+    with_bary = conf["analysis"]["modelling"]["baryonified"]
+
     # directories
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
@@ -177,7 +174,7 @@ def main(indices, args):
 
     cosmo_params_info = cosmogrid.get_cosmo_params_info(meta_info_file, "fiducial")
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
-    if args.with_bary:
+    if with_bary:
         cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs]
         LOGGER.info(f"Using the baryonified inputs, then there's {len(cosmo_dirs) - 1} fiducial perturbations")
     else:
@@ -243,7 +240,7 @@ def main(indices, args):
             tag=conf["survey"]["name"] + args.file_suffix,
             index=index,
             simset="fiducial",
-            with_bary=args.with_bary,
+            with_bary=with_bary,
         )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
@@ -314,13 +311,18 @@ def main(indices, args):
 
                         # astrophysics perturbations are calculated with respect to the fiducial cosmo params
                         if is_fiducial:
+
                             # intrinsic alignment perturbations
-                            for i_ia, label in enumerate(ia_pert_labels):
-                                ia_perts[i_patch, i_ia] = lensing_transform(kg, ia, ia_label=label, np_seed=i_example)
+                            for i_ia, ia_pert_label in enumerate(ia_pert_labels):
+                                ia_perts[i_patch, i_ia] = lensing_transform(
+                                    kg, ia, ia_label=ia_pert_label, np_seed=i_example
+                                )
 
                             # galaxy clustering perturbations
-                            for i_bg, label in enumerate(bg_pert_labels):
-                                bg_perts[i_patch, i_bg] = clustering_transform(dg, bg_label=label, np_seed=i_example)
+                            for i_bg, bg_pert_label in enumerate(bg_pert_labels):
+                                bg_perts[i_patch, i_bg] = clustering_transform(
+                                    dg, bg_label=bg_pert_label, np_seed=i_example
+                                )
 
                             # shape (n_noise_per_example, n_pix, n_z_bins) load the shape noise realization
                             sn_samples = data_vec_container["sn"][i_patch]
@@ -376,7 +378,8 @@ def main(indices, args):
 
                 n_done += 1
 
-        _rsync_tfrecord_to_san(conf, args, tfr_file, san_dir_out)
+        if args.to_san:
+            _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out)
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
@@ -614,23 +617,22 @@ def _serialize_and_verify(
     return serialized
 
 
-def _rsync_tfrecord_to_san(conf, args, tfr_file, san_dir_out):
+def _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out):
     # like in run_grid_preprocessing.py
-    if args.to_san:
-        LOGGER.info("Copying the .tfrecord to the SAN")
-        LOGGER.timer.start("copy_to_san")
+    LOGGER.info("Copying the .tfrecord to the SAN")
+    LOGGER.timer.start("copy_to_san")
 
-        san_conf = conf["dirs"]["connections"]["san"]
-        with copy_guardian.BoundedSemaphore(san_conf["max_connections"], timeout=san_conf["timeout"]):
-            connection = copy_guardian.Connection(
-                host=san_conf["host"],
-                user=san_conf["user"],
-                private_key=san_conf["private_key"],
-                port=san_conf["port"],
-            )
-            connection.rsync_to(tfr_file, os.path.join(san_dir_out, os.path.basename(tfr_file)))
+    san_conf = conf["dirs"]["connections"]["san"]
+    with copy_guardian.BoundedSemaphore(san_conf["max_connections"], timeout=san_conf["timeout"]):
+        connection = copy_guardian.Connection(
+            host=san_conf["host"],
+            user=san_conf["user"],
+            private_key=san_conf["private_key"],
+            port=san_conf["port"],
+        )
+        connection.rsync_to(tfr_file, os.path.join(san_dir_out, os.path.basename(tfr_file)))
 
-        LOGGER.info(f"Done copying {tfr_file} to the SAN after {LOGGER.timer.elapsed('copy_to_san')}")
+    LOGGER.info(f"Done copying {tfr_file} to the SAN after {LOGGER.timer.elapsed('copy_to_san')}")
 
 
 def merge(indices, args):
@@ -647,7 +649,7 @@ def merge(indices, args):
         tag=conf["survey"]["name"] + args.file_suffix,
         index=None,
         simset="fiducial",
-        with_bary=args.with_bary,
+        with_bary=conf["analysis"]["modelling"]["baryonified"],
         return_pattern=True,
     )
 

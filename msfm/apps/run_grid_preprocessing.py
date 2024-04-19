@@ -99,11 +99,6 @@ def setup(args):
         help="version of the input CosmoGrid",
     )
     parser.add_argument(
-        "--with_bary",
-        action="store_true",
-        help="whether to include the baryonification in the input",
-    )
-    parser.add_argument(
         "--file_suffix",
         type=str,
         default="",
@@ -230,7 +225,7 @@ def main(indices, args):
             tag=conf["survey"]["name"] + args.file_suffix,
             index=index,
             simset="grid",
-            with_bary=args.with_bary,
+            with_bary=conf["analysis"]["modelling"]["baryonified"],
         )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
@@ -305,7 +300,8 @@ def main(indices, args):
 
                     file_writer.write(serialized)
 
-        _rsync_tfrecord_to_san(conf, args, tfr_file, san_dir_out)
+        if args.to_san:
+            _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out)
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
@@ -478,15 +474,19 @@ def _get_clustering_transform(conf, pixel_file):
 
 
 def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
-    params = parameters.get_parameters(conf=conf)
-    sobol_priors = parameters.get_prior_intervals(params, conf=conf)
-
+    with_bary = conf["analysis"]["modelling"]["baryonified"]
     quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
 
-    # select the relevant cosmological parameters
-    cosmo = [cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in conf["analysis"]["params"]["cosmo"]]
+    all_params = parameters.get_parameters(conf=conf)
+
+    cosmogrid_params = conf["analysis"]["params"]["cosmo"].copy()
+    if with_bary:
+        cosmogrid_params += conf["analysis"]["params"]["bary"]
+
+    cosmo = [cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in cosmogrid_params]
     cosmo = np.array(cosmo, dtype=np.float32)
 
+    sobol_priors = parameters.get_prior_intervals(all_params, conf=conf)
     # extend the Sobol sequence by astrophysical parameters
     i_sobol = cosmo_params_info["sobol_index"][i_cosmo]
     sobol_point, _ = i4_sobol(sobol_priors.shape[0], i_sobol)
@@ -494,14 +494,14 @@ def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
     sobol_params = sobol_params.astype(np.float32)
 
     # add these to the label, the parameters are ordered as in sobol_priors
-    Aia = sobol_params[6]
-    n_Aia = sobol_params[7]
-    bg = sobol_params[8]
-    n_bg = sobol_params[9]
+    Aia = sobol_params[6 + 2 * with_bary]
+    n_Aia = sobol_params[7 + 2 * with_bary]
+    bg = sobol_params[8 + 2 * with_bary]
+    n_bg = sobol_params[9 + 2 * with_bary]
     cosmo = np.concatenate((cosmo, np.array([Aia, n_Aia, bg, n_bg])))
     if quadratic_biasing:
-        bg2 = sobol_params[10]
-        n_bg2 = sobol_params[11]
+        bg2 = sobol_params[10 + 2 * with_bary]
+        n_bg2 = sobol_params[11 + 2 * with_bary]
         cosmo = np.concatenate((cosmo, np.array([bg2, n_bg2])))
     else:
         bg2 = None
@@ -514,6 +514,9 @@ def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
     assert np.allclose(sobol_params[3], cosmo[3], rtol=1e-3, atol=1e-5)  # H0
     assert np.allclose(sobol_params[4], cosmo[4], rtol=1e-3, atol=1e-5)  # ns
     assert np.allclose(sobol_params[5], cosmo[5], rtol=1e-3, atol=1e-5)  # w0
+    if with_bary:
+        assert np.allclose(sobol_params[6], np.log10(cosmo[6]), rtol=1e-3, atol=1e-5)  # bary_Mc
+        assert np.allclose(sobol_params[7], cosmo[7], rtol=1e-3, atol=1e-5)  # bary_nu
     LOGGER.debug("The parameters derived from the sobol sequence are identical to the stored ones")
 
     return i_sobol, cosmo, Aia, n_Aia, bg, n_bg, bg2, n_bg2
@@ -539,23 +542,22 @@ def _verify_tfrecord(serialized, n_noise_per_example, kg, sn_samples, dg, pn_sam
     LOGGER.debug("Decoded the cls part of the .tfrecord successfully")
 
 
-def _rsync_tfrecord_to_san(conf, args, tfr_file, san_dir_out):
+def _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out):
     # like in run_fiducial_preprocessing.py
-    if args.to_san:
-        LOGGER.info("Copying the .tfrecord to the SAN")
-        LOGGER.timer.start("copy_to_san")
+    LOGGER.info("Copying the .tfrecord to the SAN")
+    LOGGER.timer.start("copy_to_san")
 
-        san_conf = conf["dirs"]["connections"]["san"]
-        with copy_guardian.BoundedSemaphore(san_conf["max_connections"], timeout=san_conf["timeout"]):
-            connection = copy_guardian.Connection(
-                host=san_conf["host"],
-                user=san_conf["user"],
-                private_key=san_conf["private_key"],
-                port=san_conf["port"],
-            )
-            connection.rsync_to(tfr_file, os.path.join(san_dir_out, os.path.basename(tfr_file)))
+    san_conf = conf["dirs"]["connections"]["san"]
+    with copy_guardian.BoundedSemaphore(san_conf["max_connections"], timeout=san_conf["timeout"]):
+        connection = copy_guardian.Connection(
+            host=san_conf["host"],
+            user=san_conf["user"],
+            private_key=san_conf["private_key"],
+            port=san_conf["port"],
+        )
+        connection.rsync_to(tfr_file, os.path.join(san_dir_out, os.path.basename(tfr_file)))
 
-        LOGGER.info(f"Done copying {tfr_file} to the SAN after {LOGGER.timer.elapsed('copy_to_san')}")
+    LOGGER.info(f"Done copying {tfr_file} to the SAN after {LOGGER.timer.elapsed('copy_to_san')}")
 
 
 def merge(indices, args):

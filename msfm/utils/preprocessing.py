@@ -76,7 +76,7 @@ def preprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fil
     for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Looping through permutations\n", at_level="info"):
         LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
-        if args.debug and i_perm > 2:
+        if args.debug and i_perm > 0:
             LOGGER.warning("Debug mode, aborting after 2 permutations")
             break
 
@@ -315,11 +315,11 @@ def preprocess_maglim_bin(conf, full_sky_map, in_map_type, i_z, pixel_file):
 
 
 def _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm):
+    with_bary = conf["analysis"]["modelling"]["baryonified"]
+
     # prepare the full sky input file
     perm_dir_in = os.path.join(cosmo_dir_in, f"perm_{i_perm:04d}")
-    full_maps_file = filenames.get_filename_full_maps(
-        perm_dir_in, with_bary=args.with_bary, version=args.cosmogrid_version
-    )
+    full_maps_file = filenames.get_filename_full_maps(perm_dir_in, with_bary=with_bary, version=args.cosmogrid_version)
 
     if args.from_san:
         san_conf = conf["dirs"]["connections"]["san"]
@@ -342,7 +342,7 @@ def _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm):
             tdelta_rsync > 1 or args.debug
         ), f"Rsync took only {tdelta_rsync:.2f}s, which indicates that nothing was actually transferred"
         full_maps_file = filenames.get_filename_full_maps(
-            local_scratch_dir, with_bary=args.with_bary, version=args.cosmogrid_version
+            local_scratch_dir, with_bary=with_bary, version=args.cosmogrid_version
         )
 
     return full_maps_file
