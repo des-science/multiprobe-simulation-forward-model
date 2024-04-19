@@ -72,6 +72,7 @@ analysis:
   params:
     # same ordering as in the CosmoGrid
     cosmo: [Om, s8, Ob, H0, ns, w0]
+    bary: [bary_Mc, bary_nu]
     # NLA model
     ia: [Aia, n_Aia]
     # galaxy biasing
@@ -95,6 +96,7 @@ analysis:
       l_max: [1535, 1535, 1535, 1535]
       theta_fwhm: [0.0, 0.0, 0.0, 0.0]
   modelling:
+    baryonified: True
     # linear + quadratic galaxy biasing or just linear
     quadratic_biasing: False
     # whether to include a stochasticity in the galaxy biasing. This scales the [-pi, pi] interval from which the
@@ -107,8 +109,6 @@ analysis:
     z0: 0.62
     # degrade the maps to Gaussian Random Fields for testing and comparison to the power spectra
     degrade_to_grf: False
-    # TODO this flag currently does nothing
-    baryonified: False
   normalization:
     # approximate per tomo bin standard deviation of the kg + ia + sn maps at the fiducial cosmology
     lensing: [0.0086, 0.0137, 0.0174, 0.0229]
@@ -143,6 +143,8 @@ analysis:
       Ob: [0.03, 0.06]
       ns: [0.87, 1.07]
       w0: [-2.0, -0.333]
+      bary_Mc: [12.0, 15.0]
+      bary_nu: [-2.0, 2.0]
       Aia: [-3.0, 3.0]
       n_Aia: [-4.0, 6.0]
       bg: [0.8, 3.0]
@@ -170,6 +172,8 @@ analysis:
     Ob: 0.0493
     ns: 0.9649
     w0: -1.0
+    bary_Mc: 13.82
+    bary_nu: 0.0
     Aia: 0.5
     n_Aia: 1.5
     bg: 1.5
@@ -183,6 +187,8 @@ analysis:
       Ob: 0.001
       ns: 0.02
       w0: 0.05
+      bary_Mc: 0.1
+      bary_nu: 0.1
       Aia: 0.1
       n_Aia: 0.2
       bg: 0.1
