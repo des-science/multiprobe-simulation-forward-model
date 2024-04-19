@@ -18,6 +18,8 @@ hp = imports.import_healpy(parallel=True)
 
 LOGGER = logger.get_logger(__file__)
 
+# fiducial ############################################################################################################
+
 
 def preprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_file, noise_file):
     LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
@@ -67,6 +69,36 @@ def preprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fil
     return data_vec_container
 
 
+def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
+    n_patches = conf["analysis"]["n_patches"]
+    n_noise_per_example = conf["analysis"]["fiducial"]["n_noise_per_example"]
+    data_vec_len = len(pixel_file[0])
+    out_map_types = conf["survey"]["metacal"]["map_types"]["output"] + conf["survey"]["maglim"]["map_types"]["output"]
+
+    data_vec_container = {}
+    for out_map_type in out_map_types:
+        if out_map_type in ["kg", "ia"]:
+            n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+            dvs_shape = (n_patches, data_vec_len, n_z_bins)
+        elif out_map_type == "sn":
+            n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+            if is_fiducial:
+                dvs_shape = (n_patches, n_noise_per_example, data_vec_len, n_z_bins)
+            else:
+                dvs_shape = None
+        elif out_map_type == "dg":
+            n_z_bins = len(conf["survey"]["maglim"]["z_bins"])
+            dvs_shape = (n_patches, data_vec_len, n_z_bins)
+
+        if dvs_shape is not None:
+            data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
+
+    return data_vec_container
+
+
+# grid ################################################################################################################
+
+
 def preprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_file):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
@@ -114,6 +146,33 @@ def preprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fil
             LOGGER.info(f"Done with sample {sample} after {LOGGER.timer.elapsed('sample')}")
 
     return data_vec_container
+
+
+def _set_up_per_cosmo_dv_container(conf, pixel_file):
+    n_patches = conf["analysis"]["n_patches"]
+    n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
+    n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
+    data_vec_len = len(pixel_file[0])
+    out_map_types = conf["survey"]["metacal"]["map_types"]["output"] + conf["survey"]["maglim"]["map_types"]["output"]
+
+    data_vec_container = {}
+    for out_map_type in out_map_types:
+        if out_map_type in ["kg", "ia"]:
+            n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+            dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
+        elif out_map_type == "dg":
+            n_z_bins = len(conf["survey"]["maglim"]["z_bins"])
+            dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
+        elif out_map_type == "sn":
+            n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+            dvs_shape = (n_perms_per_cosmo * n_patches, n_noise_per_example, data_vec_len, n_z_bins)
+
+        data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
+
+    return data_vec_container
+
+
+# lensing #############################################################################################################
 
 
 def preprocess_metacal_bin(conf, full_sky_map, in_map_type, i_z, simset, pixel_file, noise_file):
@@ -281,6 +340,9 @@ def preprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file,
     return kappa_dvs
 
 
+# clustering ##########################################################################################################
+
+
 def preprocess_maglim_bin(conf, full_sky_map, in_map_type, i_z, pixel_file):
     n_pix = conf["analysis"]["n_pix"]
     n_patches = conf["analysis"]["n_patches"]
@@ -312,6 +374,9 @@ def preprocess_maglim_bin(conf, full_sky_map, in_map_type, i_z, pixel_file):
 
     # shape (n_patches, data_vec_len)
     return delta_dvs
+
+
+# shared utils ########################################################################################################
 
 
 def _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm):
@@ -363,54 +428,3 @@ def _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin):
 
     LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
     return map_full
-
-
-def _set_up_per_cosmo_dv_container(conf, pixel_file):
-    n_patches = conf["analysis"]["n_patches"]
-    n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
-    n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
-    data_vec_len = len(pixel_file[0])
-    out_map_types = conf["survey"]["metacal"]["map_types"]["output"] + conf["survey"]["maglim"]["map_types"]["output"]
-
-    data_vec_container = {}
-    for out_map_type in out_map_types:
-        if out_map_type in ["kg", "ia"]:
-            n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
-            dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
-        elif out_map_type == "dg":
-            n_z_bins = len(conf["survey"]["maglim"]["z_bins"])
-            dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
-        elif out_map_type == "sn":
-            n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
-            dvs_shape = (n_perms_per_cosmo * n_patches, n_noise_per_example, data_vec_len, n_z_bins)
-
-        data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
-
-    return data_vec_container
-
-
-def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
-    n_patches = conf["analysis"]["n_patches"]
-    n_noise_per_example = conf["analysis"]["fiducial"]["n_noise_per_example"]
-    data_vec_len = len(pixel_file[0])
-    out_map_types = conf["survey"]["metacal"]["map_types"]["output"] + conf["survey"]["maglim"]["map_types"]["output"]
-
-    data_vec_container = {}
-    for out_map_type in out_map_types:
-        if out_map_type in ["kg", "ia"]:
-            n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
-            dvs_shape = (n_patches, data_vec_len, n_z_bins)
-        elif out_map_type == "sn":
-            n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
-            if is_fiducial:
-                dvs_shape = (n_patches, n_noise_per_example, data_vec_len, n_z_bins)
-            else:
-                dvs_shape = None
-        elif out_map_type == "dg":
-            n_z_bins = len(conf["survey"]["maglim"]["z_bins"])
-            dvs_shape = (n_patches, data_vec_len, n_z_bins)
-
-        if dvs_shape is not None:
-            data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
-
-    return data_vec_container

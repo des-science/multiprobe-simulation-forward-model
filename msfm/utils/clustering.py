@@ -53,6 +53,8 @@ def galaxy_density_to_count(
 
     # decorrelate the galaxy density contrast from the galaxy number
     if stochasticity is not None:
+        raise NotImplementedError, "The current implementation of stochasticity is known to be wrong, don't use it"
+
         assert isinstance(stochasticity, float), f"stochasticity must be a float, got {type(stochasticity)}"
         assert 0 < stochasticity < 1, f"stochasticity must be between 0 and 1, got {stochasticity}"
         assert isinstance(dg, np.ndarray), f"dg must be a numpy array, got {type(dg)}"
