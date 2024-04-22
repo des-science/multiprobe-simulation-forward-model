@@ -253,6 +253,10 @@ def main(indices, args):
                 kg_examples = data_vec_container["kg"]
                 ia_examples = data_vec_container["ia"]
                 dg_examples = data_vec_container["dg"]
+                if conf["analysis"]["modelling"]["quadratic_biasing"]:
+                    dg2_examples = data_vec_container["dg2"]
+                else:
+                    dg2_examples = [None] * n_examples_per_cosmo
                 # (n_examples_per_cosmo, n_noise_per_examplen_pix, n_z_bins)
                 sn_examples = data_vec_container["sn"]
 
@@ -264,19 +268,19 @@ def main(indices, args):
                 current_lensing_transform = lambda kg, ia, sn_samples, np_seed: lensing_transform(
                     kg, ia, sn_samples, Aia, n_Aia, np_seed
                 )
-                current_clustering_transform = lambda dg, np_seed: clustering_transform(
-                    dg, bg, n_bg, bg2, n_bg2, np_seed
+                current_clustering_transform = lambda dg, dg2, np_seed: clustering_transform(
+                    dg, bg, n_bg, dg2, bg2, n_bg2, np_seed
                 )
 
                 # loop over the n_examples_per_cosmo
-                for i_example, (kg, ia, sn_samples, dg) in LOGGER.progressbar(
-                    enumerate(zip(kg_examples, ia_examples, sn_examples, dg_examples)),
+                for i_example, (kg, ia, sn_samples, dg, dg2) in LOGGER.progressbar(
+                    enumerate(zip(kg_examples, ia_examples, sn_examples, dg_examples, dg2_examples)),
                     at_level="info",
                     desc="Looping through the per cosmology examples",
                     total=n_examples_per_cosmo // n_noise_per_example,
                 ):
-                    if args.debug and i_example > 2 * n_patches:
-                        LOGGER.warning(f"Debug mode, only processing the first {2*n_patches} examples")
+                    if args.debug and i_example > n_patches:
+                        LOGGER.warning(f"Debug mode, only processing the first {n_patches} examples")
                         break
 
                     # maps
@@ -284,7 +288,7 @@ def main(indices, args):
                         kg, ia, sn_samples, np_seed=i_sobol + i_example
                     )
                     dg, pn_samples, alm_dg, alm_pn_samples = current_clustering_transform(
-                        dg, np_seed=i_sobol + i_example
+                        dg, dg2, np_seed=i_sobol + i_example
                     )
 
                     # power spectra
@@ -386,7 +390,10 @@ def _get_clustering_transform(conf, pixel_file):
     n_side = conf["analysis"]["n_side"]
     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
     z0 = conf["analysis"]["modelling"]["z0"]
+
+    # modeling
     quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
+    stochasticity = conf["analysis"]["modelling"]["galaxy_stochasticity"]
 
     maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
     tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
@@ -410,7 +417,18 @@ def _get_clustering_transform(conf, pixel_file):
 
         return dg, alm
 
-    def clustering_transform(dg, bg, n_bg, bg2=None, n_bg2=None, np_seed=None):
+    def clustering_transform(
+        # linear
+        dg,
+        bg,
+        n_bg,
+        # quadratic
+        dg2=None,
+        bg2=None,
+        n_bg2=None,
+        # noise
+        np_seed=None,
+    ):
         assert (not quadratic_biasing and (bg2 is None) and (n_bg2 is None)) or (
             quadratic_biasing and (bg2 is not None) and (n_bg2 is not None)
         ), f"The galaxy biasing setup must be consistent"
@@ -424,12 +442,16 @@ def _get_clustering_transform(conf, pixel_file):
             LOGGER.debug(f"Per z bin quadratic bg2 = {tomo_bg2}")
 
             dg = clustering.galaxy_density_to_count(
-                dg,
                 tomo_n_gal_maglim,
+                # linear
+                dg,
                 tomo_bg,
+                # quadratic
+                dg2,
                 tomo_bg2,
+                # misc
                 conf=conf,
-                stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
+                stochasticity=stochasticity,
                 data_vec_pix=pixel_file[0],
                 systematics_map=tomo_maglim_sys_dv,
                 mask=maglim_mask,
@@ -437,11 +459,13 @@ def _get_clustering_transform(conf, pixel_file):
             )
         else:
             dg = clustering.galaxy_density_to_count(
-                dg,
                 tomo_n_gal_maglim,
+                # linear
+                dg,
                 tomo_bg,
+                # misc
                 conf=conf,
-                stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
+                stochasticity=stochasticity,
                 data_vec_pix=pixel_file[0],
                 systematics_map=tomo_maglim_sys_dv,
                 mask=maglim_mask,

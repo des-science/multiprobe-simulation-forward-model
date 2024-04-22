@@ -45,8 +45,8 @@ survey:
         sigma: [0.0091, 0.0078, 0.0076, 0.0076]
   maglim:
     map_types:
-      input: [dg]
-      output: [dg]
+      input: [dg, dg2]
+      output: [dg, dg2]
     # from Table 1 in https://arxiv.org/pdf/2105.13540.pdf, in units of galaxies/deg^2
     n_gal: [540.0, 385.2, 392.4, 525.6] # , 381.6, 360.0]
     # from Table 2 in https://arxiv.org/pdf/2011.03411.pdf

@@ -165,7 +165,9 @@ def main(indices, args):
         with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
             yaml.dump(conf, f)
 
-    with_bary = conf["analysis"]["modelling"]["baryonified"]
+    # modeling
+    baryonified = conf["analysis"]["modelling"]["baryonified"]
+    quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
 
     # directories
     file_dir = os.path.dirname(__file__)
@@ -174,7 +176,7 @@ def main(indices, args):
 
     cosmo_params_info = cosmogrid.get_cosmo_params_info(meta_info_file, "fiducial")
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
-    if with_bary:
+    if baryonified:
         cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs]
         LOGGER.info(f"Using the baryonified inputs, then there's {len(cosmo_dirs) - 1} fiducial perturbations")
     else:
@@ -212,7 +214,7 @@ def main(indices, args):
     LOGGER.info(f"There's {len(ia_pert_labels)} intrinsic alignment labels = {ia_pert_labels}")
 
     bg_params = conf["analysis"]["params"]["bg"]["linear"]
-    if conf["analysis"]["modelling"]["quadratic_biasing"]:
+    if quadratic_biasing:
         bg_params += conf["analysis"]["params"]["bg"]["quadratic"]
     bg_pert_labels = parameters.get_fiducial_perturbation_labels(bg_params)[1:]
     LOGGER.info(f"There's {len(bg_pert_labels)} linear galaxy clustering labels = {bg_pert_labels}")
@@ -240,7 +242,7 @@ def main(indices, args):
             tag=conf["survey"]["name"] + args.file_suffix,
             index=index,
             simset="fiducial",
-            with_bary=with_bary,
+            with_bary=baryonified,
         )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
@@ -308,6 +310,10 @@ def main(indices, args):
                         kg = data_vec_container["kg"][i_patch]
                         ia = data_vec_container["ia"][i_patch]
                         dg = data_vec_container["dg"][i_patch]
+                        if quadratic_biasing:
+                            dg2 = data_vec_container["dg2"][i_patch]
+                        else:
+                            dg2 = None
 
                         # astrophysics perturbations are calculated with respect to the fiducial cosmo params
                         if is_fiducial:
@@ -321,7 +327,7 @@ def main(indices, args):
                             # galaxy clustering perturbations
                             for i_bg, bg_pert_label in enumerate(bg_pert_labels):
                                 bg_perts[i_patch, i_bg] = clustering_transform(
-                                    dg, bg_label=bg_pert_label, np_seed=i_example
+                                    dg, dg2, bg_label=bg_pert_label, np_seed=i_example
                                 )
 
                             # shape (n_noise_per_example, n_pix, n_z_bins) load the shape noise realization
@@ -339,7 +345,7 @@ def main(indices, args):
 
                             # convert dg to galaxy number and draw the poisson noise realization
                             dg, pn_samples, alm_dg, alm_pn = clustering_transform(
-                                dg, bg_label="fiducial", is_true_fiducial=True, np_seed=i_example
+                                dg, dg2, bg_label="fiducial", is_true_fiducial=True, np_seed=i_example
                             )
 
                             all_sn_samples[i_patch] = sn_samples
@@ -349,7 +355,7 @@ def main(indices, args):
                         # cosmological perturbations
                         else:
                             kg = lensing_transform(kg, ia, ia_label="fiducial", np_seed=i_example)
-                            dg = clustering_transform(dg, bg_label="fiducial", np_seed=i_example)
+                            dg = clustering_transform(dg, dg2, bg_label="fiducial", np_seed=i_example)
 
                         kg_perts[i_patch, i_cosmo] = kg
                         dg_perts[i_patch, i_cosmo] = dg
@@ -494,14 +500,18 @@ def _get_clustering_transform(conf, pixel_file):
 
         return dg, alm
 
-    def clustering_counts(dg, bg_tomo, bg2_tomo=None):
+    def clustering_counts(dg, bg_tomo, dg2=None, bg2_tomo=None):
         """To focus on the function arguments that are actually varying within clustering_transform"""
 
         galaxy_counts = clustering.galaxy_density_to_count(
-            dg,
             tomo_n_gal_maglim,
+            # linear
+            dg,
             bg_tomo,
+            # quadratic
+            dg2,
             bg2_tomo,
+            # rest
             conf=conf,
             systematics_map=tomo_maglim_sys_dv,
             stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
@@ -512,17 +522,20 @@ def _get_clustering_transform(conf, pixel_file):
 
         return galaxy_counts
 
-    def clustering_transform(dg, bg_label, is_true_fiducial=False, np_seed=None):
+    def clustering_transform(dg, dg2, bg_label, is_true_fiducial=False, np_seed=None):
         if quadratic_biasing:
+            assert dg2 is not None, "dg2 has to be provided if quadratic_biasing is True"
+
             if bg_label == "fiducial":
-                dg = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], tomo_bg2_perts_dict["fiducial"])
+                dg = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], dg2, tomo_bg2_perts_dict["fiducial"])
             elif "bg_" in bg_label:
-                dg = clustering_counts(dg, tomo_bg_perts_dict[bg_label], tomo_bg2_perts_dict["fiducial"])
+                dg = clustering_counts(dg, tomo_bg_perts_dict[bg_label], dg2, tomo_bg2_perts_dict["fiducial"])
             elif "bg2_" in bg_label:
-                dg = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], tomo_bg2_perts_dict[bg_label])
+                dg = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], dg2, tomo_bg2_perts_dict[bg_label])
             else:
                 raise ValueError(f"Inconsistent bias label {bg_label}")
         else:
+            assert dg2 is None, "dg2 has to be None if quadratic_biasing is False"
             dg = clustering_counts(dg, tomo_bg_perts_dict[bg_label])
 
         # only draw the Poisson noise and return the alms for the fiducial, not the perturbations
