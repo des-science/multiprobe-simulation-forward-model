@@ -16,13 +16,18 @@ hp = imports.import_healpy(parallel=True)
 
 
 def galaxy_density_to_count(
-    dg,
     ng_bar,
+    # linear
+    dg,
     bg,
+    # quadratic
+    dg2=None,
     bg2=None,
+    # modeling
     conf=None,
     systematics_map=None,
     stochasticity=None,
+    # format
     nest=True,
     data_vec_pix=None,
     mask=None,
@@ -32,17 +37,18 @@ def galaxy_density_to_count(
     Negative values are clipped and the maps tranformed to conserve the total number of galaxies like in DeepLSS.
 
     Args:
+        ng_bar (np.ndarray): Average number of galaxies per pixel (optionally per tomographic bin).
         dg (Union[np.ndarray, tf.Tensor]): Galaxy density contrast map or datavector. Optionally per tomographic bin
             in the last array dimension.
-        ng_bar (np.ndarray): Average number of galaxies per pixel (optionally per tomographic bin).
         bg (np.ndarray): Effective linear galaxy biasing parameter (optionally per tomographic bin).
+        dg2 (np.ndarray, optional): Squared galaxy density contrast map (optionally per tomographic bin).
         bg2 (np.ndarray, optional): Effective quadratic galaxy biasing parameter (optionally per tomographic bin).
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). The relative paths are stored here. Defaults to
             None.
-        include_systematics (bool): Whether to multiply with the maglim systematics map. Defaults to False.
-        sys_pixel_type (str, optional): Either "map" or "data_vector", determines whether the systematics map is
-            returned as a full sky healpy map or in data vector format.
+        systematics_map (bool): Whether to multiply with the maglim systematics map. Defaults to False.
+        stochasticity (float, optional): Raises a NotImplementedError if not None. Defaults to None.
+
 
     Raises:
         ValueError: If something apart from a numpy array or tensorflow tensor is passed.
@@ -53,6 +59,8 @@ def galaxy_density_to_count(
 
     # decorrelate the galaxy density contrast from the galaxy number
     if stochasticity is not None:
+        raise NotImplementedError("The current implementation of stochasticity is known to be wrong, don't use it")
+
         assert isinstance(stochasticity, float), f"stochasticity must be a float, got {type(stochasticity)}"
         assert 0 < stochasticity < 1, f"stochasticity must be between 0 and 1, got {stochasticity}"
         assert isinstance(dg, np.ndarray), f"dg must be a numpy array, got {type(dg)}"
@@ -90,23 +98,24 @@ def galaxy_density_to_count(
             dg[:, i_z] = dg_full[data_vec_pix]
 
     # linear bias
-    if bg2 is None:
+    if (bg2 is None) and (dg2 is None):
         ng = ng_bar * (1 + bg * dg)
 
     # quadratic bias
+    elif (bg2 is not None) and (dg2 is not None):
+        ng = ng_bar * (1 + bg * dg + bg2 * dg2)
+
     else:
-        ng = ng_bar * (1 + bg * dg + bg2 * np.sign(dg) * np.square(dg))
+        raise ValueError("Both or none of dg2 and bg2 must be passed")
 
     # transform like in DeepLSS Appendix E and https://github.com/tomaszkacprzak/deep_lss/blob/3c145cf8fe04c4e5f952dca984c5ce7e163b8753/deep_lss/lss_astrophysics_model_batch.py#L609
     # this ensures that all of the values are positive, while the total number of galaxies is conserved
     if isinstance(dg, np.ndarray):
         ng_clip = np.clip(ng, a_min=0, a_max=None, dtype=np.float32)
         ng = ng_clip * np.sum(ng) / np.sum(ng_clip)
-
     elif isinstance(dg, tf.Tensor):
         ng_clip = tf.clip_by_value(ng, clip_value_min=0, clip_value_max=1e5)
         ng = ng_clip * tf.reduce_sum(ng) / tf.reduce_sum(ng_clip)
-
     else:
         raise ValueError(f"Unsupported type {type(dg)} for dg")
 

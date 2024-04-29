@@ -19,7 +19,7 @@ Meant for
 
 import numpy as np
 import tensorflow as tf
-import os, argparse, warnings, time, yaml, h5py
+import os, argparse, warnings, time, yaml, h5py, copy_guardian
 
 from sobol_seq import i4_sobol
 
@@ -51,8 +51,8 @@ LOGGER = logger.get_logger(__file__)
 def resources(args):
     args = setup(args)
 
-    # TODO
-    resources = {"main_memory": 4096, "main_time": 4, "main_n_cores": 4, "merge_memory": 32768, "merge_n_cores": 16}
+    # TODO, check if this runs at scale
+    resources = {"main_memory": 4096, "main_time": 4, "main_n_cores": 4, "merge_memory": 4096, "merge_n_cores": 16}
 
     if args.from_san:
         # in MB. One projected_probes_maps_v11dmb.h5 should be around 1 GB
@@ -99,16 +99,6 @@ def setup(args):
         help="version of the input CosmoGrid",
     )
     parser.add_argument(
-        "--with_bary",
-        action="store_true",
-        help="whether to include the baryonification in the input",
-    )
-    parser.add_argument(
-        "--from_san",
-        action="store_true",
-        help="copy the CosmoGrid files from the SAN instead of accessing them locally",
-    )
-    parser.add_argument(
         "--file_suffix",
         type=str,
         default="",
@@ -139,7 +129,15 @@ def setup(args):
 
     # paths
     args.config = os.path.abspath(args.config)
-    if not os.path.isdir(args.dir_out):
+
+    args.from_san = "/home/ipa/refreg" in args.dir_in
+    if args.from_san:
+        LOGGER.warning("Reading the CosmoGrid from the SAN")
+
+    args.to_san = "/home/ipa/refreg" in args.dir_out
+    if args.to_san:
+        LOGGER.warning("Writing the .tfrecords to the SAN")
+    elif not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
 
     # compute
@@ -167,8 +165,9 @@ def main(indices, args):
 
     # configuration
     conf = files.load_config(args.config)
-    with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
-        yaml.dump(conf, f)
+    if not args.to_san:
+        with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
+            yaml.dump(conf, f)
 
     # directories
     file_dir = os.path.dirname(__file__)
@@ -216,8 +215,17 @@ def main(indices, args):
     for index in indices:
         LOGGER.timer.start("index")
 
+        if args.to_san:
+            LOGGER.info("Writing the .tfrecord to local scratch to be later copied to the SAN")
+            san_dir_out = args.dir_out
+            args.dir_out = os.environ["TMPDIR"]
+
         tfr_file = filenames.get_filename_tfrecords(
-            args.dir_out, tag=conf["survey"]["name"] + args.file_suffix, index=index, simset="grid"
+            args.dir_out,
+            tag=conf["survey"]["name"] + args.file_suffix,
+            index=index,
+            simset="grid",
+            with_bary=conf["analysis"]["modelling"]["baryonified"],
         )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
@@ -245,6 +253,10 @@ def main(indices, args):
                 kg_examples = data_vec_container["kg"]
                 ia_examples = data_vec_container["ia"]
                 dg_examples = data_vec_container["dg"]
+                if conf["analysis"]["modelling"]["quadratic_biasing"]:
+                    dg2_examples = data_vec_container["dg2"]
+                else:
+                    dg2_examples = [None] * n_examples_per_cosmo
                 # (n_examples_per_cosmo, n_noise_per_examplen_pix, n_z_bins)
                 sn_examples = data_vec_container["sn"]
 
@@ -256,23 +268,27 @@ def main(indices, args):
                 current_lensing_transform = lambda kg, ia, sn_samples, np_seed: lensing_transform(
                     kg, ia, sn_samples, Aia, n_Aia, np_seed
                 )
-                current_clustering_transform = lambda dg, np_seed: clustering_transform(
-                    dg, bg, n_bg, bg2, n_bg2, np_seed
+                current_clustering_transform = lambda dg, dg2, np_seed: clustering_transform(
+                    dg, bg, n_bg, dg2, bg2, n_bg2, np_seed
                 )
 
                 # loop over the n_examples_per_cosmo
-                for i_example, (kg, ia, sn_samples, dg) in LOGGER.progressbar(
-                    enumerate(zip(kg_examples, ia_examples, sn_examples, dg_examples)),
+                for i_example, (kg, ia, sn_samples, dg, dg2) in LOGGER.progressbar(
+                    enumerate(zip(kg_examples, ia_examples, sn_examples, dg_examples, dg2_examples)),
                     at_level="info",
                     desc="Looping through the per cosmology examples",
                     total=n_examples_per_cosmo // n_noise_per_example,
                 ):
+                    if args.debug and i_example > n_patches:
+                        LOGGER.warning(f"Debug mode, only processing the first {n_patches} examples")
+                        break
+
                     # maps
                     kg, sn_samples, alm_kg, alm_sn_samples = current_lensing_transform(
                         kg, ia, sn_samples, np_seed=i_sobol + i_example
                     )
                     dg, pn_samples, alm_dg, alm_pn_samples = current_clustering_transform(
-                        dg, np_seed=i_sobol + i_example
+                        dg, dg2, np_seed=i_sobol + i_example
                     )
 
                     # power spectra
@@ -287,6 +303,9 @@ def main(indices, args):
                     )
 
                     file_writer.write(serialized)
+
+        if args.to_san:
+            _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out)
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
@@ -371,7 +390,10 @@ def _get_clustering_transform(conf, pixel_file):
     n_side = conf["analysis"]["n_side"]
     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
     z0 = conf["analysis"]["modelling"]["z0"]
+
+    # modeling
     quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
+    stochasticity = conf["analysis"]["modelling"]["galaxy_stochasticity"]
 
     maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
     tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
@@ -395,7 +417,18 @@ def _get_clustering_transform(conf, pixel_file):
 
         return dg, alm
 
-    def clustering_transform(dg, bg, n_bg, bg2=None, n_bg2=None, np_seed=None):
+    def clustering_transform(
+        # linear
+        dg,
+        bg,
+        n_bg,
+        # quadratic
+        dg2=None,
+        bg2=None,
+        n_bg2=None,
+        # noise
+        np_seed=None,
+    ):
         assert (not quadratic_biasing and (bg2 is None) and (n_bg2 is None)) or (
             quadratic_biasing and (bg2 is not None) and (n_bg2 is not None)
         ), f"The galaxy biasing setup must be consistent"
@@ -409,12 +442,16 @@ def _get_clustering_transform(conf, pixel_file):
             LOGGER.debug(f"Per z bin quadratic bg2 = {tomo_bg2}")
 
             dg = clustering.galaxy_density_to_count(
-                dg,
                 tomo_n_gal_maglim,
+                # linear
+                dg,
                 tomo_bg,
+                # quadratic
+                dg2,
                 tomo_bg2,
+                # misc
                 conf=conf,
-                stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
+                stochasticity=stochasticity,
                 data_vec_pix=pixel_file[0],
                 systematics_map=tomo_maglim_sys_dv,
                 mask=maglim_mask,
@@ -422,11 +459,13 @@ def _get_clustering_transform(conf, pixel_file):
             )
         else:
             dg = clustering.galaxy_density_to_count(
-                dg,
                 tomo_n_gal_maglim,
+                # linear
+                dg,
                 tomo_bg,
+                # misc
                 conf=conf,
-                stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
+                stochasticity=stochasticity,
                 data_vec_pix=pixel_file[0],
                 systematics_map=tomo_maglim_sys_dv,
                 mask=maglim_mask,
@@ -459,15 +498,19 @@ def _get_clustering_transform(conf, pixel_file):
 
 
 def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
-    params = parameters.get_parameters(conf=conf)
-    sobol_priors = parameters.get_prior_intervals(params, conf=conf)
-
+    with_bary = conf["analysis"]["modelling"]["baryonified"]
     quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
 
-    # select the relevant cosmological parameters
-    cosmo = [cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in conf["analysis"]["params"]["cosmo"]]
+    all_params = parameters.get_parameters(conf=conf)
+
+    cosmogrid_params = conf["analysis"]["params"]["cosmo"].copy()
+    if with_bary:
+        cosmogrid_params += conf["analysis"]["params"]["bary"]
+
+    cosmo = [cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in cosmogrid_params]
     cosmo = np.array(cosmo, dtype=np.float32)
 
+    sobol_priors = parameters.get_prior_intervals(all_params, conf=conf)
     # extend the Sobol sequence by astrophysical parameters
     i_sobol = cosmo_params_info["sobol_index"][i_cosmo]
     sobol_point, _ = i4_sobol(sobol_priors.shape[0], i_sobol)
@@ -475,14 +518,14 @@ def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
     sobol_params = sobol_params.astype(np.float32)
 
     # add these to the label, the parameters are ordered as in sobol_priors
-    Aia = sobol_params[6]
-    n_Aia = sobol_params[7]
-    bg = sobol_params[8]
-    n_bg = sobol_params[9]
+    Aia = sobol_params[6 + 2 * with_bary]
+    n_Aia = sobol_params[7 + 2 * with_bary]
+    bg = sobol_params[8 + 2 * with_bary]
+    n_bg = sobol_params[9 + 2 * with_bary]
     cosmo = np.concatenate((cosmo, np.array([Aia, n_Aia, bg, n_bg])))
     if quadratic_biasing:
-        bg2 = sobol_params[10]
-        n_bg2 = sobol_params[11]
+        bg2 = sobol_params[10 + 2 * with_bary]
+        n_bg2 = sobol_params[11 + 2 * with_bary]
         cosmo = np.concatenate((cosmo, np.array([bg2, n_bg2])))
     else:
         bg2 = None
@@ -495,6 +538,9 @@ def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
     assert np.allclose(sobol_params[3], cosmo[3], rtol=1e-3, atol=1e-5)  # H0
     assert np.allclose(sobol_params[4], cosmo[4], rtol=1e-3, atol=1e-5)  # ns
     assert np.allclose(sobol_params[5], cosmo[5], rtol=1e-3, atol=1e-5)  # w0
+    if with_bary:
+        assert np.allclose(sobol_params[6], np.log10(cosmo[6]), rtol=1e-3, atol=1e-5)  # bary_Mc
+        assert np.allclose(sobol_params[7], cosmo[7], rtol=1e-3, atol=1e-5)  # bary_nu
     LOGGER.debug("The parameters derived from the sobol sequence are identical to the stored ones")
 
     return i_sobol, cosmo, Aia, n_Aia, bg, n_bg, bg2, n_bg2
@@ -518,6 +564,24 @@ def _verify_tfrecord(serialized, n_noise_per_example, kg, sn_samples, dg, pn_sam
     assert np.allclose(inv_cls["i_sobol"], i_sobol)
     assert np.allclose(inv_cls["i_example"], i_example)
     LOGGER.debug("Decoded the cls part of the .tfrecord successfully")
+
+
+def _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out):
+    # like in run_fiducial_preprocessing.py
+    LOGGER.info("Copying the .tfrecord to the SAN")
+    LOGGER.timer.start("copy_to_san")
+
+    san_conf = conf["dirs"]["connections"]["san"]
+    with copy_guardian.BoundedSemaphore(san_conf["max_connections"], timeout=san_conf["timeout"]):
+        connection = copy_guardian.Connection(
+            host=san_conf["host"],
+            user=san_conf["user"],
+            private_key=san_conf["private_key"],
+            port=san_conf["port"],
+        )
+        connection.rsync_to(tfr_file, os.path.join(san_dir_out, os.path.basename(tfr_file)))
+
+    LOGGER.info(f"Done copying {tfr_file} to the SAN after {LOGGER.timer.elapsed('copy_to_san')}")
 
 
 def merge(indices, args):

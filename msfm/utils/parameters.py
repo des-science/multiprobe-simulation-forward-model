@@ -27,12 +27,14 @@ def get_parameters(params=None, conf=None):
     """
     if params is None:
         conf = files.load_config(conf)
-        
-        params = (
-            conf["analysis"]["params"]["cosmo"]
-            + conf["analysis"]["params"]["ia"]
-            + conf["analysis"]["params"]["bg"]["linear"]
-        )
+
+        params = conf["analysis"]["params"]["cosmo"].copy()
+
+        if conf["analysis"]["modelling"]["baryonified"]:
+            params += conf["analysis"]["params"]["bary"]
+
+        params += conf["analysis"]["params"]["ia"]
+        params += conf["analysis"]["params"]["bg"]["linear"]
 
         if conf["analysis"]["modelling"]["quadratic_biasing"]:
             params += conf["analysis"]["params"]["bg"]["quadratic"]

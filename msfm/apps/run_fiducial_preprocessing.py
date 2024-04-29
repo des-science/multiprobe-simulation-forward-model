@@ -19,7 +19,7 @@ Meant for
 
 import numpy as np
 import tensorflow as tf
-import os, argparse, warnings, time, yaml, h5py
+import os, argparse, warnings, time, yaml, h5py, copy_guardian
 
 from msfm.utils import (
     logger,
@@ -47,8 +47,8 @@ LOGGER = logger.get_logger(__file__)
 def resources(args):
     args = setup(args)
 
-    # TODO
-    resources = {"main_memory": 4096, "main_time": 4, "main_n_cores": 4, "merge_memory": 32768, "merge_n_cores": 16}
+    # the 8 cores don't speed things up much, but are included to increase the memory
+    resources = {"main_memory": 4096, "main_time": 4, "main_n_cores": 8, "merge_memory": 4096, "merge_n_cores": 16}
 
     if args.from_san:
         # in MB. One projected_probes_maps_v11dmb.h5 should be around 1 GB
@@ -95,16 +95,6 @@ def setup(args):
         help="version of the input CosmoGrid",
     )
     parser.add_argument(
-        "--with_bary",
-        action="store_true",
-        help="whether to include the baryonification in the input",
-    )
-    parser.add_argument(
-        "--from_san",
-        action="store_true",
-        help="copy the CosmoGrid files from the SAN instead of accessing them locally",
-    )
-    parser.add_argument(
         "--file_suffix",
         type=str,
         default="",
@@ -135,7 +125,15 @@ def setup(args):
 
     # paths
     args.config = os.path.abspath(args.config)
-    if not os.path.isdir(args.dir_out):
+
+    args.from_san = "/home/ipa/refreg" in args.dir_in
+    if args.from_san:
+        LOGGER.warning("Reading the CosmoGrid from the SAN")
+
+    args.to_san = "/home/ipa/refreg" in args.dir_out
+    if args.to_san:
+        LOGGER.warning("Writing the .tfrecords to the SAN")
+    elif not os.path.isdir(args.dir_out):
         input_output.robust_makedirs(args.dir_out)
 
     # compute
@@ -163,8 +161,13 @@ def main(indices, args):
 
     # configuration
     conf = files.load_config(args.config)
-    with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
-        yaml.dump(conf, f)
+    if not args.to_san:
+        with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
+            yaml.dump(conf, f)
+
+    # modeling
+    baryonified = conf["analysis"]["modelling"]["baryonified"]
+    quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
 
     # directories
     file_dir = os.path.dirname(__file__)
@@ -173,7 +176,7 @@ def main(indices, args):
 
     cosmo_params_info = cosmogrid.get_cosmo_params_info(meta_info_file, "fiducial")
     cosmo_dirs = [cosmo_dir.decode("utf-8") for cosmo_dir in cosmo_params_info["path_par"]]
-    if args.with_bary:
+    if baryonified:
         cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs]
         LOGGER.info(f"Using the baryonified inputs, then there's {len(cosmo_dirs) - 1} fiducial perturbations")
     else:
@@ -211,7 +214,7 @@ def main(indices, args):
     LOGGER.info(f"There's {len(ia_pert_labels)} intrinsic alignment labels = {ia_pert_labels}")
 
     bg_params = conf["analysis"]["params"]["bg"]["linear"]
-    if conf["analysis"]["modelling"]["quadratic_biasing"]:
+    if quadratic_biasing:
         bg_params += conf["analysis"]["params"]["bg"]["quadratic"]
     bg_pert_labels = parameters.get_fiducial_perturbation_labels(bg_params)[1:]
     LOGGER.info(f"There's {len(bg_pert_labels)} linear galaxy clustering labels = {bg_pert_labels}")
@@ -229,8 +232,17 @@ def main(indices, args):
     for index in indices:
         LOGGER.timer.start("index")
 
+        if args.to_san:
+            LOGGER.info("Writing the .tfrecord to local scratch to be later copied to the SAN")
+            san_dir_out = args.dir_out
+            args.dir_out = os.environ["TMPDIR"]
+
         tfr_file = filenames.get_filename_tfrecords(
-            args.dir_out, tag=conf["survey"]["name"] + args.file_suffix, index=index, simset="fiducial"
+            args.dir_out,
+            tag=conf["survey"]["name"] + args.file_suffix,
+            index=index,
+            simset="fiducial",
+            with_bary=baryonified,
         )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
@@ -298,16 +310,25 @@ def main(indices, args):
                         kg = data_vec_container["kg"][i_patch]
                         ia = data_vec_container["ia"][i_patch]
                         dg = data_vec_container["dg"][i_patch]
+                        if quadratic_biasing:
+                            dg2 = data_vec_container["dg2"][i_patch]
+                        else:
+                            dg2 = None
 
                         # astrophysics perturbations are calculated with respect to the fiducial cosmo params
                         if is_fiducial:
+
                             # intrinsic alignment perturbations
-                            for i_ia, label in enumerate(ia_pert_labels):
-                                ia_perts[i_patch, i_ia] = lensing_transform(kg, ia, ia_label=label, np_seed=i_example)
+                            for i_ia, ia_pert_label in enumerate(ia_pert_labels):
+                                ia_perts[i_patch, i_ia] = lensing_transform(
+                                    kg, ia, ia_label=ia_pert_label, np_seed=i_example
+                                )
 
                             # galaxy clustering perturbations
-                            for i_bg, label in enumerate(bg_pert_labels):
-                                bg_perts[i_patch, i_bg] = clustering_transform(dg, bg_label=label, np_seed=i_example)
+                            for i_bg, bg_pert_label in enumerate(bg_pert_labels):
+                                bg_perts[i_patch, i_bg] = clustering_transform(
+                                    dg, dg2, bg_label=bg_pert_label, np_seed=i_example
+                                )
 
                             # shape (n_noise_per_example, n_pix, n_z_bins) load the shape noise realization
                             sn_samples = data_vec_container["sn"][i_patch]
@@ -324,7 +345,7 @@ def main(indices, args):
 
                             # convert dg to galaxy number and draw the poisson noise realization
                             dg, pn_samples, alm_dg, alm_pn = clustering_transform(
-                                dg, bg_label="fiducial", is_true_fiducial=True, np_seed=i_example
+                                dg, dg2, bg_label="fiducial", is_true_fiducial=True, np_seed=i_example
                             )
 
                             all_sn_samples[i_patch] = sn_samples
@@ -334,7 +355,7 @@ def main(indices, args):
                         # cosmological perturbations
                         else:
                             kg = lensing_transform(kg, ia, ia_label="fiducial", np_seed=i_example)
-                            dg = clustering_transform(dg, bg_label="fiducial", np_seed=i_example)
+                            dg = clustering_transform(dg, dg2, bg_label="fiducial", np_seed=i_example)
 
                         kg_perts[i_patch, i_cosmo] = kg
                         dg_perts[i_patch, i_cosmo] = dg
@@ -361,7 +382,10 @@ def main(indices, args):
 
                     file_writer.write(serialized)
 
-                    n_done += 1
+                n_done += 1
+
+        if args.to_san:
+            _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out)
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
@@ -476,14 +500,18 @@ def _get_clustering_transform(conf, pixel_file):
 
         return dg, alm
 
-    def clustering_counts(dg, bg_tomo, bg2_tomo=None):
+    def clustering_counts(dg, bg_tomo, dg2=None, bg2_tomo=None):
         """To focus on the function arguments that are actually varying within clustering_transform"""
 
         galaxy_counts = clustering.galaxy_density_to_count(
-            dg,
             tomo_n_gal_maglim,
+            # linear
+            dg,
             bg_tomo,
+            # quadratic
+            dg2,
             bg2_tomo,
+            # rest
             conf=conf,
             systematics_map=tomo_maglim_sys_dv,
             stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
@@ -494,17 +522,20 @@ def _get_clustering_transform(conf, pixel_file):
 
         return galaxy_counts
 
-    def clustering_transform(dg, bg_label, is_true_fiducial=False, np_seed=None):
+    def clustering_transform(dg, dg2, bg_label, is_true_fiducial=False, np_seed=None):
         if quadratic_biasing:
+            assert dg2 is not None, "dg2 has to be provided if quadratic_biasing is True"
+
             if bg_label == "fiducial":
-                dg = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], tomo_bg2_perts_dict["fiducial"])
+                dg = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], dg2, tomo_bg2_perts_dict["fiducial"])
             elif "bg_" in bg_label:
-                dg = clustering_counts(dg, tomo_bg_perts_dict[bg_label], tomo_bg2_perts_dict["fiducial"])
+                dg = clustering_counts(dg, tomo_bg_perts_dict[bg_label], dg2, tomo_bg2_perts_dict["fiducial"])
             elif "bg2_" in bg_label:
-                dg = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], tomo_bg2_perts_dict[bg_label])
+                dg = clustering_counts(dg, tomo_bg_perts_dict["fiducial"], dg2, tomo_bg2_perts_dict[bg_label])
             else:
                 raise ValueError(f"Inconsistent bias label {bg_label}")
         else:
+            assert dg2 is None, "dg2 has to be None if quadratic_biasing is False"
             dg = clustering_counts(dg, tomo_bg_perts_dict[bg_label])
 
         # only draw the Poisson noise and return the alms for the fiducial, not the perturbations
@@ -599,46 +630,22 @@ def _serialize_and_verify(
     return serialized
 
 
-# def _verify_tfrecords(
-#     serialized,
-#     n_noise_per_example,
-#     cosmo_pert_labels,
-#     ia_pert_labels,
-#     bg_pert_labels,
-#     kg_perts,
-#     ia_perts,
-#     dg_perts,
-#     bg_perts,
-#     sn_samples,
-#     pn_samples,
-#     cls,
-#     i_example,
-# ):
-#     inv_maps = tfrecords.parse_inverse_fiducial(
-#         serialized, cosmo_pert_labels + ia_pert_labels + bg_pert_labels, range(n_noise_per_example)
-#     )
+def _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out):
+    # like in run_grid_preprocessing.py
+    LOGGER.info("Copying the .tfrecord to the SAN")
+    LOGGER.timer.start("copy_to_san")
 
-#     inv_kg_perts = tf.stack([inv_maps[f"kg_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0)
-#     inv_ia_perts = tf.stack([inv_maps[f"kg_{pert_label}"] for pert_label in ia_pert_labels], axis=0)
-#     inv_dg_perts = tf.stack([inv_maps[f"dg_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0)
-#     inv_bg_perts = tf.stack([inv_maps[f"dg_{pert_label}"] for pert_label in bg_pert_labels], axis=0)
+    san_conf = conf["dirs"]["connections"]["san"]
+    with copy_guardian.BoundedSemaphore(san_conf["max_connections"], timeout=san_conf["timeout"]):
+        connection = copy_guardian.Connection(
+            host=san_conf["host"],
+            user=san_conf["user"],
+            private_key=san_conf["private_key"],
+            port=san_conf["port"],
+        )
+        connection.rsync_to(tfr_file, os.path.join(san_dir_out, os.path.basename(tfr_file)))
 
-#     assert np.allclose(inv_kg_perts, kg_perts)
-#     assert np.allclose(inv_ia_perts, ia_perts)
-#     assert np.allclose(inv_dg_perts, dg_perts)
-#     assert np.allclose(inv_bg_perts, bg_perts)
-#     for i_noise in range(n_noise_per_example):
-#         assert np.allclose(inv_maps[f"sn_{i_noise}"], sn_samples[i_noise])
-#         assert np.allclose(inv_maps[f"pn_{i_noise}"], pn_samples[i_noise])
-#     assert np.allclose(inv_maps["i_example"], i_example)
-#     LOGGER.debug("Decoded the map part of the .tfrecord successfully")
-
-#     inv_cls = tfrecords.parse_inverse_fiducial_cls(serialized)
-
-#     assert np.allclose(inv_cls["cls"], cls)
-#     assert np.allclose(inv_cls["i_example"], i_example)
-
-#     LOGGER.debug("Decoded the cls part of the .tfrecord successfully")
+    LOGGER.info(f"Done copying {tfr_file} to the SAN after {LOGGER.timer.elapsed('copy_to_san')}")
 
 
 def merge(indices, args):
@@ -651,7 +658,12 @@ def merge(indices, args):
     n_examples = n_patches * n_perms_per_cosmo
 
     tfr_pattern = filenames.get_filename_tfrecords(
-        args.dir_out, tag=conf["survey"]["name"] + args.file_suffix, index=None, simset="fiducial", return_pattern=True
+        args.dir_out,
+        tag=conf["survey"]["name"] + args.file_suffix,
+        index=None,
+        simset="fiducial",
+        with_bary=conf["analysis"]["modelling"]["baryonified"],
+        return_pattern=True,
     )
 
     cls_dset = tf.data.Dataset.list_files(tfr_pattern)

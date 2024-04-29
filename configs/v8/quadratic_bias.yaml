@@ -45,8 +45,8 @@ survey:
         sigma: [0.0091, 0.0078, 0.0076, 0.0076]
   maglim:
     map_types:
-      input: [dg]
-      output: [dg]
+      input: [dg, dg2]
+      output: [dg, dg2]
     # from Table 1 in https://arxiv.org/pdf/2105.13540.pdf, in units of galaxies/deg^2
     n_gal: [540.0, 385.2, 392.4, 525.6] # , 381.6, 360.0]
     # from Table 2 in https://arxiv.org/pdf/2011.03411.pdf
@@ -98,7 +98,7 @@ analysis:
   modelling:
     baryonified: True
     # linear + quadratic galaxy biasing or just linear
-    quadratic_biasing: False
+    quadratic_biasing: True
     # whether to include a stochasticity in the galaxy biasing. This scales the [-pi, pi] interval from which the
     # random phases with which the alm coefficients are multiplied are drawn. Set to Null to discard.
     galaxy_stochasticity: Null
