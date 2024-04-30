@@ -12,7 +12,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
 import os, time, h5py, copy_guardian
-from msfm.utils import logger, filenames, imports, lensing, clustering, maps
+from msfm.utils import logger, filenames, imports, lensing, clustering, maps, input_output
 
 hp = imports.import_healpy(parallel=True)
 
@@ -415,6 +415,26 @@ def _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm):
         )
 
     return full_maps_file
+
+
+def _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out):
+    # like in run_fiducial_preprocessing.py
+    LOGGER.info("Copying the .tfrecord to the SAN")
+    LOGGER.timer.start("copy_to_san")
+
+    san_conf = conf["dirs"]["connections"]["san"]
+    input_output.robust_makedirs(san_conf["user"] + "@" + san_conf["host"] + ":" + san_dir_out)
+    san_file_out = os.path.join(san_dir_out, os.path.basename(tfr_file))
+    with copy_guardian.BoundedSemaphore(san_conf["max_connections"], timeout=san_conf["timeout"]):
+        connection = copy_guardian.Connection(
+            host=san_conf["host"],
+            user=san_conf["user"],
+            private_key=san_conf["private_key"],
+            port=san_conf["port"],
+        )
+        connection.rsync_to(tfr_file, san_file_out)
+
+    LOGGER.info(f"Done copying {tfr_file} to the SAN after {LOGGER.timer.elapsed('copy_to_san')}")
 
 
 def _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin):

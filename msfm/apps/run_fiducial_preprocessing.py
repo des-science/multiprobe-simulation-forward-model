@@ -385,7 +385,7 @@ def main(indices, args):
                 n_done += 1
 
         if args.to_san:
-            _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out)
+            preprocessing._rsync_tfrecord_to_san(conf, tfr_file, san_dir_out)
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
@@ -628,24 +628,6 @@ def _serialize_and_verify(
     LOGGER.debug("Decoded the cls part of the .tfrecord successfully")
 
     return serialized
-
-
-def _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out):
-    # like in run_grid_preprocessing.py
-    LOGGER.info("Copying the .tfrecord to the SAN")
-    LOGGER.timer.start("copy_to_san")
-
-    san_conf = conf["dirs"]["connections"]["san"]
-    with copy_guardian.BoundedSemaphore(san_conf["max_connections"], timeout=san_conf["timeout"]):
-        connection = copy_guardian.Connection(
-            host=san_conf["host"],
-            user=san_conf["user"],
-            private_key=san_conf["private_key"],
-            port=san_conf["port"],
-        )
-        connection.rsync_to(tfr_file, os.path.join(san_dir_out, os.path.basename(tfr_file)))
-
-    LOGGER.info(f"Done copying {tfr_file} to the SAN after {LOGGER.timer.elapsed('copy_to_san')}")
 
 
 def merge(indices, args):
