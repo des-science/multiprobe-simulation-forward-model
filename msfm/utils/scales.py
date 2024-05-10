@@ -6,7 +6,7 @@ Tools to handle the scale cuts/Gaussian smoothing.
 """
 
 import numpy as np
-import os, logging
+import os
 
 from msfm.utils import files, logger, imports
 
@@ -51,7 +51,78 @@ def angle_to_ell(theta, arcmin=False, method="naive"):
     return ell
 
 
-def cls_to_smoothed_cls(cls, l_min, l_max=None, theta_fwhm=None, arcmin=True):
+def gaussian_low_pass_factor_alm(
+    l: np.ndarray, l_max: int = None, theta_fwhm: float = None, arcmin: bool = True
+) -> np.ndarray:
+    """Remove small scales with a low pass filter (Gaussian smoothing)
+
+    Args:
+        l (np.ndarray): Array of ell values to evaluate the factor for.
+        l_max (int, optional): Ell to set the smallest scale to consider. Defaults to None.
+        theta_fwhm (float, optional): Alternatively, the smallest scale can also be defined in real space as the fwhm
+            of a Gaussian. Defaults to None.
+        arcmin (bool, optional): Regarding theta_fwhm. Defaults to True.
+
+    Raises:
+        ValueError: If both l_max and theta_fwhm are specified.
+
+    Returns:
+        np.ndarray: Array of coefficients in [0,1] to multiply with the alms. This has the shape of a half a Gaussian,
+            going to zero for l -> + inf.
+    """
+
+    if l_max is None and theta_fwhm is None:
+        return np.ones_like(l)
+    elif l_max is not None and theta_fwhm is not None:
+        raise ValueError("Either l_max or theta_fwhm must be specified, not both")
+
+    if l_max is not None:
+        theta_fwhm = ell_to_angle(l_max, arcmin, method="naive")
+
+    if arcmin:
+        theta_fwhm = arcmin_to_rad(theta_fwhm)
+
+    sigma = theta_fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+
+    # https://github.com/healpy/healpy/blob/be5d47b0720d2de69d422f661d75cd3577327d5a/healpy/sphtfunc.py#L974C13-L975C1
+    low_pass_fac = np.exp(-0.5 * l * (l + 1) * sigma**2)
+
+    return low_pass_fac
+
+
+def gaussian_high_pass_factor_alm(
+    l: np.ndarray, l_min: int = None, theta_fwhm: float = None, arcmin: bool = True
+) -> np.ndarray:
+    """Remove small scales with a low pass filter (Gaussian smoothing)
+
+    Args:
+        l (np.ndarray): Array of ell values to evaluate the factor for.
+        l_min (int, optional): Ell to set the smallest scale to consider. Defaults to None.
+        theta_fwhm (float, optional): Alternatively, the smallest scale can also be defined in real space as the fwhm
+            of a Gaussian. Defaults to None.
+        arcmin (bool, optional): Regarding theta_fwhm. Defaults to True.
+
+    Raises:
+        ValueError: If both l_min and theta_fwhm are specified.
+
+    Returns:
+        np.ndarray: Array of coefficients in [0,1] to multiply with the alms. This has the shape of a asymmetric
+            sigmoid (1 - Gaussian) and goes to one for l -> + inf.
+    """
+
+    if l_min is None and theta_fwhm is None:
+        return np.ones_like(l)
+    elif l_min is not None and theta_fwhm is not None:
+        raise ValueError("Either l_min or theta_fwhm must be specified, not both")
+
+    high_pass_fac = 1 - gaussian_low_pass_factor_alm(l, l_min, theta_fwhm, arcmin)
+
+    return high_pass_fac
+
+
+def cls_to_smoothed_cls(
+    cls: np.ndarray, l_min: int = None, l_max: int = None, theta_fwhm: float = None, arcmin: bool = True
+) -> np.ndarray:
     """
     Apply high-pass and low-pass filters to the input power spectrum to obtain a smoothed power spectrum. This is
     written to be consistent with smoothing and smoothalm from healpy.
@@ -59,7 +130,7 @@ def cls_to_smoothed_cls(cls, l_min, l_max=None, theta_fwhm=None, arcmin=True):
     Note that cls can't be tomographic.
 
     Args:
-        cls (ndarray): Input power spectra of shape (n_examples, n_ell) or (n_ell,).
+        cls (np.ndarray): Input power spectra of shape (n_examples, n_ell) or (n_ell,).
         l_min (int): Minimum multipole moment to remove large scales.
         l_max (int, optional): Maximum multipole moment to remove small scales. Defaults to None.
         theta_fwhm (float, optional): Full width at half maximum (FWHM) of the Gaussian smoothing kernel. Defaults to
@@ -71,48 +142,39 @@ def cls_to_smoothed_cls(cls, l_min, l_max=None, theta_fwhm=None, arcmin=True):
         ndarray: Smoothed power spectrum.
     """
 
-    assert not (l_max is None and theta_fwhm is None), "Either l_max or theta_fwhm must be specified"
-    assert l_max is None or theta_fwhm is None, "Only one of l_max or theta_fwhm can be specified"
-
     l = np.arange(cls.shape[-1])
 
-    # remove large scales (sigmoid), the sigmoid is close to zero for l < l_min and close to one for l > l_min
-    sigmoid = lambda x, delta: 1 / (1 + np.exp(delta - x))
-    high_pass_fact = sigmoid(l, delta=l_min) ** 2
-
-    # remove small scales (Gaussian smoothing)
-    if l_max is not None:
-        theta_fwhm = ell_to_angle(l_max, arcmin)
-
-    if arcmin:
-        theta_fwhm = arcmin_to_rad(theta_fwhm)
-
-    sigma = theta_fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
-
-    # extra square compared to
-    # https://github.com/healpy/healpy/blob/be5d47b0720d2de69d422f661d75cd3577327d5a/healpy/sphtfunc.py#L974C13-L975C1
-    # because we're smoothing Cls, not alms
-    low_pass_fact = np.exp(-0.5 * l * (l + 1) * sigma**2) ** 2
+    # extra square because we're smoothing Cls, not alms
+    high_pass_fac = gaussian_high_pass_factor_alm(l, l_min) ** 2
+    low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin) ** 2
 
     if cls.ndim == 1:
-        cls = cls * high_pass_fact * low_pass_fact
+        cls = cls * high_pass_fac * low_pass_fac
     elif cls.ndim == 2:
-        cls = cls * high_pass_fact[np.newaxis, :] * low_pass_fact[np.newaxis, :]
+        cls = cls * high_pass_fac[np.newaxis, :] * low_pass_fac[np.newaxis, :]
     elif cls.ndim == 3:
         raise NotImplementedError("cls.ndim == 3 not implemented yet")
 
     return cls
 
 
-def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=True, nest=False):
+def alm_to_smoothed_map(
+    alm: np.ndarray,
+    n_side: int,
+    l_min: int = None,
+    l_max: int = None,
+    theta_fwhm: float = None,
+    arcmin: bool = True,
+    nest: bool = False,
+) -> np.ndarray:
     """Takes in alm coefficients and returns a map that has been smoothed according to l_min and l_max or theta_fwhm.
 
     Args:
         alm (np.array): Single spherical harmonics decomposition.
         n_side (int): Healpix nside of the output map.
-        l_min (int): Largest scale.
-        l_max (int): Smallest scale, specified as an ell.
-        theta_fwhm (float): Smallest scale, specified as an angle, which is used as the FWHM of a Gaussian.
+        l_min (int, optional): Largest scale.
+        l_max (int, optional): Smallest scale, specified as an ell.
+        theta_fwhm (float, optional): Smallest scale, specified as an angle, which is used as the FWHM of a Gaussian.
         arcmin (bool, optional): Whether the smallest scale is specified as an angle in arcmin, otherwise it is in
             radian.
         nest (bool, optional): Whether the (full sky) output map should be returned in NEST ordering.
@@ -121,26 +183,16 @@ def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=
         np.array: Healpy map of shape (n_pix,)
     """
 
-    assert not (l_max is None and theta_fwhm is None), "Either l_max or theta_fwhm must be specified"
-    assert l_max is None or theta_fwhm is None, "Only one of l_max or theta_fwhm can be specified"
-
     # alm are computed for the standard l_max = 3 * n_side - 1
     l = hp.Alm.getlm(3 * n_side - 1)[0]
 
-    # remove large scales (sigmoid), the sigmoid is close to zero for l < l_min and close to one for l > l_min
-    if l_min is not None:
-        sigmoid = lambda x, delta: 1 / (1 + np.exp(delta - x))
-        alm = sigmoid(l, delta=l_min) * alm
-        # alm[l < l_min] = 0.0
+    # remove large scales (map - Gaussian smoothing)
+    high_pass_fac = gaussian_high_pass_factor_alm(l, l_min)
 
-    # remove small scales (Gaussian smoothing)
-    if l_max is not None:
-        theta_fwhm = ell_to_angle(l_max, arcmin)
+    # remove small scales (Gaussian smoothing), this produces identical results as hp.smoothalm(fwhm=theta_fwhm)
+    low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin)
 
-    if arcmin:
-        theta_fwhm = arcmin_to_rad(theta_fwhm)
-
-    alm = hp.smoothalm(alm, fwhm=theta_fwhm, pol=False)
+    alm = alm * high_pass_fac * low_pass_fac
 
     full_map = hp.alm2map(alm, nside=n_side, pol=False)
 
@@ -150,7 +202,15 @@ def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=
     return full_map, alm
 
 
-def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=True, nest=False):
+def map_to_smoothed_map(
+    full_map: np.ndarray,
+    n_side: int,
+    l_min: int = None,
+    l_max: int = None,
+    theta_fwhm: float = None,
+    arcmin: bool = True,
+    nest: bool = False,
+) -> np.ndarray:
     """Takes in a (multiple) full sky healpy map(s) and returns a (multiple) map(s) that has (have) been smoothed
     according to l_min and l_max. The input can either be a single map, or a stack of multiple tomographic bins along
     the final axis.
@@ -179,33 +239,39 @@ def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_fwhm=None, ar
 
     # multiple tomographic bins along final axis
     if full_map.ndim == 2:
-        n_z_bins = full_map.shape[1]
+        n_z = full_map.shape[1]
+
+        if l_min is None:
+            l_min = [None] * n_z
+        if l_max is None:
+            l_max = [None] * n_z
+        if theta_fwhm is None:
+            theta_fwhm = [None] * n_z
 
         if isinstance(l_min, list) and isinstance(l_max, list):
-            assert n_z_bins == len(l_min) == len(l_max)
+            assert n_z == len(l_min) == len(l_max)
         elif isinstance(l_min, list) and isinstance(theta_fwhm, list):
-            assert n_z_bins == len(l_min) == len(theta_fwhm)
+            assert n_z == len(l_min) == len(theta_fwhm)
         else:
             raise ValueError(f"For tomographic inputs, l_min and l_max or theta_fwhm must be lists of length n_z_bins")
 
         alms = []
-        for i_tomo in range(n_z_bins):
+        for i_tomo in range(n_z):
             current_map = full_map[:, i_tomo]
             if nest:
                 current_map = hp.reorder(current_map, n2r=True)
 
             alm = hp.map2alm(current_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
 
-            if l_max is not None:
-                full_map[:, i_tomo], alm = alm_to_smoothed_map(
-                    alm, n_side, l_min[i_tomo], l_max=l_max[i_tomo], arcmin=False, nest=nest
-                )
-            elif theta_fwhm is not None:
-                full_map[:, i_tomo], alm = alm_to_smoothed_map(
-                    alm, n_side, l_min[i_tomo], theta_fwhm=theta_fwhm[i_tomo], arcmin=arcmin, nest=nest
-                )
-            else:
-                raise ValueError(f"Either l_max or theta_fwhm must be specified")
+            full_map[:, i_tomo], alm = alm_to_smoothed_map(
+                alm,
+                n_side,
+                l_min[i_tomo],
+                l_max[i_tomo],
+                theta_fwhm[i_tomo],
+                arcmin,
+                nest,
+            )
 
             alms.append(alm)
 
@@ -213,15 +279,20 @@ def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_fwhm=None, ar
 
     # single map
     elif full_map.ndim == 1:
-        assert (isinstance(l_min, int) and isinstance(l_max, int)) or (
-            isinstance(l_min, int) and isinstance(theta_fwhm, float)
-        )
-
         if nest:
             full_map = hp.reorder(full_map, n2r=True)
 
         alm = hp.map2alm(full_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
-        full_map, alm = alm_to_smoothed_map(alm, n_side, l_min, l_max, theta_fwhm, arcmin, nest=nest)
+
+        full_map, alm = alm_to_smoothed_map(
+            alm,
+            n_side,
+            l_min,
+            l_max,
+            theta_fwhm,
+            arcmin,
+            nest,
+        )
 
     else:
         raise ValueError(f"Unknown full_map.ndim: {full_map.ndim}, must be 1 or 2")
@@ -230,7 +301,13 @@ def map_to_smoothed_map(full_map, n_side, l_min, l_max=None, theta_fwhm=None, ar
 
 
 def data_vector_to_smoothed_data_vector(
-    data_vector, data_vec_pix, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=True
+    data_vector: np.ndarray,
+    data_vec_pix: np.ndarray,
+    n_side: int,
+    l_min: int,
+    l_max: int = None,
+    theta_fwhm: float = None,
+    arcmin: bool = True,
 ):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been
     smoothed according to l_min and l_max. The input can either be a single map, or a stack of multiple tomographic
@@ -280,7 +357,14 @@ def data_vector_to_smoothed_data_vector(
 
 
 def data_vector_to_grf_data_vector(
-    np_seed, data_vector, data_vec_pix, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=True
+    np_seed: int,
+    data_vector: np.ndarray,
+    data_vec_pix: np.ndarray,
+    n_side: int,
+    l_min: int,
+    l_max: int = None,
+    theta_fwhm: float = None,
+    arcmin: bool = True,
 ):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been
     smoothed according to l_min and l_max and transformed to a Gaussian Random Field. This destroys all non-Gaussian
@@ -336,21 +420,10 @@ def data_vector_to_grf_data_vector(
 
             alm = hp.map2alm(full_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
 
-            # remove large scales (hard cut)
-            alm[l < l_min[i_tomo]] = 0.0
-
-            # remove small scales (Gaussian smoothing)
-            if l_max is not None:
-                current_theta_fwhm = ell_to_angle(l_max[i_tomo], arcmin)
-            elif theta_fwhm is not None:
-                current_theta_fwhm = theta_fwhm[i_tomo]
-            else:
-                raise ValueError(f"Either l_max or theta_fwhm must be specified")
-
-            if arcmin:
-                current_theta_fwhm = arcmin_to_rad(current_theta_fwhm)
-
-            alm = hp.smoothalm(alm, fwhm=current_theta_fwhm, pol=False)
+            # smoothing
+            high_pass_fac = gaussian_high_pass_factor_alm(l, l_min)
+            low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin)
+            alm = alm * high_pass_fac * low_pass_fac
 
             # make a Gaussian Random Field
             cl = hp.alm2cl(alm)
@@ -377,17 +450,10 @@ def data_vector_to_grf_data_vector(
 
         alm = hp.map2alm(full_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
 
-        # remove large scales (hard cut)
-        alm[l < l_min] = 0.0
-
-        # remove small scales (Gaussian smoothing)
-        if l_max is not None:
-            theta_fwhm = ell_to_angle(l_max, arcmin)
-
-        if arcmin:
-            theta_fwhm = arcmin_to_rad(theta_fwhm)
-
-        alm = hp.smoothalm(alm, fwhm=theta_fwhm, pol=False)
+        # smoothing
+        high_pass_fac = gaussian_high_pass_factor_alm(l, l_min)
+        low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin)
+        alm = alm * high_pass_fac * low_pass_fac
 
         # make a Gaussian Random Field
         cl = hp.alm2cl(alm)
