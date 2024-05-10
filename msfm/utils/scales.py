@@ -50,20 +50,21 @@ def angle_to_ell(theta, arcmin=False, method="naive"):
 
     return ell
 
+
 def cls_to_smoothed_cls(cls, l_min, l_max=None, theta_fwhm=None, arcmin=True):
     """
-    Apply high-pass and low-pass filters to the input power spectrum to obtain a smoothed power spectrum. This is 
+    Apply high-pass and low-pass filters to the input power spectrum to obtain a smoothed power spectrum. This is
     written to be consistent with smoothing and smoothalm from healpy.
     https://healpy.readthedocs.io/en/latest/generated/healpy.sphtfunc.smoothalm.html
     Note that cls can't be tomographic.
-    
+
     Args:
         cls (ndarray): Input power spectra of shape (n_examples, n_ell) or (n_ell,).
         l_min (int): Minimum multipole moment to remove large scales.
         l_max (int, optional): Maximum multipole moment to remove small scales. Defaults to None.
-        theta_fwhm (float, optional): Full width at half maximum (FWHM) of the Gaussian smoothing kernel. Defaults to 
+        theta_fwhm (float, optional): Full width at half maximum (FWHM) of the Gaussian smoothing kernel. Defaults to
             None, then l_max has to be provided.
-        arcmin (bool, optional): If True, theta_fwhm is in arcminutes. If False, theta_fwhm is in radians. Defaults 
+        arcmin (bool, optional): If True, theta_fwhm is in arcminutes. If False, theta_fwhm is in radians. Defaults
             to True.
 
     Returns:
@@ -77,7 +78,7 @@ def cls_to_smoothed_cls(cls, l_min, l_max=None, theta_fwhm=None, arcmin=True):
 
     # remove large scales (sigmoid), the sigmoid is close to zero for l < l_min and close to one for l > l_min
     sigmoid = lambda x, delta: 1 / (1 + np.exp(delta - x))
-    high_pass_fact = sigmoid(l, delta=l_min)**2
+    high_pass_fact = sigmoid(l, delta=l_min) ** 2
 
     # remove small scales (Gaussian smoothing)
     if l_max is not None:
@@ -88,20 +89,19 @@ def cls_to_smoothed_cls(cls, l_min, l_max=None, theta_fwhm=None, arcmin=True):
 
     sigma = theta_fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 
-    # extra square compared to 
+    # extra square compared to
     # https://github.com/healpy/healpy/blob/be5d47b0720d2de69d422f661d75cd3577327d5a/healpy/sphtfunc.py#L974C13-L975C1
     # because we're smoothing Cls, not alms
-    low_pass_fact = np.exp(-0.5 * l * (l + 1) * sigma ** 2)**2
+    low_pass_fact = np.exp(-0.5 * l * (l + 1) * sigma**2) ** 2
 
     if cls.ndim == 1:
         cls = cls * high_pass_fact * low_pass_fact
     elif cls.ndim == 2:
-        cls = cls * high_pass_fact[np.newaxis,:] * low_pass_fact[np.newaxis, :]
+        cls = cls * high_pass_fact[np.newaxis, :] * low_pass_fact[np.newaxis, :]
     elif cls.ndim == 3:
         raise NotImplementedError("cls.ndim == 3 not implemented yet")
 
     return cls
-
 
 
 def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=True, nest=False):
@@ -128,8 +128,10 @@ def alm_to_smoothed_map(alm, n_side, l_min, l_max=None, theta_fwhm=None, arcmin=
     l = hp.Alm.getlm(3 * n_side - 1)[0]
 
     # remove large scales (sigmoid), the sigmoid is close to zero for l < l_min and close to one for l > l_min
-    sigmoid = lambda x, delta: 1 / (1 + np.exp(delta - x))
-    alm = sigmoid(l, delta=l_min) * alm
+    if l_min is not None:
+        sigmoid = lambda x, delta: 1 / (1 + np.exp(delta - x))
+        alm = sigmoid(l, delta=l_min) * alm
+        # alm[l < l_min] = 0.0
 
     # remove small scales (Gaussian smoothing)
     if l_max is not None:
