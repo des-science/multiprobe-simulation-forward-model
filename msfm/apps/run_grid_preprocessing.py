@@ -577,7 +577,12 @@ def merge(indices, args):
     n_signal_per_cosmo = n_patches * n_perms_per_cosmo
 
     tfr_pattern = filenames.get_filename_tfrecords(
-        args.dir_out, tag=conf["survey"]["name"] + args.file_suffix, index=None, simset="grid", return_pattern=True
+        args.dir_out,
+        tag=conf["survey"]["name"] + args.file_suffix,
+        with_bary=conf["analysis"]["modelling"]["baryonified"],
+        index=None,
+        simset="grid",
+        return_pattern=True,
     )
 
     cls_dset = tf.data.Dataset.list_files(tfr_pattern)
