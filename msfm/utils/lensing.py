@@ -6,8 +6,6 @@ Tools to handle the scale cuts, kaiser-squires transformation and multiplicative
 """
 
 import numpy as np
-import tensorflow as tf
-import tensorflow_probability as tfp
 
 from msfm.utils import files, logger, scales, imports
 
@@ -48,6 +46,8 @@ def get_m_bias_distribution(conf=None):
         tfp.distribution: Multiplicative bias.s
     """
     conf = files.load_config(conf)
+
+    import tensorflow_probability as tfp
 
     m_bias_dist = tfp.distributions.MultivariateNormalDiag(
         loc=conf["survey"]["metacal"]["shear_bias"]["multiplicative"]["mu"],
@@ -125,6 +125,8 @@ def noise_gen(counts, cat_dist, n_noise_per_example):
     Returns:
         np.ndarray: Arrays of shape (len(base_patch_pix, n_noise_per_example) containing the two gamma components
     """
+
+    import tensorflow as tf
 
     # indices to sum over all of the galaxies in the individual pixels
     seg_ids = []
