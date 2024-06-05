@@ -93,7 +93,7 @@ def gaussian_low_pass_factor_alm(
 def gaussian_high_pass_factor_alm(
     l: np.ndarray, l_min: int = None, theta_fwhm: float = None, arcmin: bool = True
 ) -> np.ndarray:
-    """Remove small scales with a low pass filter (Gaussian smoothing)
+    """Remove big scales with a high pass filter (1 - Gaussian smoothing)
 
     Args:
         l (np.ndarray): Array of ell values to evaluate the factor for.
