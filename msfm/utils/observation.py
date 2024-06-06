@@ -18,8 +18,8 @@ LOGGER = logger.get_logger(__file__)
 
 
 def forward_model_observation_map(
-    wl_gamma: np.ndarray = None,
-    gc_count: np.ndarray = None,
+    wl_gamma_map: np.ndarray = None,
+    gc_count_map: np.ndarray = None,
     conf: Union[str, dict] = None,
     apply_norm: bool = True,
     with_padding: bool = True,
@@ -43,7 +43,7 @@ def forward_model_observation_map(
         nest (bool, optional): Whether the full sky input maps wl_gamma and gc_count are in nested (or ring if false)
             ordering. Defaults to True.
     """
-    assert wl_gamma is not None or gc_count is not None, "Either wl_gamma or gc_count must be provided."
+    assert wl_gamma_map is not None or gc_count_map is not None, "Either wl_gamma or gc_count must be provided."
 
     conf = files.load_config(conf)
 
@@ -51,79 +51,103 @@ def forward_model_observation_map(
     n_pix = conf["analysis"]["n_pix"]
     n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
     n_z_maglim = len(conf["survey"]["maglim"]["z_bins"])
-    data_vec_pix, _, _, _ = files.load_pixel_file(conf)
+
+    data_vec_pix, patches_pix_dict, corresponding_pix_dict, _ = files.load_pixel_file(conf)
+    data_vec_len = len(data_vec_pix)
+    masks_dict = files.get_tomo_dv_masks(conf)
+    masks_metacal = masks_dict["metacal"]
+    masks_maglim = masks_dict["maglim"]
 
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
     hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
 
-    if wl_gamma is not None:
-        assert wl_gamma.shape == (
+    if wl_gamma_map is not None:
+        assert wl_gamma_map.shape == (
             n_pix,
             n_z_metacal,
             2,
-        ), f"Expected shape {(n_pix, n_z_metacal, 2)}, got {wl_gamma.shape}"
+        ), f"Expected shape {(n_pix, n_z_metacal, 2)}, got {wl_gamma_map.shape}"
 
+        # the input to the mode removal must always be in RING ordering
         if nest:
-            wl_gamma[..., 0] = maps.tomographic_reorder(wl_gamma[..., 0], n2r=True)
-            wl_gamma[..., 1] = maps.tomographic_reorder(wl_gamma[..., 1], n2r=True)
+            wl_gamma_map[..., 0] = maps.tomographic_reorder(wl_gamma_map[..., 0], n2r=True)
+            wl_gamma_map[..., 1] = maps.tomographic_reorder(wl_gamma_map[..., 1], n2r=True)
         _, gamma2kappa_fac, _ = lensing.get_kaiser_squires_factors(l_max=3 * n_side - 1)
 
-        wl_kappa = np.zeros((n_pix, n_z_metacal), dtype=np.float32)
+        wl_kappa_dv = np.zeros((data_vec_len, n_z_metacal), dtype=np.float32)
         for i in range(n_z_metacal):
-            wl_kappa[:, i] = lensing.mode_removal(
-                wl_gamma[:, i, 0], wl_gamma[:, i, 1], gamma2kappa_fac, n_side, hp_datapath=hp_datapath
+            # full sky (but only partially occupied)
+            wl_kappa_map = lensing.mode_removal(
+                wl_gamma_map[:, i, 0], wl_gamma_map[:, i, 1], gamma2kappa_fac, n_side, hp_datapath=hp_datapath
             )
 
-        wl_kappa = maps.tomographic_reorder(wl_kappa, r2n=True)
-        wl_kappa = wl_kappa[data_vec_pix]
+            # full sky (but only footprint occupied) -> padded data vector
+            wl_kappa_dv[:, i] = maps.map_to_data_vec(
+                hp_map=wl_kappa_map,
+                data_vec_len=data_vec_len,
+                corresponding_pix=corresponding_pix_dict["metacal"][i],
+                cutout_pix=patches_pix_dict["metacal"][i][0],
+                remove_mean=True,
+            )
 
         if apply_norm:
-            wl_kappa = wl_kappa / conf["analysis"]["normalization"]["lensing"]
+            wl_kappa_dv = wl_kappa_dv / conf["analysis"]["normalization"]["lensing"]
 
-        wl_kappa, _ = scales.data_vector_to_smoothed_data_vector(
-            wl_kappa,
+        wl_kappa_dv *= masks_metacal
+        wl_kappa_dv, _ = scales.data_vector_to_smoothed_data_vector(
+            wl_kappa_dv,
             data_vec_pix=data_vec_pix,
             n_side=n_side,
             l_min=conf["analysis"]["scale_cuts"]["lensing"]["l_min"],
             theta_fwhm=conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"],
             arcmin=True,
         )
+        wl_kappa_dv *= masks_metacal
 
-    if gc_count is not None:
-        assert gc_count.shape == (
+    if gc_count_map is not None:
+        assert gc_count_map.shape == (
             n_pix,
             n_z_maglim,
-        ), f"Expected shape {(n_pix, n_z_maglim)}, got {gc_count.shape}"
+        ), f"Expected shape {(n_pix, n_z_maglim)}, got {gc_count_map.shape}"
+
+        # the input to map_to_data_vec must always be in RING ordering
+        if nest:
+            gc_count_map = maps.tomographic_reorder(gc_count_map, n2r=True)
+
+        gc_count_dv = np.zeros((data_vec_len, n_z_maglim), dtype=np.float32)
+        for i in range(n_z_maglim):
+            # full sky (but only footprint occupied) -> padded data vector
+            gc_count_dv[:, i] = maps.map_to_data_vec(
+                hp_map=gc_count_map[:, i],
+                data_vec_len=data_vec_len,
+                corresponding_pix=corresponding_pix_dict["maglim"],
+                cutout_pix=patches_pix_dict["maglim"][0],
+            )
 
         if apply_norm:
             pass
 
-        if not nest:
-            gc_count = maps.tomographic_reorder(gc_count, r2n=True)
-
-        gc_count = gc_count[data_vec_pix]
-
-        gc_count, _ = scales.data_vector_to_smoothed_data_vector(
-            gc_count,
+        gc_count_dv *= masks_maglim
+        gc_count_dv, _ = scales.data_vector_to_smoothed_data_vector(
+            gc_count_dv,
             data_vec_pix=data_vec_pix,
             n_side=n_side,
-            l_min=conf["analysis"]["scale_cuts"]["lensing"]["l_min"],
-            theta_fwhm=conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"],
+            l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+            theta_fwhm=conf["analysis"]["scale_cuts"]["clustering"]["theta_fwhm"],
             arcmin=True,
         )
+        gc_count_dv *= masks_maglim
 
-    if wl_gamma is not None and gc_count is not None:
-        observation = np.concatenate([wl_kappa, gc_count], axis=-1)
-    elif wl_gamma is not None:
-        observation = wl_kappa
-    else:
-        observation = gc_count
+    if wl_gamma_map is not None and gc_count_map is not None:
+        observation = np.concatenate([wl_kappa_dv, gc_count_dv], axis=-1)
+    elif wl_gamma_map is not None:
+        observation = wl_kappa_dv
+    elif gc_count_map is not None:
+        observation = gc_count_dv
 
+    # go from padded datavector to non-padded patch
     if not with_padding:
-        masks_dict = files.get_tomo_dv_masks(conf)
-        masks_metacal = masks_dict["metacal"]
-        masks_maglim = masks_dict["maglim"]
         # only keep indices that are in all (per tomographic bin and galaxy sample) masks
         mask_total = np.prod(np.concatenate([masks_metacal, masks_maglim], axis=-1), axis=-1)
         mask_total = mask_total.astype(bool)
