@@ -7,6 +7,7 @@ Author: Arne Thomsen
 Utilities to forward model (mock) observations to be consistent with the CosmoGrid maps.
 """
 
+import os
 import numpy as np
 from msfm.utils import files, logger, lensing, imports, scales, maps
 from typing import Union
@@ -52,9 +53,10 @@ def forward_model_observation_map(
     n_z_maglim = len(conf["survey"]["maglim"]["z_bins"])
     data_vec_pix, _, _, _ = files.load_pixel_file(conf)
 
-    observation = []
-    l_mins = []
-    theta_fwhms = []
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
+
     if wl_gamma is not None:
         assert wl_gamma.shape == (
             n_pix,
@@ -69,27 +71,24 @@ def forward_model_observation_map(
 
         wl_kappa = np.zeros((n_pix, n_z_metacal), dtype=np.float32)
         for i in range(n_z_metacal):
-            wl_kappa[:, i] = lensing.mode_removal(wl_gamma[:, i, 0], wl_gamma[:, i, 1], gamma2kappa_fac, n_side)
+            wl_kappa[:, i] = lensing.mode_removal(
+                wl_gamma[:, i, 0], wl_gamma[:, i, 1], gamma2kappa_fac, n_side, hp_datapath=hp_datapath
+            )
 
         wl_kappa = maps.tomographic_reorder(wl_kappa, r2n=True)
+        wl_kappa = wl_kappa[data_vec_pix]
 
         if apply_norm:
             wl_kappa = wl_kappa / conf["analysis"]["normalization"]["lensing"]
 
-        wl_kappa = wl_kappa[data_vec_pix]
-
-        observation.append(wl_kappa)
-
-        l_min = conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
-        if l_min is not None:
-            l_mins.extend(l_min)
-        else:
-            l_mins.extend([None] * n_z_metacal)
-        theta_fwhm = conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"]
-        if theta_fwhm is not None:
-            theta_fwhms.extend(theta_fwhm)
-        else:
-            theta_fwhms.extend([None] * n_z_metacal)
+        wl_kappa, _ = scales.data_vector_to_smoothed_data_vector(
+            wl_kappa,
+            data_vec_pix=data_vec_pix,
+            n_side=n_side,
+            l_min=conf["analysis"]["scale_cuts"]["lensing"]["l_min"],
+            theta_fwhm=conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"],
+            arcmin=True,
+        )
 
     if gc_count is not None:
         assert gc_count.shape == (
@@ -105,29 +104,21 @@ def forward_model_observation_map(
 
         gc_count = gc_count[data_vec_pix]
 
-        observation.append(gc_count)
+        gc_count, _ = scales.data_vector_to_smoothed_data_vector(
+            gc_count,
+            data_vec_pix=data_vec_pix,
+            n_side=n_side,
+            l_min=conf["analysis"]["scale_cuts"]["lensing"]["l_min"],
+            theta_fwhm=conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"],
+            arcmin=True,
+        )
 
-        l_min = conf["analysis"]["scale_cuts"]["clustering"]["l_min"]
-        if l_min is not None:
-            l_mins.extend(l_min)
-        else:
-            l_mins.extend([None] * n_z_maglim)
-        theta_fwhm = conf["analysis"]["scale_cuts"]["clustering"]["theta_fwhm"]
-        if theta_fwhm is not None:
-            theta_fwhms.extend(theta_fwhm)
-        else:
-            theta_fwhms.extend([None] * n_z_maglim)
-
-    observation = np.concatenate(observation, axis=-1)
-
-    observation, _ = scales.data_vector_to_smoothed_data_vector(
-        observation,
-        data_vec_pix=data_vec_pix,
-        n_side=n_side,
-        l_min=l_mins,
-        theta_fwhm=theta_fwhms,
-        arcmin=True,
-    )
+    if wl_gamma is not None and gc_count is not None:
+        observation = np.concatenate([wl_kappa, gc_count], axis=-1)
+    elif wl_gamma is not None:
+        observation = wl_kappa
+    else:
+        observation = gc_count
 
     if not with_padding:
         masks_dict = files.get_tomo_dv_masks(conf)
@@ -137,6 +128,9 @@ def forward_model_observation_map(
         mask_total = np.prod(np.concatenate([masks_metacal, masks_maglim], axis=-1), axis=-1)
         mask_total = mask_total.astype(bool)
         footprint_pix = data_vec_pix[mask_total]
+
+        observation_full_sky = np.zeros((n_pix, observation.shape[-1]), dtype=observation.dtype)
+        observation_full_sky[data_vec_pix] = observation
         observation = observation[footprint_pix]
 
     return observation
