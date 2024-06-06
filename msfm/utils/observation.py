@@ -8,7 +8,7 @@ Utilities to forward model (mock) observations to be consistent with the CosmoGr
 """
 
 import numpy as np
-from msfm.utils import files, logger, lensing, imports, scales
+from msfm.utils import files, logger, lensing, imports, scales, maps
 from typing import Union
 
 hp = imports.import_healpy(parallel=True)
@@ -50,16 +50,7 @@ def forward_model_observation_map(
     n_pix = conf["analysis"]["n_pix"]
     n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
     n_z_maglim = len(conf["survey"]["maglim"]["z_bins"])
-
     data_vec_pix, _, _, _ = files.load_pixel_file(conf)
-    if not with_padding:
-        masks_dict = files.get_tomo_dv_masks(conf)
-        masks_metacal = masks_dict["metacal"]
-        masks_maglim = masks_dict["maglim"]
-        # only keep indices that are in all (per tomographic bin and galaxy sample) masks
-        mask_total = np.prod(np.concatenate([masks_metacal, masks_maglim], axis=-1), axis=-1)
-        mask_total = mask_total.astype(bool)
-        footprint_pix = data_vec_pix[mask_total]
 
     observation = []
     l_mins = []
@@ -72,10 +63,15 @@ def forward_model_observation_map(
         ), f"Expected shape {(n_pix, n_z_metacal, 2)}, got {wl_gamma.shape}"
 
         if nest:
-            wl_gamma = hp.reorder(wl_gamma, n2r=True)
+            wl_gamma[..., 0] = maps.tomographic_reorder(wl_gamma[..., 0], n2r=True)
+            wl_gamma[..., 1] = maps.tomographic_reorder(wl_gamma[..., 1], n2r=True)
         _, gamma2kappa_fac, _ = lensing.get_kaiser_squires_factors(l_max=3 * n_side - 1)
-        wl_kappa = lensing.mode_removal(wl_gamma[..., 0], wl_gamma[..., 1], gamma2kappa_fac, n_side)
-        wl_kappa = hp.reorder(wl_kappa, r2n=True)
+
+        wl_kappa = np.zeros((n_pix, n_z_metacal), dtype=np.float32)
+        for i in range(n_z_metacal):
+            wl_kappa[:, i] = lensing.mode_removal(wl_gamma[:, i, 0], wl_gamma[:, i, 1], gamma2kappa_fac, n_side)
+
+        wl_kappa = maps.tomographic_reorder(wl_kappa, r2n=True)
 
         if apply_norm:
             wl_kappa = wl_kappa / conf["analysis"]["normalization"]["lensing"]
@@ -83,8 +79,17 @@ def forward_model_observation_map(
         wl_kappa = wl_kappa[data_vec_pix]
 
         observation.append(wl_kappa)
-        l_mins.append(conf["analysis"]["scale_cuts"]["lensing"]["l_min"])
-        theta_fwhms.append(conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"])
+
+        l_min = conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
+        if l_min is not None:
+            l_mins.extend(l_min)
+        else:
+            l_mins.extend([None] * n_z_metacal)
+        theta_fwhm = conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"]
+        if theta_fwhm is not None:
+            theta_fwhms.extend(theta_fwhm)
+        else:
+            theta_fwhms.extend([None] * n_z_metacal)
 
     if gc_count is not None:
         assert gc_count.shape == (
@@ -96,13 +101,22 @@ def forward_model_observation_map(
             pass
 
         if not nest:
-            gc_count = hp.reorder(gc_count, r2n=True)
+            gc_count = maps.tomographic_reorder(gc_count, r2n=True)
 
         gc_count = gc_count[data_vec_pix]
 
         observation.append(gc_count)
-        l_mins.append(conf["analysis"]["scale_cuts"]["clustering"]["l_min"])
-        theta_fwhms.append(conf["analysis"]["scale_cuts"]["clustering"]["theta_fwhm"])
+
+        l_min = conf["analysis"]["scale_cuts"]["clustering"]["l_min"]
+        if l_min is not None:
+            l_mins.extend(l_min)
+        else:
+            l_mins.extend([None] * n_z_maglim)
+        theta_fwhm = conf["analysis"]["scale_cuts"]["clustering"]["theta_fwhm"]
+        if theta_fwhm is not None:
+            theta_fwhms.extend(theta_fwhm)
+        else:
+            theta_fwhms.extend([None] * n_z_maglim)
 
     observation = np.concatenate(observation, axis=-1)
 
@@ -114,5 +128,15 @@ def forward_model_observation_map(
         theta_fwhm=theta_fwhms,
         arcmin=True,
     )
+
+    if not with_padding:
+        masks_dict = files.get_tomo_dv_masks(conf)
+        masks_metacal = masks_dict["metacal"]
+        masks_maglim = masks_dict["maglim"]
+        # only keep indices that are in all (per tomographic bin and galaxy sample) masks
+        mask_total = np.prod(np.concatenate([masks_metacal, masks_maglim], axis=-1), axis=-1)
+        mask_total = mask_total.astype(bool)
+        footprint_pix = data_vec_pix[mask_total]
+        observation = observation[footprint_pix]
 
     return observation
