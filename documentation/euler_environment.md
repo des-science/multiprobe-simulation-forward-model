@@ -8,8 +8,7 @@ python -m venv --system-site-packages dlss
 ```
 The following packages should be included to a `requirements.txt` file
 ```
-pip install esub-epipe
-pip install icecream
+pip install esub-epipe icecream tf_keras==2.16 tensorflow_probability==0.24
 ```
 The most important packages to be installed from source are
 ```
