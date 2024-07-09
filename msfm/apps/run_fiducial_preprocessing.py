@@ -19,7 +19,7 @@ Meant for
 
 import numpy as np
 import tensorflow as tf
-import os, argparse, warnings, time, yaml, h5py, copy_guardian
+import os, argparse, warnings, time, yaml, h5py
 
 from msfm.utils import (
     logger,
@@ -36,7 +36,7 @@ from msfm.utils import (
     parameters,
 )
 
-hp = imports.import_healpy(parallel=True)
+hp = imports.import_healpy()
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -47,14 +47,25 @@ LOGGER = logger.get_logger(__file__)
 def resources(args):
     args = setup(args)
 
-    # the 8 cores don't speed things up much, but are included to increase the memory
-    resources = {"main_memory": 4096, "main_time": 4, "main_n_cores": 8, "merge_memory": 4096, "merge_n_cores": 16}
+    if args.cluster == "perlmutter":
+        # because of hyperthreading, there's a total of 256 threads per node
+        # the 8 cores don't speed things up much, but are included to increase the memory
+        resources = {
+            "main_time": 4,
+            "main_memory": 1952,
+            "main_n_cores": 8,
+            "merge_time": 2,
+            "merge_memory": 1952,
+            "merge_n_cores": 32,
+        }
+    elif args.cluster == "euler":
+        resources = {"main_time": 4, "main_memory": 4096, "main_n_cores": 8, "merge_memory": 4096, "merge_n_cores": 16}
 
-    if args.from_san:
-        # in MB. One projected_probes_maps_v11dmb.h5 should be around 1 GB
-        resources["main_scratch"] = 4096
-    else:
-        resources["main_scratch"] = 0
+        if args.from_san:
+            # in MB. One projected_probes_maps_v11dmb.h5 should be around 1 GB
+            resources["main_scratch"] = 4000
+        else:
+            resources["main_scratch"] = 0
 
     return resources
 
@@ -93,6 +104,13 @@ def setup(args):
         default="1.1",
         choices=["1.1", "1"],
         help="version of the input CosmoGrid",
+    )
+    parser.add_argument(
+        "--cluster",
+        type=str,
+        default="perlmutter",
+        choices=("perlmutter", "euler"),
+        help="the cluster to execute on",
     )
     parser.add_argument(
         "--file_suffix",
@@ -228,8 +246,11 @@ def main(indices, args):
     lensing_transform = _get_lensing_transform(conf, pixel_file)
     clustering_transform = _get_clustering_transform(conf, pixel_file)
 
+    LOGGER.warning(f"Starting the main loop trough indices {indices}")
+
     # index corresponds to a .tfrecord file ###########################################################################
     for index in indices:
+        LOGGER.warning(f"Starting index {index}")
         LOGGER.timer.start("index")
 
         if args.to_san:
