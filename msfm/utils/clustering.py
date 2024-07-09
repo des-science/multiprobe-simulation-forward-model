@@ -12,7 +12,7 @@ import os
 
 from msfm.utils import files, imports
 
-hp = imports.import_healpy(parallel=True)
+hp = imports.import_healpy()
 
 
 def galaxy_density_to_count(

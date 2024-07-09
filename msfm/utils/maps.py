@@ -12,7 +12,7 @@ from numba import njit
 
 from msfm.utils import logger, imports
 
-hp = imports.import_healpy(parallel=False)
+hp = imports.import_healpy()
 
 LOGGER = logger.get_logger(__file__)
 
@@ -100,7 +100,7 @@ def numba_transfer_map(full_sky, old_pix, new_pix):
     return m
 
 
-@njit
+# @njit
 def map_to_data_vec(hp_map, data_vec_len, corresponding_pix, cutout_pix, remove_mean=False, divide_by_mean=False):
     """
     This function makes cutouts from full sky maps to a nice data vector that can be fed into a DeepSphere network

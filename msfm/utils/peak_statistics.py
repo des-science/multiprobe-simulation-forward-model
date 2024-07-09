@@ -17,7 +17,7 @@ from estats.summary import summary as estats_summary
 
 from msfm.utils import logger, imports
 
-hp = imports.import_healpy(parallel=True)
+hp = imports.import_healpy()
 
 LOGGER = logger.get_logger(__file__)
 

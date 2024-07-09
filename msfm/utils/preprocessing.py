@@ -14,7 +14,7 @@ import tensorflow_probability as tfp
 import os, time, h5py, copy_guardian
 from msfm.utils import logger, filenames, imports, lensing, clustering, maps, input_output
 
-hp = imports.import_healpy(parallel=True)
+hp = imports.import_healpy()
 
 LOGGER = logger.get_logger(__file__)
 
@@ -442,7 +442,8 @@ def _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin):
     n_side = conf["analysis"]["n_side"]
 
     # load the full sky maps
-    map_dir = f"{in_map_type}/{z_bin}"
+    LOGGER.timer.start("load_map")
+    map_dir = f"map/{in_map_type}/{z_bin}"
     with h5py.File(full_maps_file, "r") as f:
         map_full = f[map_dir][:]
 
@@ -450,5 +451,5 @@ def _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin):
         if map_full.shape[0] != n_pix:
             map_full = hp.ud_grade(map_full, nside_out=n_side, order_in="RING", order_out="RING", pess=True)
 
-    LOGGER.debug(f"Loaded {map_dir} from {full_maps_file}")
+    LOGGER.debug(f"Loaded {map_dir} from {full_maps_file} after {LOGGER.timer.elapsed('load_map')}")
     return map_full

@@ -9,7 +9,7 @@ import numpy as np
 
 from msfm.utils import files, logger, scales, imports
 
-hp = imports.import_healpy(parallel=True)
+hp = imports.import_healpy()
 
 LOGGER = logger.get_logger(__file__)
 
