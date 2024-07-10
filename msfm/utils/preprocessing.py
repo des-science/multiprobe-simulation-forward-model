@@ -353,8 +353,8 @@ def preprocess_maglim_bin(conf, full_sky_map, in_map_type, i_z, pixel_file):
     if in_map_type in ["dg", "dg2"]:
         # pixel file
         data_vec_pix, patches_pix_dict, corresponding_pix_dict, _ = pixel_file
-        patches_pix = patches_pix_dict["metacal"][i_z]
-        corresponding_pix = corresponding_pix_dict["metacal"][i_z]
+        patches_pix = patches_pix_dict["maglim"]
+        corresponding_pix = corresponding_pix_dict["maglim"]
         data_vec_len = len(data_vec_pix)
         base_patch_pix = patches_pix[0]
 
