@@ -32,7 +32,7 @@ from msfm.utils import (
     lensing,
     clustering,
     cosmogrid,
-    preprocessing,
+    postprocessing,
     tfrecords,
     power_spectra,
     scales,
@@ -74,7 +74,7 @@ def resources(args):
 
 
 def setup(args):
-    description = "Preprocess the CosmoGrid projections into forward-modeled survey footprints in .tfrecord files"
+    description = "Postprocess the CosmoGrid projections into forward-modeled survey footprints in .tfrecord files"
     parser = argparse.ArgumentParser(description=description, add_help=True)
 
     parser.add_argument(
@@ -265,7 +265,7 @@ def main(indices, args):
                 LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
 
                 # cut out the survey footprints, generate the shape noise, perform mode removal, ...
-                data_vec_container = preprocessing.preprocess_grid_permutations(
+                data_vec_container = postprocessing.postprocess_grid_permutations(
                     args, conf, cosmo_dir_in, pixel_file, noise_file
                 )
 
@@ -325,7 +325,7 @@ def main(indices, args):
                     file_writer.write(serialized)
 
         if args.to_san:
-            preprocessing._rsync_tfrecord_to_san(conf, tfr_file, san_dir_out)
+            postprocessing._rsync_tfrecord_to_san(conf, tfr_file, san_dir_out)
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index

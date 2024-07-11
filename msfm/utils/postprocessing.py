@@ -21,7 +21,7 @@ LOGGER = logger.get_logger(__file__)
 # fiducial ############################################################################################################
 
 
-def preprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_file, noise_file):
+def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_file, noise_file):
     LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
     LOGGER.timer.start("permutation")
 
@@ -53,11 +53,11 @@ def preprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fil
                 full_sky_bin = _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin)
 
                 if sample == "metacal":
-                    data_vecs = preprocess_metacal_bin(
+                    data_vecs = postprocess_metacal_bin(
                         conf, full_sky_bin, in_map_type, i_z, "fiducial", pixel_file, noise_file
                     )
                 elif sample == "maglim":
-                    data_vecs = preprocess_maglim_bin(conf, full_sky_bin, in_map_type, i_z, pixel_file)
+                    data_vecs = postprocess_maglim_bin(conf, full_sky_bin, in_map_type, i_z, pixel_file)
 
                 # collect the different permutations along the first axis
                 data_vec_container[out_map_type][..., i_z] = data_vecs
@@ -99,7 +99,7 @@ def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
 # grid ################################################################################################################
 
 
-def preprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_file):
+def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_file):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
 
@@ -131,11 +131,11 @@ def preprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fil
                     full_sky_bin = _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin)
 
                     if sample == "metacal":
-                        data_vecs = preprocess_metacal_bin(
+                        data_vecs = postprocess_metacal_bin(
                             conf, full_sky_bin, in_map_type, i_z, "grid", pixel_file, noise_file
                         )
                     elif sample == "maglim":
-                        data_vecs = preprocess_maglim_bin(conf, full_sky_bin, in_map_type, i_z, pixel_file)
+                        data_vecs = postprocess_maglim_bin(conf, full_sky_bin, in_map_type, i_z, pixel_file)
 
                     # collect the different permutations along the first axis
                     data_vec_container[out_map_type][
@@ -175,20 +175,20 @@ def _set_up_per_cosmo_dv_container(conf, pixel_file):
 # lensing #############################################################################################################
 
 
-def preprocess_metacal_bin(conf, full_sky_map, in_map_type, i_z, simset, pixel_file, noise_file):
+def postprocess_metacal_bin(conf, full_sky_map, in_map_type, i_z, simset, pixel_file, noise_file):
     if in_map_type in ["kg", "ia"]:
         # shape (n_patches, data_vec_len)
-        kappa_dvs = preprocess_lensing(full_sky_map, conf, pixel_file, i_z)
+        kappa_dvs = postprocess_lensing(full_sky_map, conf, pixel_file, i_z)
     elif in_map_type == "dg":
         # shape (n_patches, n_noise_per_example, data_vec_len)
-        kappa_dvs = preprocess_shape_noise(full_sky_map, conf, simset, pixel_file, noise_file, i_z)
+        kappa_dvs = postprocess_shape_noise(full_sky_map, conf, simset, pixel_file, noise_file, i_z)
     else:
         raise ValueError(f"Unknown input map type {in_map_type} for metacal/weak lensing")
 
     return kappa_dvs
 
 
-def preprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
+def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
     n_patches = conf["analysis"]["n_patches"]
@@ -259,7 +259,7 @@ def preprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
     return kappa_dvs
 
 
-def preprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file, i_z):
+def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file, i_z):
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
     n_patches = conf["analysis"]["n_patches"]
@@ -345,7 +345,7 @@ def preprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file,
 # clustering ##########################################################################################################
 
 
-def preprocess_maglim_bin(conf, full_sky_map, in_map_type, i_z, pixel_file):
+def postprocess_maglim_bin(conf, full_sky_map, in_map_type, i_z, pixel_file):
     n_pix = conf["analysis"]["n_pix"]
     n_patches = conf["analysis"]["n_patches"]
 
@@ -418,7 +418,6 @@ def _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm):
 
 
 def _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out):
-    # like in run_fiducial_preprocessing.py
     LOGGER.info("Copying the .tfrecord to the SAN")
     LOGGER.timer.start("copy_to_san")
 

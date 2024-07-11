@@ -29,7 +29,7 @@ from msfm.utils import (
     files,
     clustering,
     cosmogrid,
-    preprocessing,
+    postprocessing,
     tfrecords,
     power_spectra,
     scales,
@@ -71,7 +71,7 @@ def resources(args):
 
 
 def setup(args):
-    description = "Preprocess the CosmoGrid projections into forward-modeled survey footprints in .tfrecord files"
+    description = "Postprocess the CosmoGrid projections into forward-modeled survey footprints in .tfrecord files"
     parser = argparse.ArgumentParser(description=description, add_help=True)
 
     parser.add_argument(
@@ -319,7 +319,7 @@ def main(indices, args):
                     is_fiducial = "cosmo_fiducial" in cosmo_dir_in
 
                     # this is what was previously stored in the separate .h5 files
-                    data_vec_container = preprocessing.preprocess_fiducial_permutations(
+                    data_vec_container = postprocessing.postprocess_fiducial_permutations(
                         args, conf, cosmo_dir_in, i_perm, pixel_file, noise_file
                     )
 
@@ -406,7 +406,7 @@ def main(indices, args):
                 n_done += 1
 
         if args.to_san:
-            preprocessing._rsync_tfrecord_to_san(conf, tfr_file, san_dir_out)
+            postprocessing._rsync_tfrecord_to_san(conf, tfr_file, san_dir_out)
 
         LOGGER.info(f"Done with index {index} after {LOGGER.timer.elapsed('index')}")
         yield index
