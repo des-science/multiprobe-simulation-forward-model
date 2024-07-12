@@ -120,13 +120,12 @@ def map_to_data_vec(hp_map, data_vec_len, corresponding_pix, cutout_pix, remove_
     """
     assert not (remove_mean and divide_by_mean), "Only one of remove_mean and dividie_by_mean can be true"
 
+    # within the patch, not over the full sky
+    hp_mean = np.float32(np.mean(hp_map[cutout_pix]))
     if remove_mean:
-        # within the patch, not over the full sky
-        hp_map -= np.mean(hp_map[cutout_pix])
-
+        hp_map = hp_map - hp_mean
     if divide_by_mean:
-        # within the patch, not over the full sky
-        hp_map = (hp_map - np.mean(hp_map[cutout_pix])) / np.mean(hp_map[cutout_pix])
+        hp_map = (hp_map - hp_mean) / hp_mean
 
     data_vec = np.zeros(data_vec_len, dtype=np.float32)
     n_indices = corresponding_pix.shape[0]

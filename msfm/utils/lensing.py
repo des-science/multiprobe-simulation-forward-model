@@ -106,7 +106,7 @@ def mode_removal(
         else:
             kappa_patch = scales.alm_to_smoothed_map(kappa_alm, n_side, l_min, l_max, nest=False)
     else:
-        kappa_patch = hp.alm2map(kappa_alm, n_side, pol=False)
+        kappa_patch = hp.alm2map(kappa_alm, n_side, pol=False).astype(np.float32)
 
     return kappa_patch
 

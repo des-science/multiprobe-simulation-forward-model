@@ -24,6 +24,9 @@ def arcmin_to_rad(theta):
 
 
 def ell_to_angle(ell, arcmin=False, method="naive"):
+    if isinstance(ell, list):
+        ell = np.array(ell)
+
     # method like 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
     if method == "naive":
         theta = np.pi / ell
@@ -38,6 +41,9 @@ def ell_to_angle(ell, arcmin=False, method="naive"):
 
 
 def angle_to_ell(theta, arcmin=False, method="naive"):
+    if isinstance(theta, list):
+        theta = np.array(theta)
+
     # method like 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
     if arcmin:
         theta = arcmin_to_rad(theta)
@@ -256,19 +262,19 @@ def map_to_smoothed_map(
             raise ValueError(f"For tomographic inputs, l_min and l_max or theta_fwhm must be lists of length n_z_bins")
 
         alms = []
-        for i_tomo in range(n_z):
-            current_map = full_map[:, i_tomo]
+        for i_z in range(n_z):
+            current_map = full_map[:, i_z]
             if nest:
                 current_map = hp.reorder(current_map, n2r=True)
 
             alm = hp.map2alm(current_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
 
-            full_map[:, i_tomo], alm = alm_to_smoothed_map(
+            full_map[:, i_z], alm = alm_to_smoothed_map(
                 alm,
                 n_side,
-                l_min[i_tomo],
-                l_max[i_tomo],
-                theta_fwhm[i_tomo],
+                l_min[i_z],
+                l_max[i_z],
+                theta_fwhm[i_z],
                 arcmin,
                 nest,
             )
@@ -403,26 +409,33 @@ def data_vector_to_grf_data_vector(
 
     # multiple tomographic bins along final axis
     if data_vector.ndim == 2:
-        n_z_bins = data_vector.shape[1]
+        n_z = data_vector.shape[1]
+
+        if l_min is None:
+            l_min = [None] * n_z
+        if l_max is None:
+            l_max = [None] * n_z
+        if theta_fwhm is None:
+            theta_fwhm = [None] * n_z
 
         if isinstance(l_min, list) and isinstance(l_max, list):
-            assert n_z_bins == len(l_min) == len(l_max)
+            assert n_z == len(l_min) == len(l_max)
         elif isinstance(l_min, list) and isinstance(theta_fwhm, list):
-            assert n_z_bins == len(l_min) == len(theta_fwhm)
+            assert n_z == len(l_min) == len(theta_fwhm)
         else:
             raise ValueError(f"For tomographic inputs, l_min and l_max or theta_fwhm must be lists of length n_z_bins")
 
         alms = []
-        for i_tomo in range(n_z_bins):
+        for i_z in range(n_z):
             full_map = np.zeros((n_pix), dtype=np.float32)
-            full_map[data_vec_pix] = data_vector[:, i_tomo]
+            full_map[data_vec_pix] = data_vector[:, i_z]
             full_map = hp.reorder(full_map, n2r=True)
 
             alm = hp.map2alm(full_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
 
             # smoothing
-            high_pass_fac = gaussian_high_pass_factor_alm(l, l_min)
-            low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin)
+            high_pass_fac = gaussian_high_pass_factor_alm(l, l_min[i_z])
+            low_pass_fac = gaussian_low_pass_factor_alm(l, l_max[i_z], theta_fwhm[i_z], arcmin)
             alm = alm * high_pass_fac * low_pass_fac
 
             # make a Gaussian Random Field
@@ -432,7 +445,7 @@ def data_vector_to_grf_data_vector(
             grf = hp.reorder(grf, r2n=True)
 
             # padding is populated too
-            data_vector[:, i_tomo] = grf[data_vec_pix]
+            data_vector[:, i_z] = grf[data_vec_pix]
 
             alms.append(alm)
 
@@ -489,6 +502,8 @@ def alm_to_grf_map(alm, n_side, l_min, l_max, np_seed):
     Returns:
         np.array: Smoothed full sky healpy map for a single tomographic bin of shape (n_pix,).
     """
+    raise DeprecationWarning("This function has not been tested yet in conjunction with run_datavectors.py")
+
     cl = hp.alm2cl(alm)
 
     # remove large scales

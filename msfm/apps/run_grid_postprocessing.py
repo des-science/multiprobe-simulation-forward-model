@@ -390,10 +390,10 @@ def _get_lensing_transform(conf, pixel_file):
         kg, alm_kg = lensing_smoothing(kg, np_seed)
 
         smooth_sn_samples, alm_sn_samples = [], []
-        for shape_noise in sn_samples:
+        for i, shape_noise in enumerate(sn_samples):
             shape_noise *= metacal_mask
 
-            smooth_sn, alm_sn = lensing_smoothing(shape_noise, np_seed)
+            smooth_sn, alm_sn = lensing_smoothing(shape_noise, np_seed + i)
 
             smooth_sn_samples.append(smooth_sn)
             alm_sn_samples.append(alm_sn)
@@ -489,17 +489,17 @@ def _get_clustering_transform(conf, pixel_file):
                 data_vec_pix=pixel_file[0],
                 systematics_map=tomo_maglim_sys_dv,
                 mask=maglim_mask,
-                np_seed=np_seed + 1,
+                np_seed=np_seed,
             )
 
         # draw noise, mask, smooth
-        pn_samples = clustering.galaxy_count_to_noise(dg, n_noise_per_example, np_seed=np_seed + 2)
+        pn_samples = clustering.galaxy_count_to_noise(dg, n_noise_per_example, np_seed=np_seed)
 
         smooth_pn_samples, alm_pn_samples = [], []
-        for pn in pn_samples:
+        for i, pn in enumerate(pn_samples):
             pn *= maglim_mask
 
-            smooth_pn, alm_smooth_pn = clustering_smoothing(pn, np_seed)
+            smooth_pn, alm_smooth_pn = clustering_smoothing(pn, np_seed + i)
 
             smooth_pn_samples.append(smooth_pn)
             alm_pn_samples.append(alm_smooth_pn)

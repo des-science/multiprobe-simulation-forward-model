@@ -467,9 +467,9 @@ def _get_lensing_transform(conf, pixel_file):
             assert sn_samples is not None, "sn has to be provided if is_true_fiducial is True"
 
             smooth_sn_samples, alm_sn_samples = [], []
-            for sn in sn_samples:
+            for i, sn in sn_samples:
                 sn *= metacal_mask
-                sn, alm_sn = lensing_smoothing(sn, np_seed)
+                sn, alm_sn = lensing_smoothing(sn, np_seed + i)
 
                 smooth_sn_samples.append(sn)
                 alm_sn_samples.append(alm_sn)
@@ -561,12 +561,12 @@ def _get_clustering_transform(conf, pixel_file):
 
         # only draw the Poisson noise and return the alms for the fiducial, not the perturbations
         if is_true_fiducial:
-            pn_samples = clustering.galaxy_count_to_noise(dg, n_noise_per_example, np_seed=np_seed + 1)
+            pn_samples = clustering.galaxy_count_to_noise(dg, n_noise_per_example, np_seed=np_seed)
 
             smooth_pn_samples, alm_pn_samples = [], []
-            for pn in pn_samples:
+            for i, pn in enumerate(pn_samples):
                 pn *= maglim_mask
-                pn, alm_pn = clustering_smoothing(pn, np_seed)
+                pn, alm_pn = clustering_smoothing(pn, np_seed + i)
 
                 smooth_pn_samples.append(pn)
                 alm_pn_samples.append(alm_pn)
