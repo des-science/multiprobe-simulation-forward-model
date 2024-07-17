@@ -54,12 +54,12 @@ def resources(args):
     if args.cluster == "perlmutter":
         # because of hyperthreading, there's a total of 256 threads per node
         resources = {
-            "main_time": 4,
-            "main_memory": 1952,
+            "main_time": 2,
             "main_n_cores": 8,
-            "merge_time": 2,
+            "main_memory": 1952,
+            "merge_time": 8,
+            "merge_n_cores": 256,
             "merge_memory": 1952,
-            "merge_n_cores": 32,
         }
     elif args.cluster == "euler":
         resources = {"main_time": 4, "main_memory": 4096, "main_n_cores": 4, "merge_memory": 4096, "merge_n_cores": 16}
@@ -613,6 +613,20 @@ def merge(indices, args):
     # every batch is a single cosmology
     cls_dset = cls_dset.batch(n_signal_per_cosmo)
 
+    l_min_lensing = conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
+    l_min_clustering = conf["analysis"]["scale_cuts"]["clustering"]["l_min"]
+    l_max_lensing = conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
+    l_max_clustering = conf["analysis"]["scale_cuts"]["clustering"]["l_max"]
+    n_z = len(conf["survey"]["metacal"]["z_bins"]) + len(conf["survey"]["maglim"]["z_bins"])
+    if l_min_lensing is not None and l_min_clustering is not None:
+        l_mins = l_min_lensing + l_min_clustering
+    else:
+        l_mins = [0] * n_z
+    if l_max_lensing is not None and l_max_clustering is not None:
+        l_maxs = l_max_lensing + l_max_clustering
+    else:
+        l_maxs = [3 * conf["analysis"]["n_side"] - 1] * n_z
+
     cls = []
     binned_cls = []
     bin_edges = []
@@ -634,10 +648,8 @@ def merge(indices, args):
         # perform the binning (all examples of a single cosmology at once)
         binned_cl, bin_edge = power_spectra.bin_cls(
             cl,
-            l_mins=conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
-            + conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-            l_maxs=conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
-            + conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+            l_mins=l_mins,
+            l_maxs=l_maxs,
             n_bins=conf["analysis"]["power_spectra"]["n_bins"],
             with_cross=True,
         )

@@ -51,12 +51,12 @@ def resources(args):
         # because of hyperthreading, there's a total of 256 threads per node
         # the 8 cores don't speed things up much, but are included to increase the memory
         resources = {
-            "main_time": 4,
-            "main_memory": 1952,
+            "main_time": 1,
             "main_n_cores": 8,
+            "main_memory": 1952,
             "merge_time": 2,
-            "merge_memory": 1952,
             "merge_n_cores": 32,
+            "merge_memory": 1952,
         }
     elif args.cluster == "euler":
         resources = {"main_time": 4, "main_memory": 4096, "main_n_cores": 8, "merge_memory": 4096, "merge_n_cores": 16}
@@ -467,7 +467,7 @@ def _get_lensing_transform(conf, pixel_file):
             assert sn_samples is not None, "sn has to be provided if is_true_fiducial is True"
 
             smooth_sn_samples, alm_sn_samples = [], []
-            for i, sn in sn_samples:
+            for i, sn in enumerate(sn_samples):
                 sn *= metacal_mask
                 sn, alm_sn = lensing_smoothing(sn, np_seed + i)
 
@@ -701,13 +701,25 @@ def merge(indices, args):
     i_examples = i_examples[i_sort]
     i_noise = i_noise[i_sort]
 
+    l_min_lensing = conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
+    l_min_clustering = conf["analysis"]["scale_cuts"]["clustering"]["l_min"]
+    l_max_lensing = conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
+    l_max_clustering = conf["analysis"]["scale_cuts"]["clustering"]["l_max"]
+    n_z = len(conf["survey"]["metacal"]["z_bins"]) + len(conf["survey"]["maglim"]["z_bins"])
+    if l_min_lensing is not None and l_min_clustering is not None:
+        l_mins = l_min_lensing + l_min_clustering
+    else:
+        l_mins = [0] * n_z
+    if l_max_lensing is not None and l_max_clustering is not None:
+        l_maxs = l_max_lensing + l_max_clustering
+    else:
+        l_maxs = [3 * conf["analysis"]["n_side"] - 1] * n_z
+
     # perform the binning (all examples at the same time)
     binned_cls, bin_edges = power_spectra.bin_cls(
         cls,
-        l_mins=conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
-        + conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-        l_maxs=conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
-        + conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
+        l_mins=l_mins,
+        l_maxs=l_maxs,
         n_bins=conf["analysis"]["power_spectra"]["n_bins"],
         with_cross=True,
     )
