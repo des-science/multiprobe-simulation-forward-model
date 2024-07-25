@@ -57,7 +57,7 @@ def resources(args):
             "main_time": 2,
             "main_n_cores": 8,
             "main_memory": 1952,
-            "merge_time": 8,
+            "merge_time": 4,
             "merge_n_cores": 128,
             "merge_memory": 1952,
         }

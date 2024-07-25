@@ -77,7 +77,7 @@ def gaussian_low_pass_factor_alm(
             going to zero for l -> + inf.
     """
 
-    if l_max is None and theta_fwhm is None:
+    if l_max is None and (theta_fwhm is None or theta_fwhm == 0):
         return np.ones_like(l)
     elif l_max is not None and theta_fwhm is not None:
         raise ValueError("Either l_max or theta_fwhm must be specified, not both")
@@ -116,7 +116,7 @@ def gaussian_high_pass_factor_alm(
             sigmoid (1 - Gaussian) and goes to one for l -> + inf.
     """
 
-    if l_min is None and theta_fwhm is None:
+    if (l_min is None or l_min == 0) and theta_fwhm is None:
         return np.ones_like(l)
     elif l_min is not None and theta_fwhm is not None:
         raise ValueError("Either l_min or theta_fwhm must be specified, not both")

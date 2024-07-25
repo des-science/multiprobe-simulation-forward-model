@@ -9,7 +9,7 @@ Utilities to forward model (mock) observations to be consistent with the CosmoGr
 
 import os
 import numpy as np
-from msfm.utils import files, logger, lensing, imports, scales, maps
+from msfm.utils import files, logger, lensing, imports, scales, maps, power_spectra
 from typing import Union
 
 hp = imports.import_healpy()
@@ -95,7 +95,7 @@ def forward_model_observation_map(
             wl_kappa_dv = wl_kappa_dv / conf["analysis"]["normalization"]["lensing"]
 
         wl_kappa_dv *= masks_metacal
-        wl_kappa_dv, _ = scales.data_vector_to_smoothed_data_vector(
+        wl_kappa_dv, wl_alms = scales.data_vector_to_smoothed_data_vector(
             wl_kappa_dv,
             data_vec_pix=data_vec_pix,
             n_side=n_side,
@@ -129,7 +129,7 @@ def forward_model_observation_map(
             pass
 
         gc_count_dv *= masks_maglim
-        gc_count_dv, _ = scales.data_vector_to_smoothed_data_vector(
+        gc_count_dv, gc_alms = scales.data_vector_to_smoothed_data_vector(
             gc_count_dv,
             data_vec_pix=data_vec_pix,
             n_side=n_side,
@@ -141,10 +141,13 @@ def forward_model_observation_map(
 
     if wl_gamma_map is not None and gc_count_map is not None:
         observation = np.concatenate([wl_kappa_dv, gc_count_dv], axis=-1)
+        observation_cls = power_spectra.get_cls(np.concatenate([wl_alms, gc_alms], axis=-1))
     elif wl_gamma_map is not None:
         observation = wl_kappa_dv
+        observation_cls = power_spectra.get_cls(wl_alms)
     elif gc_count_map is not None:
         observation = gc_count_dv
+        observation_cls = power_spectra.get_cls(gc_alms)
 
     # go from padded datavector to non-padded patch
     if not with_padding:
@@ -155,6 +158,10 @@ def forward_model_observation_map(
 
         observation_full_sky = np.zeros((n_pix, observation.shape[-1]), dtype=observation.dtype)
         observation_full_sky[data_vec_pix] = observation
-        observation = observation[footprint_pix]
+        observation = observation_full_sky[footprint_pix]
 
-    return observation
+    return observation, observation_cls
+
+
+def forward_model_cosmogrid():
+    pass
