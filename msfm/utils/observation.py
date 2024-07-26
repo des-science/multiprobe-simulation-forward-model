@@ -7,9 +7,21 @@ Author: Arne Thomsen
 Utilities to forward model (mock) observations to be consistent with the CosmoGrid maps.
 """
 
-import os
+import os, h5py
 import numpy as np
-from msfm.utils import files, logger, lensing, imports, scales, maps, power_spectra
+from msfm.utils import (
+    files,
+    logger,
+    lensing,
+    imports,
+    scales,
+    maps,
+    power_spectra,
+    filenames,
+    redshift,
+    clustering,
+    lensing,
+)
 from typing import Union
 
 hp = imports.import_healpy()
@@ -148,6 +160,8 @@ def forward_model_observation_map(
     elif gc_count_map is not None:
         observation = gc_count_dv
         observation_cls = power_spectra.get_cls(gc_alms)
+    else:
+        raise ValueError("At least one of wl_gamma or gc_count must be provided.")
 
     # go from padded datavector to non-padded patch
     if not with_padding:
@@ -163,5 +177,175 @@ def forward_model_observation_map(
     return observation, observation_cls
 
 
-def forward_model_cosmogrid():
-    pass
+def forward_model_fiducial_cosmogrid(map_dir, conf=None, with_lensing=True, with_clustering=True, noisy=False):
+    """Take a full-sky CosmoGrid maps as they are projected with UFalcon and transform them into fiducial probe maps
+    that are in the same format as the (synthetic) observations like a gamma map for weak lensing, no smoothing, etc.
+    The steps here are the same what is implemented in the run_grid/fiducial_postprocessing.py files. The later steps
+    of that pipeline are implemented in forward_model_observation_map.
+    This function is for example useful for the benchmark simulations.
+
+    Args:
+        map_dir (str): The directory where the full-sky CosmoGrid map is stored in the .h5 format.
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
+            passed through) or None (the default config is loaded). Defaults to None.
+        with_lensing (bool, optional): Whether to include the weak lensing map. Defaults to True.
+        with_clustering (bool, optional): Whether to include the galaxy clustering map. Defaults to True.
+        noisy (bool, optional): Whether to generate shape and poisson noise or return noiseless maps. Defaults to
+            False.
+
+    Returns:
+        (np.ndarray, np.ndarray): Weak lensing and galaxy clustering full-sky maps of shape (n_pix, n_z, 2) and
+            (n_pix, n_z) respectively.
+    """
+
+    conf = files.load_config(conf)
+
+    # constants
+    n_side = conf["analysis"]["n_side"]
+    n_pix = conf["analysis"]["n_pix"]
+    data_vec_pix, patches_pix_dict, _, _ = files.load_pixel_file(conf)
+    z0 = conf["analysis"]["modelling"]["z0"]
+
+    map_file = filenames.get_filename_full_maps(map_dir, with_bary=conf["analysis"]["modelling"]["baryonified"])
+    with h5py.File(map_file, "r") as f:
+        if with_lensing:
+            maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
+            kappa2gamma_fac, _, _ = lensing.get_kaiser_squires_factors(3 * n_side - 1)
+
+            Aia = conf["analysis"]["fiducial"]["Aia"]
+            n_Aia = conf["analysis"]["fiducial"]["n_Aia"]
+
+            metacal_bins = conf["survey"]["metacal"]["z_bins"]
+            tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
+            tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+
+            file_dir = os.path.dirname(__file__)
+            repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+            hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
+
+            kg = []
+            ia = []
+            dg = []
+            for z_bin in metacal_bins:
+                kg.append(hp.ud_grade(f[f"map/kg/{z_bin}"], n_side))
+                ia.append(hp.ud_grade(f[f"map/ia/{z_bin}"], n_side))
+                if noisy:
+                    dg.append(hp.ud_grade(f[f"map/dg/{z_bin}"], n_side))
+            kg = np.stack(kg, axis=-1)
+            ia = np.stack(ia, axis=-1)
+            if noisy:
+                dg = np.stack(dg, axis=-1)
+
+            # create the noiseless fiducial map
+            wl_kappa_map = kg + tomo_Aia * ia
+
+            gamma1 = []
+            gamma2 = []
+            for i in range(wl_kappa_map.shape[-1]):
+                patch_pix = patches_pix_dict["metacal"][i][0]
+
+                # kappa -> gamma (full sky)
+                kappa_alm = hp.map2alm(
+                    wl_kappa_map[:, i],
+                    use_pixel_weights=True,
+                    datapath=hp_datapath,
+                )
+
+                gamma_alm = kappa_alm * kappa2gamma_fac
+                _, gamma1_full, gamma2_full = hp.alm2map(
+                    [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
+                )
+
+                if noisy:
+                    import tensorflow as tf
+                    import tensorflow_probability as tfp
+
+                    tomo_bias = conf["survey"]["metacal"]["galaxy_bias"]
+                    tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
+                    tomo_gamma_cat, _ = files.load_noise_file(conf)
+
+                    dg = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
+                    counts_map = clustering.galaxy_density_to_count(
+                        tomo_n_gal, dg, tomo_bias, conf=conf, systematics_map=None
+                    ).astype(int)
+
+                    with tf.device("/CPU:0"):
+                        counts = counts_map[patch_pix, i]
+
+                        # create joint distribution, as this is faster than random indexing
+                        gamma_abs = tf.math.abs(tomo_gamma_cat[i][:, 0] + 1j * tomo_gamma_cat[i][:, 1])
+                        w = tomo_gamma_cat[i][:, 2]
+                        cat_dist = tfp.distributions.Empirical(
+                            samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1
+                        )
+
+                        gamma1_noise, gamma2_noise = lensing.noise_gen(counts, cat_dist, n_noise_per_example=1)
+                        gamma1_noise = gamma1_noise[:, 0]
+                        gamma2_noise = gamma2_noise[:, 0]
+                else:
+                    gamma1_noise = 0
+                    gamma2_noise = 0
+
+                gamma1_patch = np.zeros(n_pix, dtype=np.float32)
+                gamma1_patch[patch_pix] = gamma1_full[patch_pix] + gamma1_noise
+
+                gamma2_patch = np.zeros(n_pix, dtype=np.float32)
+                gamma2_patch[patch_pix] = gamma2_full[patch_pix] + gamma2_noise
+
+                gamma1.append(gamma1_patch)
+                gamma2.append(gamma2_patch)
+
+            gamma1 = np.stack(gamma1, axis=-1)
+            gamma2 = np.stack(gamma2, axis=-1)
+
+            wl_gamma_patch = np.stack([gamma1, gamma2], axis=-1)
+        else:
+            wl_gamma_patch = None
+
+        if with_clustering:
+            patch_pix = patches_pix_dict["maglim"][0]
+            maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
+
+            bg = conf["analysis"]["fiducial"]["bg"]
+            n_bg = conf["analysis"]["fiducial"]["n_bg"]
+
+            maglim_bins = conf["survey"]["maglim"]["z_bins"]
+            tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
+            tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
+            tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+
+            dg = []
+            for z_bin in maglim_bins:
+                dg.append(hp.ud_grade(f[f"map/dg/{z_bin}"], n_side))
+            dg = np.stack(dg, axis=-1)
+
+            # cut out the footprint
+            dg_patch = np.zeros_like(dg)
+            dg_patch[patch_pix] = dg[patch_pix]
+
+            # subtract and divide by mean (within the patch)
+            dg_patch[patch_pix] = (dg_patch[patch_pix] - np.mean(dg_patch[patch_pix])) / np.mean(dg_patch[patch_pix])
+
+            dg_patch = maps.tomographic_reorder(dg_patch, r2n=True)
+            dg_dv = dg_patch[data_vec_pix]
+
+            # density contrast to count
+            gc_count_dv = clustering.galaxy_density_to_count(
+                tomo_n_gal_maglim,
+                dg_dv,
+                tomo_bg,
+                conf=conf,
+                mask=maglim_mask,
+                nest=True,
+            )
+
+            if noisy:
+                gc_count_dv += clustering.galaxy_count_to_noise(gc_count_dv, n_noise=1)[0]
+
+            gc_count_patch = np.zeros((n_pix, gc_count_dv.shape[-1]))
+            gc_count_patch[data_vec_pix] = gc_count_dv
+            gc_count_patch = maps.tomographic_reorder(gc_count_patch, n2r=True)
+        else:
+            gc_count_patch = None
+
+        return wl_gamma_patch, gc_count_patch
