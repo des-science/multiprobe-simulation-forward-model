@@ -314,6 +314,7 @@ def data_vector_to_smoothed_data_vector(
     l_max: int = None,
     theta_fwhm: float = None,
     arcmin: bool = True,
+    mask: np.ndarray = None,
 ):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been
     smoothed according to l_min and l_max. The input can either be a single map, or a stack of multiple tomographic
@@ -337,6 +338,9 @@ def data_vector_to_smoothed_data_vector(
 
     n_pix = hp.nside2npix(n_side)
 
+    if mask is not None:
+        data_vector *= mask
+
     # multiple tomographic bins along final axis
     if data_vector.ndim == 2:
         n_z_bins = data_vector.shape[1]
@@ -355,6 +359,8 @@ def data_vector_to_smoothed_data_vector(
     full_map, alm = map_to_smoothed_map(full_map, n_side, l_min, l_max, theta_fwhm, arcmin, nest=True)
 
     data_vector = full_map[data_vec_pix]
+    if mask is not None:
+        data_vector *= mask
 
     return data_vector, alm
 
@@ -371,6 +377,7 @@ def data_vector_to_grf_data_vector(
     l_max: int = None,
     theta_fwhm: float = None,
     arcmin: bool = True,
+    mask: np.ndarray = None,
 ):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been
     smoothed according to l_min and l_max and transformed to a Gaussian Random Field. This destroys all non-Gaussian
@@ -397,6 +404,9 @@ def data_vector_to_grf_data_vector(
     """
 
     n_pix = hp.nside2npix(n_side)
+
+    if mask is not None:
+        data_vector *= mask
 
     # alm are computed for the standard l_max = 3 * n_side - 1
     l = hp.Alm.getlm(3 * n_side - 1)[0]
@@ -479,6 +489,9 @@ def data_vector_to_grf_data_vector(
 
     else:
         raise ValueError(f"Unknown data_vector.ndim: {data_vector.ndim}, must be 1 or 2")
+
+    if mask is not None:
+        data_vector *= mask
 
     return data_vector, alm
 
