@@ -87,7 +87,7 @@ def get_cl_bins(l_min, l_max, n_bins):
     return np.linspace(np.sqrt(l_min), np.sqrt(l_max), n_bins, endpoint=True) ** 2
 
 
-def bin_cls(cls, l_mins, l_maxs, n_bins, n_side=None, with_cross=True, per_cross_binning=True):
+def bin_cls(cls, l_mins, l_maxs, n_bins, n_side=None, with_cross=True, per_cross_binning=True, l_min_binning=30):
     """Take the raw Cls and bin them within a given range of scales. This is done for each cross bin separately,
     always taking the more conservative cut.
 
@@ -115,8 +115,9 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, n_side=None, with_cross=True, per_cross
 
     if n_side is not None:
         l_mins = np.array(l_mins)
-        l_maxs = np.array(l_maxs)
         l_mins = np.clip(l_mins, 0, 3 * n_side - 1)
+
+        l_maxs = np.array(l_maxs)
         l_maxs = np.clip(l_maxs, 0, 3 * n_side - 1)
 
     if not per_cross_binning:
@@ -150,8 +151,9 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, n_side=None, with_cross=True, per_cross
                     # different binning for each cross bin
                     bins = get_cl_bins(l_min, l_max, n_bins)
                 else:
-                    # the same binning for all cross bins NOTE this is hardcoded for now
-                    bins = get_cl_bins(30, 1500, n_bins)
+                    # the same binning for all cross bins, so that the scales are only suppressed by l_mins and l_maxs,
+                    # but all scales are included in the binning
+                    bins = get_cl_bins(l_min_binning, 3 * n_side - 1, n_bins)
 
                 cross_bins.append(bins)
 

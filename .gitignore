@@ -7,17 +7,18 @@
 *.jpg
 *.pdf
 # except in the data directory
-!data/*.npy
-!data/*.npz
-!data/*.h5
-!data/*.hdf5
+!data/**/*.npy
+!data/**/*.npz
+!data/**/*.h5
+!data/**/*.hdf5
 !documentation/*.png
 !documentation/*.jpg
+data/DESY3_noise_v11.h5
+data/DESY3_noise.h5
 
 # repository specific
 esub_logs
 notebooks/temp
-data/DESY3_noise.h5
 .vscode
 
 # training

@@ -57,7 +57,7 @@ def resources(args):
             "main_time": 2,
             "main_n_cores": 8,
             "main_memory": 1952,
-            "merge_time": 8,
+            "merge_time": 4,
             "merge_n_cores": 128,
             "merge_memory": 1952,
         }
@@ -331,7 +331,7 @@ def main(indices, args):
         yield index
 
 
-def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file):
+def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mask):
     # Gaussian Random Field
     if conf["analysis"]["modelling"]["degrade_to_grf"]:
         dv, alm = scales.data_vector_to_grf_data_vector(
@@ -342,6 +342,7 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file):
             l_min=l_min,
             theta_fwhm=theta_fwhm,
             arcmin=True,
+            mask=mask,
         )
     # standard smoothing with a Gaussian kernel
     else:
@@ -352,6 +353,7 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file):
             l_min=l_min,
             theta_fwhm=theta_fwhm,
             arcmin=True,
+            mask=mask,
         )
 
     return dv, alm
@@ -371,6 +373,7 @@ def _get_lensing_transform(conf, pixel_file):
             np_seed,
             conf,
             pixel_file,
+            metacal_mask,
         )
 
         return kg, alm
@@ -433,6 +436,7 @@ def _get_clustering_transform(conf, pixel_file):
             np_seed,
             conf,
             pixel_file,
+            maglim_mask,
         )
 
         return dg, alm
