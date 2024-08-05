@@ -196,16 +196,18 @@ def get_tomo_dv_masks(conf=None):
             mask[p] = 1
         masks_metacal.append(mask)
 
-    mask_maglim = np.zeros(len(data_vec_pix), dtype=np.int32)
-    # loop over individual pixels
-    for p in corresponding_pix_dict["maglim"]:
-        mask_maglim[p] = 1
-
-    n_z_maglim = len(conf["survey"]["maglim"]["z_bins"])
+    masks_maglim = []
+    # loop over the tomographic bins
+    for pix in corresponding_pix_dict["maglim"]:
+        mask = np.zeros(len(data_vec_pix), dtype=np.int32)
+        # loop over individual pixels
+        for p in pix:
+            mask[p] = 1
+        masks_maglim.append(mask)
 
     masks_dict = {
         "metacal": np.array(masks_metacal).T,
-        "maglim": np.stack([mask_maglim for _ in range(n_z_maglim)], axis=1),
+        "maglim": np.array(masks_maglim).T,
     }
 
     return masks_dict
