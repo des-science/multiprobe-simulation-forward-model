@@ -50,7 +50,7 @@ survey:
     # from Table 1 in https://arxiv.org/pdf/2105.13540.pdf, in units of galaxies/deg^2
     n_gal: [540.0, 385.2, 392.4, 525.6] # , 381.6, 360.0]
     # from Table 2 in https://arxiv.org/pdf/2011.03411.pdf
-    z_lims: [[0.15, 0.35], [0.35, 0.50], [0.50, 0.65], [0.65, 0.80]] # , [0.80, 0.95], [0.95, 1.05]]
+    z_lims: [[0.2, 0.4], [0.4, 0.55], [0.55, 0.70], [0.70, 0.85]] # , [0.85, 0.95], [0.95, 1.05]]
     z_bins: [maglim1, maglim2, maglim3, maglim4] # , "desy3maglim5", "desy3maglim6"]
     # from Table 2 in https://arxiv.org/pdf/2105.13546.pdf, normal distribution parameters
     z_errors:
