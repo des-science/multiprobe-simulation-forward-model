@@ -97,19 +97,25 @@ def load_pixel_file(conf=None):
         gamma2_signs = f["metacal/gamma_2_sign"][:]
 
         # Maglim sample: galaxy clustering
-        maglim_patches_pix = f["maglim/patches"][:]
-        maglim_corresponding_pix = f["maglim/patch_to_data_vec"][:]
+        maglim_tomo_patches_pix = []
+        maglim_tomo_corresponding_pix = []
+        for z_bin in conf["survey"]["maglim"]["z_bins"]:
+            patches_pix = f[f"maglim/patches/{z_bin}"][:]
+            corresponding_pix = f[f"maglim/patch_to_data_vec/{z_bin}"][:]
+
+            maglim_tomo_patches_pix.append(patches_pix)
+            maglim_tomo_corresponding_pix.append(corresponding_pix)
 
     LOGGER.info(f"Loaded the pixel file {pixel_file}")
 
     # package into dictionaries
     patches_pix_dict = {}
     patches_pix_dict["metacal"] = metacal_tomo_patches_pix
-    patches_pix_dict["maglim"] = maglim_patches_pix
+    patches_pix_dict["maglim"] = maglim_tomo_patches_pix
 
     corresponding_pix_dict = {}
     corresponding_pix_dict["metacal"] = metacal_tomo_corresponding_pix
-    corresponding_pix_dict["maglim"] = maglim_corresponding_pix
+    corresponding_pix_dict["maglim"] = maglim_tomo_corresponding_pix
 
     return data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs
 
