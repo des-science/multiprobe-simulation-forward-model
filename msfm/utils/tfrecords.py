@@ -16,7 +16,7 @@ https://towardsdatascience.com/a-practical-guide-to-tfrecords-584536bc786c
 import warnings
 import tensorflow as tf
 
-from msfm.utils import logger
+from msfm.utils import logger, cross_statistics
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -86,6 +86,9 @@ def parse_inverse_grid(
     n_z_metacal=None,
     n_z_maglim=None,
     n_params=None,
+    n_noise=None,
+    n_cls=None,
+    n_z_cross=None,
     # probes
     with_lensing=True,
     with_clustering=True,
@@ -118,6 +121,11 @@ def parse_inverse_grid(
         "cosmo": tf.io.FixedLenFeature([], tf.string),
         "i_sobol": tf.io.FixedLenFeature([], tf.int64),
         "i_example": tf.io.FixedLenFeature([], tf.int64),
+        # power spectra
+        "cls": tf.io.FixedLenFeature([], tf.string),
+        "n_noise": tf.io.FixedLenFeature([], tf.int64),
+        "n_cls": tf.io.FixedLenFeature([], tf.int64),
+        "n_z_cross": tf.io.FixedLenFeature([], tf.int64),
     }
 
     if with_lensing:
@@ -134,6 +142,15 @@ def parse_inverse_grid(
 
     # output container
     output_data = {}
+
+    bin_indices, _ = cross_statistics.get_cross_bin_indices(
+        _parse_none_value(serialized_data, "n_z_metacal", n_z_metacal),
+        _parse_none_value(serialized_data, "n_z_maglim", n_z_maglim),
+        with_lensing,
+        with_clustering,
+        with_cross_z=True,
+        with_cross_probe=(with_lensing and with_clustering),
+    )
 
     cosmo = tf.io.parse_tensor(serialized_data["cosmo"], out_type=tf.float32)
     if n_params is None:
@@ -152,6 +169,31 @@ def parse_inverse_grid(
             output_data = _parse_and_reshape_data_vector(
                 output_data, serialized_data, f"dg_{i}", f"dg_{i}", n_pix, n_z_maglim, "n_z_maglim"
             )
+
+        _parse_and_reshape_cls(
+            output_data,
+            serialized_data,
+            f"cls",
+            f"cl_{i}",
+            n_noise,
+            n_cls,
+            n_z_cross,
+            i,
+            bin_indices,
+        )
+
+    # for backwards compatibility
+    _parse_and_reshape_cls(
+        output_data,
+        serialized_data,
+        f"cls",
+        f"cls",
+        n_noise,
+        n_cls,
+        n_z_cross,
+        noise_indices,
+        bin_indices,
+    )
 
     # indices
     output_data["i_sobol"] = serialized_data["i_sobol"]
@@ -242,7 +284,9 @@ def parse_forward_fiducial(
     bg_perts,
     pn_realz,
     # power spectra
-    cls,
+    cl_perts,
+    cl_ia_perts,
+    cl_bg_perts,
     # label
     i_example,
 ):
@@ -280,7 +324,7 @@ def parse_forward_fiducial(
         assert kg_pert.shape[0] == dg_pert.shape[0] == sn_realz.shape[1] == pn_realz.shape[1]
 
     assert (
-        len(sn_realz) == len(pn_realz) == cls.shape[0]
+        len(sn_realz) == len(pn_realz) == cl_perts.shape[1]
     ), "the number of noise realizations has to be identical for sn, pn and the cls"
 
     # define the structure of a single example
@@ -292,28 +336,31 @@ def parse_forward_fiducial(
         # label
         "i_example": _int64_feature(i_example),
         # power spectra
-        "cls": _bytes_feature(tf.io.serialize_tensor(cls)),
-        "n_noise": _int64_feature(cls.shape[0]),
-        "n_cls": _int64_feature(cls.shape[1]),
-        "n_z_cross": _int64_feature(cls.shape[2]),
+        "cls": _bytes_feature(tf.io.serialize_tensor(cl_perts[0])),
+        "n_noise": _int64_feature(cl_perts.shape[1]),
+        "n_cls": _int64_feature(cl_perts.shape[2]),
+        "n_z_cross": _int64_feature(cl_perts.shape[3]),
     }
 
     # cosmological perturbations (kappa and delta)
-    for label, kg_pert, dg_pert in zip(cosmo_pert_labels, kg_perts, dg_perts):
+    for label, kg_pert, dg_pert, cl_pert in zip(cosmo_pert_labels, kg_perts, dg_perts, cl_perts):
         features[f"kg_{label}"] = _bytes_feature(tf.io.serialize_tensor(kg_pert))
         features[f"dg_{label}"] = _bytes_feature(tf.io.serialize_tensor(dg_pert))
+        features[f"cl_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_pert))
 
     # intrinsic alignment perturbations (kappa)
-    for label, ia_pert in zip(ia_pert_labels, ia_perts):
+    for label, ia_pert, cl_ia_pert in zip(ia_pert_labels, ia_perts, cl_ia_perts):
         features[f"kg_{label}"] = _bytes_feature(tf.io.serialize_tensor(ia_pert))
+        features[f"cl_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_ia_pert))
 
     # shape noise realizations
     for i, sn in enumerate(sn_realz):
         features[f"sn_{i}"] = _bytes_feature(tf.io.serialize_tensor(sn))
 
     # galaxy biasing (delta)
-    for label, bg_pert in zip(bg_pert_labels, bg_perts):
+    for label, bg_pert, cl_bg_pert in zip(bg_pert_labels, bg_perts, cl_bg_perts):
         features[f"dg_{label}"] = _bytes_feature(tf.io.serialize_tensor(bg_pert))
+        features[f"cl_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_bg_pert))
 
     # poisson noise realizations
     for i, pn in enumerate(pn_realz):
@@ -332,6 +379,9 @@ def parse_inverse_fiducial(
     n_pix=None,
     n_z_metacal=None,
     n_z_maglim=None,
+    n_noise=None,
+    n_cls=None,
+    n_z_cross=None,
     # probes
     with_lensing=True,
     with_clustering=True,
@@ -362,6 +412,9 @@ def parse_inverse_fiducial(
         "n_pix": tf.io.FixedLenFeature([], tf.int64),
         "n_z_metacal": tf.io.FixedLenFeature([], tf.int64),
         "n_z_maglim": tf.io.FixedLenFeature([], tf.int64),
+        "n_noise": tf.io.FixedLenFeature([], tf.int64),
+        "n_cls": tf.io.FixedLenFeature([], tf.int64),
+        "n_z_cross": tf.io.FixedLenFeature([], tf.int64),
         # label
         "i_example": tf.io.FixedLenFeature([], tf.int64),
     }
@@ -375,6 +428,8 @@ def parse_inverse_fiducial(
         # delta: cosmological + galaxy clustering parameters
         if with_clustering and (not "Aia" in label):
             features[f"dg_{label}"] = tf.io.FixedLenFeature([], tf.string)
+
+        features[f"cl_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
     # all desired noise realizations
     for i in noise_indices:
@@ -391,6 +446,15 @@ def parse_inverse_fiducial(
     # output container
     output_data = {}
 
+    bin_indices, _ = cross_statistics.get_cross_bin_indices(
+        _parse_none_value(serialized_data, "n_z_metacal", n_z_metacal),
+        _parse_none_value(serialized_data, "n_z_maglim", n_z_maglim),
+        with_lensing,
+        with_clustering,
+        with_cross_z=True,
+        with_cross_probe=(with_lensing and with_clustering),
+    )
+
     # all perturbation parameters
     for label in pert_labels:
         # kappa: cosmological + intrinsic alignment parameters
@@ -404,6 +468,19 @@ def parse_inverse_fiducial(
             output_data = _parse_and_reshape_data_vector(
                 output_data, serialized_data, f"dg_{label}", f"dg_{label}", n_pix, n_z_maglim, "n_z_maglim"
             )
+
+        # power spectra
+        _parse_and_reshape_cls(
+            output_data,
+            serialized_data,
+            f"cl_{label}",
+            f"cl_{label}",
+            n_noise,
+            n_cls,
+            n_z_cross,
+            noise_indices,
+            bin_indices,
+        )
 
     # all desired noise realizations
     for i in noise_indices:
@@ -483,12 +560,12 @@ def parse_inverse_fiducial_cls(
 # helper functions ####################################################################################################
 
 
-def _parse_and_reshape_data_vector(out_dict, serialized_example, key_in, key_out, n_pix, n_z_bins, n_z_bins_label):
-    tensor = tf.io.parse_tensor(serialized_example[key_in], out_type=tf.float32)
+def _parse_and_reshape_data_vector(out_dict, serialized_data, key_in, key_out, n_pix, n_z_bins, n_z_bins_label):
+    tensor = tf.io.parse_tensor(serialized_data[key_in], out_type=tf.float32)
 
     if (n_pix is None) or (n_z_bins is None):
         # reshape allows for None shapes within the graph, but is slower
-        tensor = tf.reshape(tensor, shape=(serialized_example["n_pix"], serialized_example[n_z_bins_label]))
+        tensor = tf.reshape(tensor, shape=(serialized_data["n_pix"], serialized_data[n_z_bins_label]))
     else:
         # tf.ensure_shape fixes the shape inside the graph
         tensor = tf.ensure_shape(tensor, shape=(n_pix, n_z_bins))
@@ -496,6 +573,32 @@ def _parse_and_reshape_data_vector(out_dict, serialized_example, key_in, key_out
     out_dict[key_out] = tensor
 
     return out_dict
+
+
+def _parse_and_reshape_cls(
+    out_dict, serialized_data, key_in, key_out, n_noise, n_cls, n_z_cross, noise_indices, bin_indices
+):
+    cls = tf.io.parse_tensor(serialized_data[key_in], out_type=tf.float32)
+
+    if n_noise is None and n_cls is None and n_z_cross is None:
+        cls = tf.reshape(
+            cls, shape=(serialized_data["n_noise"], serialized_data["n_cls"], serialized_data["n_z_cross"])
+        )
+    else:
+        cls = tf.ensure_shape(cls, shape=(n_noise, n_cls, n_z_cross))
+
+    cls = tf.gather(cls, noise_indices, axis=0)
+    cls = tf.gather(cls, bin_indices, axis=-1)
+
+    out_dict[key_out] = cls
+
+    return out_dict
+
+
+def _parse_none_value(serialized_example, key, value):
+    if value is None:
+        value = serialized_example[key]
+    return value
 
 
 # features ############################################################################################################

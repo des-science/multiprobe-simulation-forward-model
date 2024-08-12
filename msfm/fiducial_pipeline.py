@@ -84,6 +84,9 @@ class FiducialPipeline(MSFMpipeline):
         # perturbations of cosmo, ia, and bg parameters
         self.pert_labels = parameters.get_fiducial_perturbation_labels(self.params)
 
+        # for the power spectra
+        self.n_noise = self.conf["analysis"]["fiducial"]["n_noise_per_example"]
+
     def get_dset(
         self,
         tfr_pattern: str,
@@ -246,6 +249,9 @@ class FiducialPipeline(MSFMpipeline):
                 self.n_dv_pix,
                 self.n_z_metacal,
                 self.n_z_maglim,
+                self.n_noise,
+                self.n_cls,
+                self.n_z_cross,
                 # map types
                 self.with_lensing,
                 self.with_clustering,
@@ -325,7 +331,8 @@ class FiducialPipeline(MSFMpipeline):
 
         # repeat the signal as often as there are different noise realizations
         for key in data_vectors.keys():
-            data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), len(noise_indices), axis=0)
+            if not "cl" in key:
+                data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), len(noise_indices), axis=0)
 
         # update the dictionary
         if self.with_lensing:
@@ -333,6 +340,8 @@ class FiducialPipeline(MSFMpipeline):
         if self.with_clustering:
             data_vectors["pn"] = pn
         data_vectors["i_noise"] = i_noise
+
+        # no action is necessary for the cls. They're already in this format right out of the .tfrecords
 
         # return a dataset containing len(noise_indices) elements
         return tf.data.Dataset.from_tensor_slices(data_vectors)
@@ -362,33 +371,38 @@ class FiducialPipeline(MSFMpipeline):
                 dg_tensor = self._clustering_augmentations(data_vectors)
 
                 # concatenate along the tomography axis
-                out_tensor = tf.concat([kg_tensor, dg_tensor], axis=-1)
+                map_tensor = tf.concat([kg_tensor, dg_tensor], axis=-1)
 
             elif self.with_lensing:
                 assert not any(param in self.pert_labels for param in ["bg", "n_bg"])
-                out_tensor = self._lensing_augmentations(data_vectors)
+                map_tensor = self._lensing_augmentations(data_vectors)
 
             elif self.with_clustering:
                 assert not any(param in self.pert_labels for param in ["Aia", "n_Aia"])
-                out_tensor = self._clustering_augmentations(data_vectors)
+                map_tensor = self._clustering_augmentations(data_vectors)
 
             else:
                 raise ValueError(f"At least one of 'lensing' or 'clustering' maps need to be selected")
 
             if not self.with_padding:
                 LOGGER.info(f"Removing the padding")
-                out_tensor = tf.boolean_mask(out_tensor, self.mask_total, axis=1)
+                map_tensor = tf.boolean_mask(map_tensor, self.mask_total, axis=1)
+
+            cl = []
+            for label in self.pert_labels:
+                cl.append(data_vectors[f"cl_{label}"])
+            cl_tensor = tf.concat(cl, axis=0)
 
         # potentially discard the unwanted redshift bins
         if self.z_bin_inds is not None:
             LOGGER.warning(f"Discarding all redshift bins except {self.z_bin_inds}")
-            out_tensor = tf.gather(out_tensor, self.z_bin_inds, axis=-1)
+            map_tensor = tf.gather(map_tensor, self.z_bin_inds, axis=-1)
 
         # gather the indices
         i_example = data_vectors.pop("i_example")
         i_noise = data_vectors.pop("i_noise")
 
-        return out_tensor, (i_example, i_noise)
+        return map_tensor, cl_tensor, (i_example, i_noise)
 
     def _lensing_augmentations(self, data_vectors: dict) -> tf.Tensor:
         """Applies random augmentations and general pre-processing to the weak lensing maps (kg). This includes in

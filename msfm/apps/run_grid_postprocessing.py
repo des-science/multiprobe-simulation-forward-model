@@ -571,14 +571,17 @@ def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
 
 
 def _verify_tfrecord(serialized, n_noise_per_example, kg, sn_samples, dg, pn_samples, cosmo, i_sobol, i_example, cls):
-    inv_maps = tfrecords.parse_inverse_grid(serialized, range(n_noise_per_example))
+    inv_tfr = tfrecords.parse_inverse_grid(serialized, range(n_noise_per_example))
 
     for i_noise in range(n_noise_per_example):
-        assert np.allclose(inv_maps[f"kg_{i_noise}"], kg + sn_samples[i_noise])
-        assert np.allclose(inv_maps[f"dg_{i_noise}"], dg + pn_samples[i_noise])
-    assert np.allclose(inv_maps["cosmo"], cosmo)
-    assert np.allclose(inv_maps["i_sobol"], i_sobol)
-    assert np.allclose(inv_maps["i_example"], i_example)
+        assert np.allclose(inv_tfr[f"kg_{i_noise}"], kg + sn_samples[i_noise])
+        assert np.allclose(inv_tfr[f"dg_{i_noise}"], dg + pn_samples[i_noise])
+        assert np.allclose(inv_tfr[f"cl_{i_noise}"], cls[i_noise])
+    assert np.allclose(inv_tfr["cosmo"], cosmo)
+    assert np.allclose(inv_tfr["i_sobol"], i_sobol)
+    assert np.allclose(inv_tfr["i_example"], i_example)
+
+    assert np.allclose(inv_tfr["cls"], cls)
     LOGGER.debug("Decoded the map part of the .tfrecord successfully")
 
     inv_cls = tfrecords.parse_inverse_grid_cls(serialized)
@@ -599,6 +602,7 @@ def merge(indices, args):
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
     n_signal_per_cosmo = n_patches * n_perms_per_cosmo
+    l_mins, l_maxs = power_spectra.get_l_limits(conf)
 
     tfr_pattern = filenames.get_filename_tfrecords(
         args.dir_out,
@@ -616,20 +620,6 @@ def merge(indices, args):
     cls_dset = cls_dset.map(tfrecords.parse_inverse_grid_cls, num_parallel_calls=tf.data.AUTOTUNE)
     # every batch is a single cosmology
     cls_dset = cls_dset.batch(n_signal_per_cosmo)
-
-    l_min_lensing = conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
-    l_min_clustering = conf["analysis"]["scale_cuts"]["clustering"]["l_min"]
-    l_max_lensing = conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
-    l_max_clustering = conf["analysis"]["scale_cuts"]["clustering"]["l_max"]
-    n_z = len(conf["survey"]["metacal"]["z_bins"]) + len(conf["survey"]["maglim"]["z_bins"])
-    if l_min_lensing is not None and l_min_clustering is not None:
-        l_mins = l_min_lensing + l_min_clustering
-    else:
-        l_mins = [0] * n_z
-    if l_max_lensing is not None and l_max_clustering is not None:
-        l_maxs = l_max_lensing + l_max_clustering
-    else:
-        l_maxs = [3 * conf["analysis"]["n_side"] - 1] * n_z
 
     # separate folder on the same level as tfrecords
     if args.debug:
@@ -661,6 +651,9 @@ def merge(indices, args):
                 l_maxs=l_maxs,
                 n_bins=conf["analysis"]["power_spectra"]["n_bins"],
                 with_cross=True,
+                fixed_binning=True,
+                l_min_binning=conf["analysis"]["power_spectra"]["l_min"],
+                l_max_binning=conf["analysis"]["power_spectra"]["l_max"],
             )
 
             # tiling has the same form as the above concatenation

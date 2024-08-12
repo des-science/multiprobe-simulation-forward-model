@@ -19,7 +19,7 @@ Meant for
 
 import numpy as np
 import tensorflow as tf
-import os, argparse, warnings, time, yaml, h5py
+import os, argparse, warnings, time, yaml, h5py, pickle
 
 from msfm.utils import (
     logger,
@@ -282,104 +282,154 @@ def main(indices, args):
             ):
                 LOGGER.info(f"i_perm = {i_perm} in range({i_perm_start},{i_perm_end})")
 
-                if args.debug:
-                    if n_done > 2:
-                        LOGGER.warning("Debug mode, aborting after 2 subindices")
-                        break
+                state_file = os.path.join(args.dir_out, f"program_state{i_perm:04}.pkl")
+                if args.debug and os.path.exists(state_file):
+                    with open(state_file, "rb") as f:
+                        state = pickle.load(f)
+                        kg_perts = state["kg_perts"]
+                        ia_perts = state["ia_perts"]
+                        dg_perts = state["dg_perts"]
+                        bg_perts = state["bg_perts"]
+                        all_sn_samples = state["all_sn_samples"]
+                        all_pn_samples = state["all_pn_samples"]
+                        cl_perts = state["cl_perts"]
+                        cl_ia_perts = state["cl_ia_perts"]
+                        cl_bg_perts = state["cl_bg_perts"]
+                        all_i_example = state["all_i_example"]
+                    LOGGER.warning(f"Debug mode, reading the state from {state_file}")
+                else:
+                    # annoyingly, we need to keep track of the patches like this
+                    n_metacal_bins = len(conf["survey"]["metacal"]["z_bins"])
+                    n_maglim_bins = len(conf["survey"]["maglim"]["z_bins"])
+                    n_cosmo_perts = len(cosmo_pert_labels)
+                    n_ia_perts = len(ia_pert_labels)
+                    n_bg_perts = len(bg_pert_labels)
 
-                # annoyingly, we need to keep track of the patches like this
-                n_metacal_bins = len(conf["survey"]["metacal"]["z_bins"])
-                n_maglim_bins = len(conf["survey"]["maglim"]["z_bins"])
-                n_cosmo_perts = len(cosmo_pert_labels)
-                n_ia_perts = len(ia_pert_labels)
-                n_bg_perts = len(bg_pert_labels)
+                    # maps
+                    kg_perts = np.zeros((n_patches, n_cosmo_perts, data_vec_len, n_metacal_bins), dtype=np.float32)
+                    dg_perts = np.zeros((n_patches, n_cosmo_perts, data_vec_len, n_maglim_bins), dtype=np.float32)
+                    ia_perts = np.zeros((n_patches, n_ia_perts, data_vec_len, n_metacal_bins), dtype=np.float32)
+                    bg_perts = np.zeros((n_patches, n_bg_perts, data_vec_len, n_maglim_bins), dtype=np.float32)
 
-                kg_perts = np.zeros((n_patches, n_cosmo_perts, data_vec_len, n_metacal_bins), dtype=np.float32)
-                dg_perts = np.zeros((n_patches, n_cosmo_perts, data_vec_len, n_maglim_bins), dtype=np.float32)
-                ia_perts = np.zeros((n_patches, n_ia_perts, data_vec_len, n_metacal_bins), dtype=np.float32)
-                bg_perts = np.zeros((n_patches, n_bg_perts, data_vec_len, n_maglim_bins), dtype=np.float32)
+                    all_sn_samples = np.zeros(
+                        (n_patches, n_noise_per_example, data_vec_len, n_metacal_bins), dtype=np.float32
+                    )
+                    all_pn_samples = np.zeros(
+                        (n_patches, n_noise_per_example, data_vec_len, n_maglim_bins), dtype=np.float32
+                    )
+                    all_i_example = np.zeros((n_patches,), dtype=np.int32)
 
-                all_sn_samples = np.zeros(
-                    (n_patches, n_noise_per_example, data_vec_len, n_metacal_bins), dtype=np.float32
-                )
-                all_pn_samples = np.zeros(
-                    (n_patches, n_noise_per_example, data_vec_len, n_maglim_bins), dtype=np.float32
-                )
-                all_i_example = np.zeros((n_patches,), dtype=np.int32)
-                all_cls = []
-
-                # loop over the perturbations in the right order, there's 2 * n_cosmos + 1 iterations
-                for i_cosmo, cosmo_dir_in in LOGGER.progressbar(
-                    enumerate(cosmo_dirs_in),
-                    at_level="info",
-                    desc="\nLooping through the perturbations\n",
-                    total=len(cosmo_dirs_in),
-                ):
-                    LOGGER.info(f"cosmo_dir_in = {cosmo_dir_in}")
-                    is_fiducial = "cosmo_fiducial" in cosmo_dir_in
-
-                    # this is what was previously stored in the separate .h5 files
-                    data_vec_container = postprocessing.postprocess_fiducial_permutations(
-                        args, conf, cosmo_dir_in, i_perm, pixel_file, noise_file
+                    # power spectra
+                    n_bins = n_metacal_bins + n_maglim_bins
+                    n_cross_bins = n_bins * (n_bins + 1) // 2
+                    n_ell = 3 * conf["analysis"]["n_side"]
+                    cl_perts = np.zeros(
+                        (n_patches, n_cosmo_perts, n_noise_per_example, n_ell, n_cross_bins), dtype=np.float32
+                    )
+                    cl_ia_perts = np.zeros(
+                        (n_patches, n_ia_perts, n_noise_per_example, n_ell, n_cross_bins), dtype=np.float32
+                    )
+                    cl_bg_perts = np.zeros(
+                        (n_patches, n_bg_perts, n_noise_per_example, n_ell, n_cross_bins), dtype=np.float32
                     )
 
-                    for i_patch in range(n_patches):
-                        i_example = i_perm * n_patches + i_patch
-                        all_i_example[i_patch] = i_example
+                    # loop over the perturbations in the right order, there's 2 * n_cosmos + 1 iterations
+                    for i_cosmo, cosmo_dir_in in LOGGER.progressbar(
+                        enumerate(cosmo_dirs_in),
+                        at_level="info",
+                        desc="\nLooping through the perturbations\n",
+                        total=len(cosmo_dirs_in),
+                    ):
+                        LOGGER.info(f"cosmo_dir_in = {cosmo_dir_in}")
+                        is_fiducial = "cosmo_fiducial" in cosmo_dir_in
 
-                        # shape (n_pix, n_z_bins)
-                        kg = data_vec_container["kg"][i_patch]
-                        ia = data_vec_container["ia"][i_patch]
-                        dg = data_vec_container["dg"][i_patch]
-                        if quadratic_biasing:
-                            dg2 = data_vec_container["dg2"][i_patch]
-                        else:
-                            dg2 = None
+                        # this is what was previously stored in the separate .h5 files
+                        data_vec_container = postprocessing.postprocess_fiducial_permutations(
+                            args, conf, cosmo_dir_in, i_perm, pixel_file, noise_file
+                        )
 
-                        # astrophysics perturbations are calculated with respect to the fiducial cosmo params
-                        if is_fiducial:
+                        for i_patch in range(n_patches):
+                            i_example = i_perm * n_patches + i_patch
+                            all_i_example[i_patch] = i_example
 
-                            # intrinsic alignment perturbations
-                            for i_ia, ia_pert_label in enumerate(ia_pert_labels):
-                                ia_perts[i_patch, i_ia] = lensing_transform(
-                                    kg, ia, ia_label=ia_pert_label, np_seed=i_example
+                            # shape (n_pix, n_z_bins)
+                            kg_in = data_vec_container["kg"][i_patch]
+                            ia_in = data_vec_container["ia"][i_patch]
+                            dg_in = data_vec_container["dg"][i_patch]
+                            if quadratic_biasing:
+                                dg2_in = data_vec_container["dg2"][i_patch]
+                            else:
+                                dg2_in = None
+
+                            # astrophysics perturbations are calculated with respect to the fiducial cosmo params
+                            if is_fiducial:
+                                # shape (n_noise_per_example, n_pix, n_z_bins) load the shape noise realization
+                                sn_samples = data_vec_container["sn"][i_patch]
+
+                                # add the signal and ia maps and smooth everything
+                                kg, sn_samples, alm_kg, alm_sn = lensing_transform(
+                                    kg_in,
+                                    ia_in,
+                                    ia_label="fiducial",
+                                    is_true_fiducial=True,
+                                    sn_samples=sn_samples,
+                                    np_seed=i_example,
                                 )
 
-                            # galaxy clustering perturbations
-                            for i_bg, bg_pert_label in enumerate(bg_pert_labels):
-                                bg_perts[i_patch, i_bg] = clustering_transform(
-                                    dg, dg2, bg_label=bg_pert_label, np_seed=i_example
+                                # convert dg to galaxy number and draw the poisson noise realization
+                                dg, pn_samples, alm_dg, alm_pn = clustering_transform(
+                                    dg_in, dg2_in, bg_label="fiducial", is_true_fiducial=True, np_seed=i_example
                                 )
 
-                            # shape (n_noise_per_example, n_pix, n_z_bins) load the shape noise realization
-                            sn_samples = data_vec_container["sn"][i_patch]
+                                all_sn_samples[i_patch] = sn_samples
+                                all_pn_samples[i_patch] = pn_samples
 
-                            # add the signal and ia maps and smooth everything
-                            kg, sn_samples, alm_kg, alm_sn = lensing_transform(
-                                kg,
-                                ia,
-                                ia_label="fiducial",
-                                is_true_fiducial=True,
-                                sn_samples=sn_samples,
-                                np_seed=i_example,
+                                # intrinsic alignment perturbations
+                                for i_ia, ia_pert_label in enumerate(ia_pert_labels):
+                                    ia_perts[i_patch, i_ia], alm_ia = lensing_transform(
+                                        kg_in, ia_in, ia_label=ia_pert_label, np_seed=i_example
+                                    )
+                                    cl_ia_perts[i_patch, i_ia] = power_spectra.run_tfrecords_alm_to_cl(
+                                        alm_ia, alm_sn, alm_dg, alm_pn
+                                    )
+
+                                # galaxy clustering perturbations
+                                for i_bg, bg_pert_label in enumerate(bg_pert_labels):
+                                    bg_perts[i_patch, i_bg], alm_bg = clustering_transform(
+                                        dg_in, dg2_in, bg_label=bg_pert_label, np_seed=i_example
+                                    )
+                                    cl_bg_perts[i_patch, i_bg] = power_spectra.run_tfrecords_alm_to_cl(
+                                        alm_kg, alm_sn, alm_bg, alm_pn
+                                    )
+
+                            # cosmological perturbations
+                            else:
+                                kg, alm_kg = lensing_transform(kg_in, ia_in, ia_label="fiducial", np_seed=i_example)
+                                dg, alm_dg = clustering_transform(
+                                    dg_in, dg2_in, bg_label="fiducial", np_seed=i_example
+                                )
+
+                            kg_perts[i_patch, i_cosmo] = kg
+                            dg_perts[i_patch, i_cosmo] = dg
+                            cl_perts[i_patch, i_cosmo] = power_spectra.run_tfrecords_alm_to_cl(
+                                alm_kg, alm_sn, alm_dg, alm_pn
                             )
 
-                            # convert dg to galaxy number and draw the poisson noise realization
-                            dg, pn_samples, alm_dg, alm_pn = clustering_transform(
-                                dg, dg2, bg_label="fiducial", is_true_fiducial=True, np_seed=i_example
-                            )
-
-                            all_sn_samples[i_patch] = sn_samples
-                            all_pn_samples[i_patch] = pn_samples
-                            all_cls.append(power_spectra.run_tfrecords_alm_to_cl(alm_kg, alm_sn, alm_dg, alm_pn))
-
-                        # cosmological perturbations
-                        else:
-                            kg = lensing_transform(kg, ia, ia_label="fiducial", np_seed=i_example)
-                            dg = clustering_transform(dg, dg2, bg_label="fiducial", np_seed=i_example)
-
-                        kg_perts[i_patch, i_cosmo] = kg
-                        dg_perts[i_patch, i_cosmo] = dg
+                    state = {
+                        "kg_perts": kg_perts,
+                        "ia_perts": ia_perts,
+                        "dg_perts": dg_perts,
+                        "bg_perts": bg_perts,
+                        "all_sn_samples": all_sn_samples,
+                        "all_pn_samples": all_pn_samples,
+                        "cl_perts": cl_perts,
+                        "cl_ia_perts": cl_ia_perts,
+                        "cl_bg_perts": cl_bg_perts,
+                        "all_i_example": all_i_example,
+                    }
+                    with open(state_file, "wb") as f:
+                        LOGGER.warning(f"Debug mode, writing the state to {state_file}")
+                        pickle.dump(state, f)
 
                 # the .tfrecord entries are individual examples
                 LOGGER.info(f"Writing the {n_patches} patches to the .tfrecord")
@@ -397,7 +447,9 @@ def main(indices, args):
                         bg_perts[i_patch],
                         all_sn_samples[i_patch],
                         all_pn_samples[i_patch],
-                        all_cls[i_patch],
+                        cl_perts[i_patch],
+                        cl_ia_perts[i_patch],
+                        cl_bg_perts[i_patch],
                         all_i_example[i_patch],
                     )
 
@@ -486,9 +538,9 @@ def _get_lensing_transform(conf, pixel_file):
             return kg, sn_samples, alm_kg, alm_sn_samples
 
         else:
-            kg, _ = lensing_smoothing(kg, np_seed)
+            kg, alm_kg = lensing_smoothing(kg, np_seed)
 
-            return kg
+            return kg, alm_kg
 
     return lensing_transform
 
@@ -584,9 +636,9 @@ def _get_clustering_transform(conf, pixel_file):
             return dg, pn_samples, alm_dg, alm_pn_samples
 
         else:
-            dg, _ = clustering_smoothing(dg, np_seed)
+            dg, alm_dg = clustering_smoothing(dg, np_seed)
 
-            return dg
+            return dg, alm_dg
 
     return clustering_transform
 
@@ -604,9 +656,14 @@ def _serialize_and_verify(
     bg_perts,
     sn_samples,
     pn_samples,
-    cls,
+    cl_perts,
+    cl_ia_perts,
+    cl_bg_perts,
     i_example,
 ):
+
+    breakpoint()
+
     # serialize
     serialized = tfrecords.parse_forward_fiducial(
         cosmo_pert_labels,
@@ -621,33 +678,46 @@ def _serialize_and_verify(
         bg_perts,
         pn_samples,
         # power spectra
-        cls,
+        cl_perts,
+        cl_ia_perts,
+        cl_bg_perts,
         i_example,
     ).SerializeToString()
 
     # verify
-    inv_maps = tfrecords.parse_inverse_fiducial(
+    inv_tfr = tfrecords.parse_inverse_fiducial(
         serialized, cosmo_pert_labels + ia_pert_labels + bg_pert_labels, range(n_noise_per_example)
     )
 
-    inv_kg_perts = tf.stack([inv_maps[f"kg_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0)
-    inv_ia_perts = tf.stack([inv_maps[f"kg_{pert_label}"] for pert_label in ia_pert_labels], axis=0)
-    inv_dg_perts = tf.stack([inv_maps[f"dg_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0)
-    inv_bg_perts = tf.stack([inv_maps[f"dg_{pert_label}"] for pert_label in bg_pert_labels], axis=0)
+    # maps
+    inv_kg_perts = tf.stack([inv_tfr[f"kg_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0)
+    inv_ia_perts = tf.stack([inv_tfr[f"kg_{pert_label}"] for pert_label in ia_pert_labels], axis=0)
+    inv_dg_perts = tf.stack([inv_tfr[f"dg_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0)
+    inv_bg_perts = tf.stack([inv_tfr[f"dg_{pert_label}"] for pert_label in bg_pert_labels], axis=0)
 
     assert np.allclose(inv_kg_perts, kg_perts)
     assert np.allclose(inv_ia_perts, ia_perts)
     assert np.allclose(inv_dg_perts, dg_perts)
     assert np.allclose(inv_bg_perts, bg_perts)
     for i_noise in range(n_noise_per_example):
-        assert np.allclose(inv_maps[f"sn_{i_noise}"], sn_samples[i_noise])
-        assert np.allclose(inv_maps[f"pn_{i_noise}"], pn_samples[i_noise])
-    assert np.allclose(inv_maps["i_example"], i_example)
+        assert np.allclose(inv_tfr[f"sn_{i_noise}"], sn_samples[i_noise])
+        assert np.allclose(inv_tfr[f"pn_{i_noise}"], pn_samples[i_noise])
+    assert np.allclose(inv_tfr["i_example"], i_example)
+
+    # power spectra
+    inv_cl_perts = tf.stack([inv_tfr[f"cl_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0)
+    inv_cl_ia_perts = tf.stack([inv_tfr[f"cl_{pert_label}"] for pert_label in ia_pert_labels], axis=0)
+    inv_cl_bg_perts = tf.stack([inv_tfr[f"cl_{pert_label}"] for pert_label in bg_pert_labels], axis=0)
+
+    assert np.allclose(inv_cl_perts, cl_perts)
+    assert np.allclose(inv_cl_ia_perts, cl_ia_perts)
+    assert np.allclose(inv_cl_bg_perts, cl_bg_perts)
+
     LOGGER.debug("Decoded the map part of the .tfrecord successfully")
 
+    # legacy power spectra
     inv_cls = tfrecords.parse_inverse_fiducial_cls(serialized)
-
-    assert np.allclose(inv_cls["cls"], cls)
+    assert np.allclose(inv_cls["cls"], cl_perts[0])
     assert np.allclose(inv_cls["i_example"], i_example)
 
     LOGGER.debug("Decoded the cls part of the .tfrecord successfully")

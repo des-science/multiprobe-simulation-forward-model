@@ -10,8 +10,14 @@ Parent class of the fiducial and grid pipelines
 import tensorflow as tf
 import numpy as np
 import healpy as hp
+import warnings
 
-from msfm.utils import files, lensing, parameters
+from msfm.utils import files, lensing, parameters, logger, cross_statistics
+
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("once", category=UserWarning)
+LOGGER = logger.get_logger(__file__)
 
 
 class MSFMpipeline:
@@ -63,6 +69,8 @@ class MSFMpipeline:
         self.apply_norm = apply_norm
         self.shape_noise_scale = shape_noise_scale
         self.poisson_noise_scale = poisson_noise_scale
+        if self.shape_noise_scale != 1.0 or self.poisson_noise_scale != 1.0:
+            LOGGER.warning(f"The noise scaling is only implemented for the maps, not the power spectra")
         self.with_padding = with_padding
         if isinstance(z_bin_inds, (list, np.ndarray, tf.Tensor)):
             self.z_bin_inds = tf.constant(z_bin_inds, dtype=tf.int32)
@@ -106,6 +114,19 @@ class MSFMpipeline:
         )
         self.normalize_clustering = lambda clustering_dv: clustering_dv
         # self.normalize_clustering = lambda clustering_dv: clustering_dv / self.tomo_n_gal_maglim - 1.0
+
+        # power spectra
+        self.n_cls = 3 * self.conf["analysis"]["n_side"]
+        self.n_z_cross = len(
+            cross_statistics.get_cross_bin_indices(
+                self.n_z_metacal,
+                self.n_z_maglim,
+                True,
+                True,
+                True,
+                True,
+            )[0]
+        )
 
     def padded_dv_to_non_padded_patch(self, data_vector):
         nest_patch = tf.gather(

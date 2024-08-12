@@ -87,7 +87,17 @@ def get_cl_bins(l_min, l_max, n_bins):
     return np.linspace(np.sqrt(l_min), np.sqrt(l_max), n_bins, endpoint=True) ** 2
 
 
-def bin_cls(cls, l_mins, l_maxs, n_bins, n_side=None, with_cross=True, per_cross_binning=True, l_min_binning=30):
+def bin_cls(
+    cls,
+    l_mins,
+    l_maxs,
+    n_bins,
+    n_side=None,
+    with_cross=True,
+    fixed_binning=False,
+    l_min_binning=30,
+    l_max_binning=1535,
+):
     """Take the raw Cls and bin them within a given range of scales. This is done for each cross bin separately,
     always taking the more conservative cut.
 
@@ -99,8 +109,12 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, n_side=None, with_cross=True, per_cross
         l_maxs (list): List of smallest scales, same length as the number of tomographic bins.
         n_bins (int): Number of bins to average the Cls in.
         with_cross (bool, optional): Whether to calculate the cross spectra or auto only. Defaults to True.
-        per_cross_binning (bool, optional): Whether to use the same binning for all cross bins or different binning for
-            each cross bin. Defaults to True.
+        fixed_binning (bool, optional): When the binning is fixed, all of the (tomographic) bins are binned in the same
+            way. Then, the scale cuts are only implemented as smoothing (via the l_mins and l_maxs arguments) and not
+            as a hard cut. When binnning is not fixed, the l_mins and l_maxs are used to construct per-redshift-bin
+            binning. Defaults to False.
+        l_min_binning (int, optional): Largest scale for the binning when per_cross_binning is False. Defaults to 30.
+        l_max_binning (int, optional): Smallest scale for the binning when per_cross_binning is False. Defaults to 1535.
 
     Returns:
         (np.ndarray, np.ndarray): binned_cls has shape (n_bins-1, n_z) or (n_examples, n_bins-1, n_z) and contains the
@@ -119,9 +133,6 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, n_side=None, with_cross=True, per_cross
 
         l_maxs = np.array(l_maxs)
         l_maxs = np.clip(l_maxs, 0, 3 * n_side - 1)
-
-    if not per_cross_binning:
-        LOGGER.warning(f"Using the same binning for all cross bins, this is currently hardcoded and only experimental")
 
     # minus indexing to be compatible with both the 2d and 3d case
     n_cross_z = cls.shape[-1]
@@ -147,13 +158,13 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, n_side=None, with_cross=True, per_cross
                 cross_l_mins.append(l_min)
                 cross_l_maxs.append(l_max)
 
-                if per_cross_binning:
-                    # different binning for each cross bin
-                    bins = get_cl_bins(l_min, l_max, n_bins)
-                else:
+                if fixed_binning:
                     # the same binning for all cross bins, so that the scales are only suppressed by l_mins and l_maxs,
                     # but all scales are included in the binning
-                    bins = get_cl_bins(l_min_binning, 3 * n_side - 1, n_bins)
+                    bins = get_cl_bins(l_min_binning, l_max_binning, n_bins)
+                else:
+                    # different binning for each cross bin
+                    bins = get_cl_bins(l_min, l_max, n_bins)
 
                 cross_bins.append(bins)
 
@@ -179,10 +190,10 @@ def bin_cls(cls, l_mins, l_maxs, n_bins, n_side=None, with_cross=True, per_cross
 
         # scipy.stats.binned_statistic includes values outside the bin range in the first/last bin, so those have to be
         # manually removed first
-        if per_cross_binning:
-            scale_cut = (current_l_min < ell) & (ell < current_l_max)
+        if fixed_binning:
+            scale_cut = (l_min_binning < ell) & (ell < l_max_binning)
         else:
-            scale_cut = (30 < ell) & (ell < 1500)
+            scale_cut = (current_l_min < ell) & (ell < current_l_max)
         current_cls = current_cls[..., scale_cut]
         current_ell = ell[scale_cut]
 
@@ -234,3 +245,21 @@ def run_tfrecords_alm_to_cl(alm_kg, alm_sn_realz, alm_dg, alm_pn_realz):
     cls = np.stack(cls, axis=0)
 
     return cls
+
+
+def get_l_limits(conf):
+    l_min_lensing = conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
+    l_min_clustering = conf["analysis"]["scale_cuts"]["clustering"]["l_min"]
+    l_max_lensing = conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
+    l_max_clustering = conf["analysis"]["scale_cuts"]["clustering"]["l_max"]
+    n_z = len(conf["survey"]["metacal"]["z_bins"]) + len(conf["survey"]["maglim"]["z_bins"])
+    if l_min_lensing is not None and l_min_clustering is not None:
+        l_mins = l_min_lensing + l_min_clustering
+    else:
+        l_mins = [0] * n_z
+    if l_max_lensing is not None and l_max_clustering is not None:
+        l_maxs = l_max_lensing + l_max_clustering
+    else:
+        l_maxs = [3 * conf["analysis"]["n_side"] - 1] * n_z
+
+    return l_mins, l_maxs

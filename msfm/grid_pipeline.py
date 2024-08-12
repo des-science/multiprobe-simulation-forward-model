@@ -74,6 +74,9 @@ class GridPipeline(MSFMpipeline):
         # used to reshape the stored tensors, and for nothing else
         self.n_all_params = len(self.all_params)
 
+        # for the power spectra
+        self.n_noise = self.conf["analysis"]["grid"]["n_noise_per_example"]
+
     def get_dset(
         self,
         tfr_pattern: str,
@@ -217,6 +220,9 @@ class GridPipeline(MSFMpipeline):
                 self.n_z_metacal,
                 self.n_z_maglim,
                 self.n_all_params,
+                self.n_noise,
+                self.n_cls,
+                self.n_z_cross,
                 # map types
                 self.with_lensing,
                 self.with_clustering,
@@ -286,6 +292,10 @@ class GridPipeline(MSFMpipeline):
                 dg.append(data_vectors.pop(f"dg_{i}"))
                 i_noise.append(i)
 
+        cl = []
+        for i in noise_indices:
+            cl.append(data_vectors.pop(f"cl_{i}"))
+
         # repeat the signal as often as there are different noise realizations
         for key in data_vectors.keys():
             data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), len(noise_indices), axis=0)
@@ -295,6 +305,7 @@ class GridPipeline(MSFMpipeline):
             data_vectors["kg"] = kg
         if self.with_clustering:
             data_vectors["dg"] = dg
+        data_vectors["cl"] = cl
         data_vectors["i_noise"] = i_noise
 
         # return a dataset containing n_examples elements
@@ -342,7 +353,7 @@ class GridPipeline(MSFMpipeline):
                 # masking
                 data_vectors["kg"] *= self.masks_metacal
 
-                out_tensor = data_vectors["kg"]
+                map_tensor = data_vectors["kg"]
 
             if self.with_clustering:
                 # normalization
@@ -352,24 +363,26 @@ class GridPipeline(MSFMpipeline):
                 # masking
                 data_vectors["dg"] *= self.masks_maglim
 
-                out_tensor = data_vectors["dg"]
+                map_tensor = data_vectors["dg"]
 
             if self.with_lensing and self.with_clustering:
                 # concatenate along the tomography axis
-                out_tensor = tf.concat([data_vectors["kg"], data_vectors["dg"]], axis=-1)
+                map_tensor = tf.concat([data_vectors["kg"], data_vectors["dg"]], axis=-1)
 
             if not self.with_padding:
                 LOGGER.info(f"Removing the padding")
-                out_tensor = tf.boolean_mask(out_tensor, self.mask_total, axis=1)
+                map_tensor = tf.boolean_mask(map_tensor, self.mask_total, axis=1)
 
         # potentially discard the unwanted redshift bins
         if self.z_bin_inds is not None:
             LOGGER.warning(f"Discarding all redshift bins except {self.z_bin_inds}")
-            out_tensor = tf.gather(out_tensor, self.z_bin_inds, axis=-1)
+            map_tensor = tf.gather(map_tensor, self.z_bin_inds, axis=-1)
+
+        cl_tensor = data_vectors.pop("cl")
 
         # gather the indices
         i_sobol = data_vectors.pop("i_sobol")
         i_example = data_vectors.pop("i_example")
         i_noise = data_vectors.pop("i_noise")
 
-        return out_tensor, cosmo, (i_sobol, i_example, i_noise)
+        return map_tensor, cl_tensor, cosmo, (i_sobol, i_example, i_noise)
