@@ -323,6 +323,10 @@ def main(indices, args):
                     n_bins = n_metacal_bins + n_maglim_bins
                     n_cross_bins = n_bins * (n_bins + 1) // 2
                     n_ell = 3 * conf["analysis"]["n_side"]
+
+                    all_alm_sn = []
+                    all_alm_pn = []
+
                     cl_perts = np.zeros(
                         (n_patches, n_cosmo_perts, n_noise_per_example, n_ell, n_cross_bins), dtype=np.float32
                     )
@@ -364,7 +368,7 @@ def main(indices, args):
                             # astrophysics perturbations are calculated with respect to the fiducial cosmo params
                             if is_fiducial:
                                 # shape (n_noise_per_example, n_pix, n_z_bins) load the shape noise realization
-                                sn_samples = data_vec_container["sn"][i_patch]
+                                sn_samples_in = data_vec_container["sn"][i_patch]
 
                                 # add the signal and ia maps and smooth everything
                                 kg, sn_samples, alm_kg, alm_sn = lensing_transform(
@@ -372,7 +376,7 @@ def main(indices, args):
                                     ia_in,
                                     ia_label="fiducial",
                                     is_true_fiducial=True,
-                                    sn_samples=sn_samples,
+                                    sn_samples=sn_samples_in,
                                     np_seed=i_example,
                                 )
 
@@ -383,6 +387,9 @@ def main(indices, args):
 
                                 all_sn_samples[i_patch] = sn_samples
                                 all_pn_samples[i_patch] = pn_samples
+
+                                all_alm_sn.append(alm_sn)
+                                all_alm_pn.append(alm_pn)
 
                                 # intrinsic alignment perturbations
                                 for i_ia, ia_pert_label in enumerate(ia_pert_labels):
@@ -412,28 +419,102 @@ def main(indices, args):
                             kg_perts[i_patch, i_cosmo] = kg
                             dg_perts[i_patch, i_cosmo] = dg
                             cl_perts[i_patch, i_cosmo] = power_spectra.run_tfrecords_alm_to_cl(
-                                alm_kg, alm_sn, alm_dg, alm_pn
+                                alm_kg, all_alm_sn[i_patch], alm_dg, all_alm_pn[i_patch]
                             )
 
-                    state = {
-                        "kg_perts": kg_perts,
-                        "ia_perts": ia_perts,
-                        "dg_perts": dg_perts,
-                        "bg_perts": bg_perts,
-                        "all_sn_samples": all_sn_samples,
-                        "all_pn_samples": all_pn_samples,
-                        "cl_perts": cl_perts,
-                        "cl_ia_perts": cl_ia_perts,
-                        "cl_bg_perts": cl_bg_perts,
-                        "all_i_example": all_i_example,
-                    }
-                    with open(state_file, "wb") as f:
-                        LOGGER.warning(f"Debug mode, writing the state to {state_file}")
-                        pickle.dump(state, f)
+                            # if args.debug and i_cosmo < 2:
+                            #     import matplotlib.pyplot as plt
+
+                            #     n_pix = conf["analysis"]["n_pix"]
+
+                            #     i_z = 0
+                            #     i_noise = 0
+
+                            #     cl_alm = hp.alm2cl(alm_kg[:, i_z] + alm_sn[i_noise, :, i_z])
+                            #     cl_cl = cl_perts[i_patch, i_cosmo, i_noise, :, i_z]
+
+                            #     hp_map = np.zeros((n_pix))
+                            #     hp_map[pixel_file[0]] = kg[:, i_z] + sn_samples[i_noise, :, i_z]
+                            #     hp_map = hp.reorder(hp_map, n2r=True)
+                            #     hp.mollview(hp_map, title="pre")
+                            #     plt.savefig(f"./plots/map_pre_patch_{i_patch}_{i_cosmo}.png")
+                            #     cl_map = hp.anafast(hp_map)
+
+                            #     fig, ax = plt.subplots()
+                            #     ax.plot(cl_alm, label="alm", alpha=0.5)
+                            #     ax.plot(cl_cl, label="cl", alpha=0.5)
+                            #     ax.plot(cl_map, label="map", alpha=0.5)
+                            #     ax.legend()
+                            #     fig.savefig(f"./plots/pre_patch_{i_patch}_{i_cosmo}.png")
+
+                            #     hp_map = np.zeros((n_pix))
+                            #     hp_map[pixel_file[0]] = kg[:, i_z]
+                            #     hp_map = hp.reorder(hp_map, n2r=True)
+                            #     hp.mollview(hp_map, title="pre (kg)")
+                            #     plt.savefig(f"./plots/kg_patch_{i_patch}_{cosmo_pert_labels[i_cosmo]}_pre.png")
+
+                            #     hp_map = np.zeros((n_pix))
+                            #     hp_map[pixel_file[0]] = sn_samples[i_noise, :, i_z]
+                            #     hp_map = hp.reorder(hp_map, n2r=True)
+                            #     hp.mollview(hp_map, title="pre (sn)")
+                            #     plt.savefig(f"./plots/sn_patch_{i_patch}_{cosmo_pert_labels[i_cosmo]}_pre.png")
+
+                    if args.debug:
+                        state = {
+                            "kg_perts": kg_perts,
+                            "ia_perts": ia_perts,
+                            "dg_perts": dg_perts,
+                            "bg_perts": bg_perts,
+                            "all_sn_samples": all_sn_samples,
+                            "all_pn_samples": all_pn_samples,
+                            "cl_perts": cl_perts,
+                            "cl_ia_perts": cl_ia_perts,
+                            "cl_bg_perts": cl_bg_perts,
+                            "all_i_example": all_i_example,
+                        }
+                        with open(state_file, "wb") as f:
+                            LOGGER.warning(f"Debug mode, writing the state to {state_file}")
+                            pickle.dump(state, f)
 
                 # the .tfrecord entries are individual examples
                 LOGGER.info(f"Writing the {n_patches} patches to the .tfrecord")
                 for i_patch in range(n_patches):
+                    # if args.debug:
+                    #     import matplotlib.pyplot as plt
+
+                    #     n_pix = conf["analysis"]["n_pix"]
+                    #     i_z = 0
+                    #     i_noise = 0
+                    #     for j, label in enumerate(cosmo_pert_labels[:2]):
+                    #         cl_alm = cl_perts[i_patch, j, i_noise, :, i_z]
+
+                    #         hp_map = np.zeros((n_pix))
+                    #         hp_map[pixel_file[0]] = (
+                    #             kg_perts[i_patch, j, :, i_z] + all_sn_samples[i_patch, i_noise, :, i_z]
+                    #         )
+                    #         hp_map = hp.reorder(hp_map, n2r=True)
+                    #         hp.mollview(hp_map, title="post")
+                    #         plt.savefig(f"./plots/map_post_patch_{i_patch}_{label}.png")
+                    #         cl_map = hp.anafast(hp_map)
+
+                    #         fig, ax = plt.subplots()
+                    #         ax.plot(cl_map, label="map", alpha=0.5)
+                    #         ax.plot(cl_alm, label="alm", alpha=0.5)
+                    #         ax.legend()
+                    #         fig.savefig(f"./plots/post_patch_{i_patch}_{label}.png")
+
+                    #         hp_map = np.zeros((n_pix))
+                    #         hp_map[pixel_file[0]] = kg_perts[i_patch, j, :, i_z]
+                    #         hp_map = hp.reorder(hp_map, n2r=True)
+                    #         hp.mollview(hp_map, title="post (kg)")
+                    #         plt.savefig(f"./plots/kg_patch_{i_patch}_{label}_post.png")
+
+                    #         hp_map = np.zeros((n_pix))
+                    #         hp_map[pixel_file[0]] = all_sn_samples[i_patch, i_noise, :, i_z]
+                    #         hp_map = hp.reorder(hp_map, n2r=True)
+                    #         hp.mollview(hp_map, title="post (kg)")
+                    #         plt.savefig(f"./plots/sn_patch_{i_patch}_{label}_post.png")
+
                     serialized = _serialize_and_verify(
                         n_noise_per_example,
                         # labels
@@ -515,7 +596,7 @@ def _get_lensing_transform(conf, pixel_file):
 
         # important not to use +=, since then the array is transformed in place
         kg = kg + tomo_Aia_perts_dict[ia_label] * ia
-        kg *= metacal_mask
+        kg = metacal_mask * kg
 
         # only smooth the shape noise and return the alms for the fiducial, not the perturbations
         if is_true_fiducial:
@@ -523,7 +604,7 @@ def _get_lensing_transform(conf, pixel_file):
 
             smooth_sn_samples, alm_sn_samples = [], []
             for i, sn in enumerate(sn_samples):
-                sn *= metacal_mask
+                sn = metacal_mask * sn
                 sn, alm_sn = lensing_smoothing(sn, np_seed + i)
 
                 smooth_sn_samples.append(sn)
@@ -615,13 +696,15 @@ def _get_clustering_transform(conf, pixel_file):
             assert dg2 is None, "dg2 has to be None if quadratic_biasing is False"
             dg = clustering_counts(dg, tomo_bg_perts_dict[bg_label])
 
+        dg = maglim_mask * dg
+
         # only draw the Poisson noise and return the alms for the fiducial, not the perturbations
         if is_true_fiducial:
             pn_samples = clustering.galaxy_count_to_noise(dg, n_noise_per_example, np_seed=np_seed)
 
             smooth_pn_samples, alm_pn_samples = [], []
             for i, pn in enumerate(pn_samples):
-                pn *= maglim_mask
+                pn = maglim_mask * pn
                 pn, alm_pn = clustering_smoothing(pn, np_seed + i)
 
                 smooth_pn_samples.append(pn)
@@ -661,8 +744,6 @@ def _serialize_and_verify(
     cl_bg_perts,
     i_example,
 ):
-
-    breakpoint()
 
     # serialize
     serialized = tfrecords.parse_forward_fiducial(
