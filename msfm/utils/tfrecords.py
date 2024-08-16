@@ -92,6 +92,7 @@ def parse_inverse_grid(
     # probes
     with_lensing=True,
     with_clustering=True,
+    return_maps=True,
 ):
     """Use the same structure as in in the forward pass above. Note that n_pix, n_z_bins and n_params have to be passed
     as function arguments to ensure that the function can be converted to a graph.
@@ -128,15 +129,16 @@ def parse_inverse_grid(
         "n_z_cross": tf.io.FixedLenFeature([], tf.int64),
     }
 
-    if with_lensing:
-        features["n_z_metacal"] = tf.io.FixedLenFeature([], tf.int64)
-        for i in noise_indices:
-            features[f"kg_{i}"] = tf.io.FixedLenFeature([], tf.string)
+    if return_maps:
+        if with_lensing:
+            features["n_z_metacal"] = tf.io.FixedLenFeature([], tf.int64)
+            for i in noise_indices:
+                features[f"kg_{i}"] = tf.io.FixedLenFeature([], tf.string)
 
-    if with_clustering:
-        features["n_z_maglim"] = tf.io.FixedLenFeature([], tf.int64)
-        for i in noise_indices:
-            features[f"dg_{i}"] = tf.io.FixedLenFeature([], tf.string)
+        if with_clustering:
+            features["n_z_maglim"] = tf.io.FixedLenFeature([], tf.int64)
+            for i in noise_indices:
+                features[f"dg_{i}"] = tf.io.FixedLenFeature([], tf.string)
 
     serialized_data = tf.io.parse_single_example(serialized_example, features)
 
@@ -160,15 +162,16 @@ def parse_inverse_grid(
     output_data["cosmo"] = cosmo
 
     for i in noise_indices:
-        if with_lensing:
-            output_data = _parse_and_reshape_data_vector(
-                output_data, serialized_data, f"kg_{i}", f"kg_{i}", n_pix, n_z_metacal, "n_z_metacal"
-            )
+        if return_maps:
+            if with_lensing:
+                output_data = _parse_and_reshape_data_vector(
+                    output_data, serialized_data, f"kg_{i}", f"kg_{i}", n_pix, n_z_metacal, "n_z_metacal"
+                )
 
-        if with_clustering:
-            output_data = _parse_and_reshape_data_vector(
-                output_data, serialized_data, f"dg_{i}", f"dg_{i}", n_pix, n_z_maglim, "n_z_maglim"
-            )
+            if with_clustering:
+                output_data = _parse_and_reshape_data_vector(
+                    output_data, serialized_data, f"dg_{i}", f"dg_{i}", n_pix, n_z_maglim, "n_z_maglim"
+                )
 
         _parse_and_reshape_cls(
             output_data,
@@ -183,17 +186,18 @@ def parse_inverse_grid(
         )
 
     # for backwards compatibility
-    _parse_and_reshape_cls(
-        output_data,
-        serialized_data,
-        f"cls",
-        f"cls",
-        n_noise,
-        n_cls,
-        n_z_cross,
-        noise_indices,
-        bin_indices,
-    )
+    if return_maps:
+        _parse_and_reshape_cls(
+            output_data,
+            serialized_data,
+            f"cls",
+            f"cls",
+            n_noise,
+            n_cls,
+            n_z_cross,
+            noise_indices,
+            bin_indices,
+        )
 
     # indices
     output_data["i_sobol"] = serialized_data["i_sobol"]
@@ -385,6 +389,7 @@ def parse_inverse_fiducial(
     # probes
     with_lensing=True,
     with_clustering=True,
+    return_maps=True,
 ):
     """Use the same structure as in in the forward pass above. Note that n_pix and n_z_bins have to be passed as
     arguments to ensure that the function can be converted to a graph.
@@ -421,25 +426,27 @@ def parse_inverse_fiducial(
 
     # all perturbation parameters
     for label in pert_labels:
-        # kappa: cosmological + intrinsic alignment parameters
-        if with_lensing and (not "bg" in label):
-            features[f"kg_{label}"] = tf.io.FixedLenFeature([], tf.string)
+        if return_maps:
+            # kappa: cosmological + intrinsic alignment parameters
+            if with_lensing and (not "bg" in label):
+                features[f"kg_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
-        # delta: cosmological + galaxy clustering parameters
-        if with_clustering and (not "Aia" in label):
-            features[f"dg_{label}"] = tf.io.FixedLenFeature([], tf.string)
+            # delta: cosmological + galaxy clustering parameters
+            if with_clustering and (not "Aia" in label):
+                features[f"dg_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
         features[f"cl_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
-    # all desired noise realizations
-    for i in noise_indices:
-        if with_lensing:
-            # shape noise
-            features[f"sn_{i}"] = tf.io.FixedLenFeature([], tf.string)
+    if return_maps:
+        # all desired noise realizations
+        for i in noise_indices:
+            if with_lensing:
+                # shape noise
+                features[f"sn_{i}"] = tf.io.FixedLenFeature([], tf.string)
 
-        if with_clustering:
-            # poisson noise
-            features[f"pn_{i}"] = tf.io.FixedLenFeature([], tf.string)
+            if with_clustering:
+                # poisson noise
+                features[f"pn_{i}"] = tf.io.FixedLenFeature([], tf.string)
 
     serialized_data = tf.io.parse_single_example(serialized_example, features)
 
@@ -457,17 +464,18 @@ def parse_inverse_fiducial(
 
     # all perturbation parameters
     for label in pert_labels:
-        # kappa: cosmological + intrinsic alignment parameters
-        if with_lensing and (not "bg" in label):
-            output_data = _parse_and_reshape_data_vector(
-                output_data, serialized_data, f"kg_{label}", f"kg_{label}", n_pix, n_z_metacal, "n_z_metacal"
-            )
+        if return_maps:
+            # kappa: cosmological + intrinsic alignment parameters
+            if with_lensing and (not "bg" in label):
+                output_data = _parse_and_reshape_data_vector(
+                    output_data, serialized_data, f"kg_{label}", f"kg_{label}", n_pix, n_z_metacal, "n_z_metacal"
+                )
 
-        # delta: cosmological + galaxy clustering parameters
-        if with_clustering and (not "Aia" in label):
-            output_data = _parse_and_reshape_data_vector(
-                output_data, serialized_data, f"dg_{label}", f"dg_{label}", n_pix, n_z_maglim, "n_z_maglim"
-            )
+            # delta: cosmological + galaxy clustering parameters
+            if with_clustering and (not "Aia" in label):
+                output_data = _parse_and_reshape_data_vector(
+                    output_data, serialized_data, f"dg_{label}", f"dg_{label}", n_pix, n_z_maglim, "n_z_maglim"
+                )
 
         # power spectra
         _parse_and_reshape_cls(
@@ -482,19 +490,20 @@ def parse_inverse_fiducial(
             bin_indices,
         )
 
-    # all desired noise realizations
-    for i in noise_indices:
-        # shape noise
-        if with_lensing:
-            output_data = _parse_and_reshape_data_vector(
-                output_data, serialized_data, f"sn_{i}", f"sn_{i}", n_pix, n_z_metacal, "n_z_metacal"
-            )
+    if return_maps:
+        # all desired noise realizations
+        for i in noise_indices:
+            # shape noise
+            if with_lensing:
+                output_data = _parse_and_reshape_data_vector(
+                    output_data, serialized_data, f"sn_{i}", f"sn_{i}", n_pix, n_z_metacal, "n_z_metacal"
+                )
 
-        # poisson noise
-        if with_clustering:
-            output_data = _parse_and_reshape_data_vector(
-                output_data, serialized_data, f"pn_{i}", f"pn_{i}", n_pix, n_z_maglim, "n_z_maglim"
-            )
+            # poisson noise
+            if with_clustering:
+                output_data = _parse_and_reshape_data_vector(
+                    output_data, serialized_data, f"pn_{i}", f"pn_{i}", n_pix, n_z_maglim, "n_z_maglim"
+                )
 
     # indices
     output_data["i_example"] = serialized_data["i_example"]

@@ -38,6 +38,7 @@ class FiducialPipeline(MSFMpipeline):
         apply_norm: bool = True,
         with_padding: bool = True,
         z_bin_inds: list = None,
+        return_maps: bool = True,
         # noise
         apply_m_bias: bool = True,
         shape_noise_scale: float = 1.0,
@@ -57,6 +58,7 @@ class FiducialPipeline(MSFMpipeline):
             z_bin_inds (list, optional): Specify the indices of the redshift bins to be included. Note that this is
                 mainly meant for testing purposes and is inefficient, since all redshift bins are loaded from the
                 .tfrecords nonetheless. Defaults to None, then all redshift bins are kept.
+            return_maps (bool, optional): Whether to return the maps (or just the power spectra). Defaults to True.
             apply_m_bias (bool, optional): Whether to include the multiplicative shear bias. Defaults to True.
             shape_noise_scale (float, optional): Factor by which to multiply the shape noise. This could also be a
                 tf.Variable to change it according to a schedule during training. Set to None to not include any shape
@@ -75,6 +77,7 @@ class FiducialPipeline(MSFMpipeline):
             apply_norm=apply_norm,
             with_padding=with_padding,
             z_bin_inds=z_bin_inds,
+            return_maps=return_maps,
             # noise
             apply_m_bias=apply_m_bias,
             shape_noise_scale=shape_noise_scale,
@@ -255,6 +258,7 @@ class FiducialPipeline(MSFMpipeline):
                 # map types
                 self.with_lensing,
                 self.with_clustering,
+                self.return_maps,
             ),
             num_parallel_calls=n_parse_workers,
             deterministic=is_eval,
@@ -314,20 +318,17 @@ class FiducialPipeline(MSFMpipeline):
             tf.data.Dataset: Dataset containing the separate noise realizations.
         """
 
-        # separate the noise realizations
-        if self.with_lensing:
-            sn = []
-            i_noise = []
-            for i in noise_indices:
-                sn.append(data_vectors.pop(f"sn_{i}"))
-                i_noise.append(i)
+        if self.return_maps:
+            # separate the noise realizations
+            if self.with_lensing:
+                sn = []
+                for i in noise_indices:
+                    sn.append(data_vectors.pop(f"sn_{i}"))
 
-        if self.with_clustering:
-            pn = []
-            i_noise = []
-            for i in noise_indices:
-                pn.append(data_vectors.pop(f"pn_{i}"))
-                i_noise.append(i)
+            if self.with_clustering:
+                pn = []
+                for i in noise_indices:
+                    pn.append(data_vectors.pop(f"pn_{i}"))
 
         # repeat the signal as often as there are different noise realizations
         for key in data_vectors.keys():
@@ -335,12 +336,13 @@ class FiducialPipeline(MSFMpipeline):
             if not "cl" in key:
                 data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), len(noise_indices), axis=0)
 
-        # update the dictionary
-        if self.with_lensing:
-            data_vectors["sn"] = sn
-        if self.with_clustering:
-            data_vectors["pn"] = pn
-        data_vectors["i_noise"] = i_noise
+        if self.return_maps:
+            # update the dictionary
+            if self.with_lensing:
+                data_vectors["sn"] = sn
+            if self.with_clustering:
+                data_vectors["pn"] = pn
+        data_vectors["i_noise"] = list(noise_indices)
 
         # return a dataset containing len(noise_indices) elements
         return tf.data.Dataset.from_tensor_slices(data_vectors)
@@ -365,37 +367,40 @@ class FiducialPipeline(MSFMpipeline):
 
         # to be explicit
         with tf.device("/CPU:0"):
-            if self.with_lensing and self.with_clustering:
-                kg_tensor = self._lensing_augmentations(data_vectors)
-                dg_tensor = self._clustering_augmentations(data_vectors)
+            if self.return_maps:
+                if self.with_lensing and self.with_clustering:
+                    kg_tensor = self._lensing_augmentations(data_vectors)
+                    dg_tensor = self._clustering_augmentations(data_vectors)
 
-                # concatenate along the tomography axis
-                map_tensor = tf.concat([kg_tensor, dg_tensor], axis=-1)
+                    # concatenate along the tomography axis
+                    map_tensor = tf.concat([kg_tensor, dg_tensor], axis=-1)
 
-            elif self.with_lensing:
-                assert not any(param in self.pert_labels for param in ["bg", "n_bg"])
-                map_tensor = self._lensing_augmentations(data_vectors)
+                elif self.with_lensing:
+                    assert not any(param in self.pert_labels for param in ["bg", "n_bg"])
+                    map_tensor = self._lensing_augmentations(data_vectors)
 
-            elif self.with_clustering:
-                assert not any(param in self.pert_labels for param in ["Aia", "n_Aia"])
-                map_tensor = self._clustering_augmentations(data_vectors)
+                elif self.with_clustering:
+                    assert not any(param in self.pert_labels for param in ["Aia", "n_Aia"])
+                    map_tensor = self._clustering_augmentations(data_vectors)
 
+                else:
+                    raise ValueError(f"At least one of 'lensing' or 'clustering' maps need to be selected")
+
+                if not self.with_padding:
+                    LOGGER.info(f"Removing the padding")
+                    map_tensor = tf.boolean_mask(map_tensor, self.mask_total, axis=1)
+
+                # potentially discard the unwanted redshift bins
+                if self.z_bin_inds is not None:
+                    LOGGER.warning(f"Discarding all redshift bins except {self.z_bin_inds}")
+                    map_tensor = tf.gather(map_tensor, self.z_bin_inds, axis=-1)
             else:
-                raise ValueError(f"At least one of 'lensing' or 'clustering' maps need to be selected")
-
-            if not self.with_padding:
-                LOGGER.info(f"Removing the padding")
-                map_tensor = tf.boolean_mask(map_tensor, self.mask_total, axis=1)
+                map_tensor = None
 
             cl = []
             for label in self.pert_labels:
                 cl.append(data_vectors[f"cl_{label}"])
             cl_tensor = tf.concat(cl, axis=0)
-
-        # potentially discard the unwanted redshift bins
-        if self.z_bin_inds is not None:
-            LOGGER.warning(f"Discarding all redshift bins except {self.z_bin_inds}")
-            map_tensor = tf.gather(map_tensor, self.z_bin_inds, axis=-1)
 
         # gather the indices
         i_example = data_vectors.pop("i_example")

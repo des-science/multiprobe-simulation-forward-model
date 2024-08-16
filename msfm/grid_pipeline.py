@@ -38,6 +38,7 @@ class GridPipeline(MSFMpipeline):
         apply_norm: bool = True,
         with_padding: bool = True,
         z_bin_inds: list = None,
+        return_maps: bool = True,
     ):
         """Set up the physics parameters of the pipeline.
 
@@ -53,6 +54,7 @@ class GridPipeline(MSFMpipeline):
             z_bin_inds (list, optional): Specify the indices of the redshift bins to be included. Note that this is
                 mainly meant for testing purposes and is inefficient, since all redshift bins are loaded from the
                 .tfrecords nonetheless. Defaults to None, then all redshift bins are kept.
+            return_maps (bool, optional): Whether to return the maps (or just the power spectra). Defaults to True.
         """
         super().__init__(
             conf=conf,
@@ -62,6 +64,7 @@ class GridPipeline(MSFMpipeline):
             apply_norm=apply_norm,
             with_padding=with_padding,
             z_bin_inds=z_bin_inds,
+            return_maps=return_maps,
             # these are fixed in the .tfrecord files
             apply_m_bias=False,
             shape_noise_scale=1.0,
@@ -226,6 +229,7 @@ class GridPipeline(MSFMpipeline):
                 # map types
                 self.with_lensing,
                 self.with_clustering,
+                self.return_maps,
             ),
             num_parallel_calls=n_parse_workers,
         )
@@ -277,36 +281,37 @@ class GridPipeline(MSFMpipeline):
             tf.data.Dataset: Dataset containing the separate noise realizations.
         """
 
-        # separate the noise realizations
-        if self.with_lensing:
-            kg = []
-            i_noise = []
-            for i in noise_indices:
-                kg.append(data_vectors.pop(f"kg_{i}"))
-                i_noise.append(i)
+        if self.return_maps:
+            # separate the noise realizations
+            if self.with_lensing:
+                kg = []
+                for i in noise_indices:
+                    kg.append(data_vectors.pop(f"kg_{i}"))
 
-        if self.with_clustering:
-            dg = []
-            i_noise = []
-            for i in noise_indices:
-                dg.append(data_vectors.pop(f"dg_{i}"))
-                i_noise.append(i)
+            if self.with_clustering:
+                dg = []
+                for i in noise_indices:
+                    dg.append(data_vectors.pop(f"dg_{i}"))
 
         cl = []
         for i in noise_indices:
             cl.append(data_vectors.pop(f"cl_{i}"))
 
-        # repeat the signal as often as there are different noise realizations
+        # repeat as often as there are different noise realizations
         for key in data_vectors.keys():
-            data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), len(noise_indices), axis=0)
+            # no action is necessary for the cls. They're already in this format right out of the .tfrecords
+            if not "cl" in key:
+                data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), len(noise_indices), axis=0)
 
-        # update the dictionary
-        if self.with_lensing:
-            data_vectors["kg"] = kg
-        if self.with_clustering:
-            data_vectors["dg"] = dg
+        if self.return_maps:
+            # update the dictionary
+            if self.with_lensing:
+                data_vectors["kg"] = kg
+            if self.with_clustering:
+                data_vectors["dg"] = dg
+
         data_vectors["cl"] = cl
-        data_vectors["i_noise"] = i_noise
+        data_vectors["i_noise"] = list(noise_indices)
 
         # return a dataset containing n_examples elements
         return tf.data.Dataset.from_tensor_slices(data_vectors)
@@ -345,38 +350,41 @@ class GridPipeline(MSFMpipeline):
             cosmo = data_vectors.pop("cosmo")
             cosmo = tf.gather(cosmo, [self.all_params.index(param) for param in self.params], axis=1)
 
-            if self.with_lensing:
-                # normalization
-                if self.apply_norm:
-                    data_vectors["kg"] = self.normalize_lensing(data_vectors["kg"])
+            if self.return_maps:
+                if self.with_lensing:
+                    # normalization
+                    if self.apply_norm:
+                        data_vectors["kg"] = self.normalize_lensing(data_vectors["kg"])
 
-                # masking
-                data_vectors["kg"] *= self.masks_metacal
+                    # masking
+                    data_vectors["kg"] *= self.masks_metacal
 
-                map_tensor = data_vectors["kg"]
+                    map_tensor = data_vectors["kg"]
 
-            if self.with_clustering:
-                # normalization
-                if self.apply_norm:
-                    data_vectors["dg"] = self.normalize_clustering(data_vectors["dg"])
+                if self.with_clustering:
+                    # normalization
+                    if self.apply_norm:
+                        data_vectors["dg"] = self.normalize_clustering(data_vectors["dg"])
 
-                # masking
-                data_vectors["dg"] *= self.masks_maglim
+                    # masking
+                    data_vectors["dg"] *= self.masks_maglim
 
-                map_tensor = data_vectors["dg"]
+                    map_tensor = data_vectors["dg"]
 
-            if self.with_lensing and self.with_clustering:
-                # concatenate along the tomography axis
-                map_tensor = tf.concat([data_vectors["kg"], data_vectors["dg"]], axis=-1)
+                if self.with_lensing and self.with_clustering:
+                    # concatenate along the tomography axis
+                    map_tensor = tf.concat([data_vectors["kg"], data_vectors["dg"]], axis=-1)
 
-            if not self.with_padding:
-                LOGGER.info(f"Removing the padding")
-                map_tensor = tf.boolean_mask(map_tensor, self.mask_total, axis=1)
+                if not self.with_padding:
+                    LOGGER.info(f"Removing the padding")
+                    map_tensor = tf.boolean_mask(map_tensor, self.mask_total, axis=1)
 
-        # potentially discard the unwanted redshift bins
-        if self.z_bin_inds is not None:
-            LOGGER.warning(f"Discarding all redshift bins except {self.z_bin_inds}")
-            map_tensor = tf.gather(map_tensor, self.z_bin_inds, axis=-1)
+                # potentially discard the unwanted redshift bins
+                if self.z_bin_inds is not None:
+                    LOGGER.warning(f"Discarding all redshift bins except {self.z_bin_inds}")
+                    map_tensor = tf.gather(map_tensor, self.z_bin_inds, axis=-1)
+            else:
+                map_tensor = None
 
         cl_tensor = data_vectors.pop("cl")
 
