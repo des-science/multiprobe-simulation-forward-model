@@ -174,7 +174,9 @@ def forward_model_observation_map(
         observation_full_sky[data_vec_pix] = observation
         observation = observation_full_sky[footprint_pix]
 
-    return observation, observation_cls
+        return observation, observation_cls, footprint_pix
+    else:
+        return observation, observation_cls, data_vec_pix
 
 
 def forward_model_fiducial_cosmogrid(map_dir, conf=None, with_lensing=True, with_clustering=True, noisy=False):
