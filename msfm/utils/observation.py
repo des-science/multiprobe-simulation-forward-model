@@ -133,8 +133,8 @@ def forward_model_observation_map(
             gc_count_dv[:, i] = maps.map_to_data_vec(
                 hp_map=gc_count_map[:, i],
                 data_vec_len=data_vec_len,
-                corresponding_pix=corresponding_pix_dict["maglim"],
-                cutout_pix=patches_pix_dict["maglim"][0],
+                corresponding_pix=corresponding_pix_dict["maglim"][i],
+                cutout_pix=patches_pix_dict["maglim"][i][0],
             )
 
         if apply_norm:
