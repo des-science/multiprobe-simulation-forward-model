@@ -35,6 +35,7 @@ class MSFMpipeline:
         with_padding: bool = True,
         z_bin_inds: list = None,
         return_maps: bool = True,
+        return_cls: bool = True,
         # noise
         apply_m_bias: bool = True,
         shape_noise_scale: float = 1.0,
@@ -54,7 +55,8 @@ class MSFMpipeline:
             z_bin_inds (list, optional): Specify the indices of the redshift bins to be included. Note that this is
                 mainly meant for testing purposes and is inefficient, since all redshift bins are loaded from the
                 .tfrecords nonetheless. Defaults to None, then all redshift bins are kept.
-            return_maps (bool, optional): Whether to return the maps (or just the power spectra). Defaults to True.
+            return_maps (bool, optional): Whether to return the maps. Defaults to True.
+            return_maps (bool, optional): Whether to return the cls. Defaults to True.
             apply_m_bias (bool, optional): Whether to include the multiplicative shear bias. Defaults to True.
             shape_noise_scale (float, optional): Factor by which to multiply the shape noise. This could also be a
                 tf.Variable to change it according to a schedule during training. Set to None to not include any shape
@@ -81,6 +83,8 @@ class MSFMpipeline:
         else:
             raise TypeError(f"z_bin_inds = {z_bin_inds} must be None, a list, array or tensor")
         self.return_maps = return_maps
+        self.return_cls = return_cls
+        assert self.return_maps or self.return_cls, "At least one of return_maps and return_cls must be True"
 
         self.n_z_metacal = len(self.conf["survey"]["metacal"]["z_bins"])
         self.n_z_maglim = len(self.conf["survey"]["maglim"]["z_bins"])

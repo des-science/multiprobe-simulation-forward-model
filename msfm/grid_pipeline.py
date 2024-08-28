@@ -39,6 +39,7 @@ class GridPipeline(MSFMpipeline):
         with_padding: bool = True,
         z_bin_inds: list = None,
         return_maps: bool = True,
+        return_cls: bool = True,
     ):
         """Set up the physics parameters of the pipeline.
 
@@ -54,7 +55,8 @@ class GridPipeline(MSFMpipeline):
             z_bin_inds (list, optional): Specify the indices of the redshift bins to be included. Note that this is
                 mainly meant for testing purposes and is inefficient, since all redshift bins are loaded from the
                 .tfrecords nonetheless. Defaults to None, then all redshift bins are kept.
-            return_maps (bool, optional): Whether to return the maps (or just the power spectra). Defaults to True.
+            return_maps (bool, optional): Whether to return the maps. Defaults to True.
+            return_maps (bool, optional): Whether to return the cls. Defaults to True.
         """
         super().__init__(
             conf=conf,
@@ -65,6 +67,7 @@ class GridPipeline(MSFMpipeline):
             with_padding=with_padding,
             z_bin_inds=z_bin_inds,
             return_maps=return_maps,
+            return_cls=return_cls,
             # these are fixed in the .tfrecord files
             apply_m_bias=False,
             shape_noise_scale=1.0,
@@ -227,9 +230,10 @@ class GridPipeline(MSFMpipeline):
                 self.n_cls,
                 self.n_z_cross,
                 # map types
-                self.with_lensing,
-                self.with_clustering,
-                self.return_maps,
+                with_lensing=self.with_lensing,
+                with_clustering=self.with_clustering,
+                return_maps=self.return_maps,
+                return_cls=self.return_cls,
             ),
             num_parallel_calls=n_parse_workers,
         )
@@ -293,9 +297,10 @@ class GridPipeline(MSFMpipeline):
                 for i in noise_indices:
                     dg.append(data_vectors.pop(f"dg_{i}"))
 
-        cl = []
-        for i in noise_indices:
-            cl.append(data_vectors.pop(f"cl_{i}"))
+        if self.return_cls:
+            cl = []
+            for i in noise_indices:
+                cl.append(data_vectors.pop(f"cl_{i}"))
 
         # repeat as often as there are different noise realizations
         for key in data_vectors.keys():
@@ -310,7 +315,11 @@ class GridPipeline(MSFMpipeline):
             if self.with_clustering:
                 data_vectors["dg"] = dg
 
-        data_vectors["cl"] = cl
+        if self.return_cls:
+            data_vectors["cl"] = cl
+
+        print(data_vectors.keys())
+
         data_vectors["i_noise"] = list(noise_indices)
 
         # return a dataset containing n_examples elements
@@ -339,7 +348,7 @@ class GridPipeline(MSFMpipeline):
         Returns:
             tuple: (out_tensor, cosmo, index) the elements of the dataset, where out_tensor has shape
             (batch_size, n_pix, n_z_metacal + n_z_maglim), cosmo is a label distributed on the Sobol sequence and index
-            is a tuple containing (i_sobol, i_noise).
+            is a tuple containing (i_sobol, i_example, i_noise).
         """
         LOGGER.warning(f"Tracing _augmentations")
         LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
@@ -386,7 +395,10 @@ class GridPipeline(MSFMpipeline):
             else:
                 map_tensor = None
 
-        cl_tensor = data_vectors.pop("cl")
+            if self.return_cls:
+                cl_tensor = data_vectors.pop("cl")
+            else:
+                cl_tensor = None
 
         # gather the indices
         i_sobol = data_vectors.pop("i_sobol")

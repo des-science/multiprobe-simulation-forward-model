@@ -39,6 +39,7 @@ class FiducialPipeline(MSFMpipeline):
         with_padding: bool = True,
         z_bin_inds: list = None,
         return_maps: bool = True,
+        return_cls: bool = True,
         # noise
         apply_m_bias: bool = True,
         shape_noise_scale: float = 1.0,
@@ -58,7 +59,8 @@ class FiducialPipeline(MSFMpipeline):
             z_bin_inds (list, optional): Specify the indices of the redshift bins to be included. Note that this is
                 mainly meant for testing purposes and is inefficient, since all redshift bins are loaded from the
                 .tfrecords nonetheless. Defaults to None, then all redshift bins are kept.
-            return_maps (bool, optional): Whether to return the maps (or just the power spectra). Defaults to True.
+            return_maps (bool, optional): Whether to return the maps. Defaults to True.
+            return_maps (bool, optional): Whether to return the cls. Defaults to True.
             apply_m_bias (bool, optional): Whether to include the multiplicative shear bias. Defaults to True.
             shape_noise_scale (float, optional): Factor by which to multiply the shape noise. This could also be a
                 tf.Variable to change it according to a schedule during training. Set to None to not include any shape
@@ -78,6 +80,7 @@ class FiducialPipeline(MSFMpipeline):
             with_padding=with_padding,
             z_bin_inds=z_bin_inds,
             return_maps=return_maps,
+            return_cls=return_cls,
             # noise
             apply_m_bias=apply_m_bias,
             shape_noise_scale=shape_noise_scale,
@@ -259,6 +262,7 @@ class FiducialPipeline(MSFMpipeline):
                 self.with_lensing,
                 self.with_clustering,
                 self.return_maps,
+                self.return_cls,
             ),
             num_parallel_calls=n_parse_workers,
             deterministic=is_eval,
@@ -397,10 +401,13 @@ class FiducialPipeline(MSFMpipeline):
             else:
                 map_tensor = None
 
-            cl = []
-            for label in self.pert_labels:
-                cl.append(data_vectors[f"cl_{label}"])
-            cl_tensor = tf.concat(cl, axis=0)
+            if self.return_cls:
+                cl = []
+                for label in self.pert_labels:
+                    cl.append(data_vectors[f"cl_{label}"])
+                cl_tensor = tf.concat(cl, axis=0)
+            else:
+                cl_tensor = None
 
         # gather the indices
         i_example = data_vectors.pop("i_example")

@@ -93,6 +93,7 @@ def parse_inverse_grid(
     with_lensing=True,
     with_clustering=True,
     return_maps=True,
+    return_cls=True,
 ):
     """Use the same structure as in in the forward pass above. Note that n_pix, n_z_bins and n_params have to be passed
     as function arguments to ensure that the function can be converted to a graph.
@@ -173,31 +174,18 @@ def parse_inverse_grid(
                     output_data, serialized_data, f"dg_{i}", f"dg_{i}", n_pix, n_z_maglim, "n_z_maglim"
                 )
 
-        _parse_and_reshape_cls(
-            output_data,
-            serialized_data,
-            f"cls",
-            f"cl_{i}",
-            n_noise,
-            n_cls,
-            n_z_cross,
-            i,
-            bin_indices,
-        )
-
-    # for backwards compatibility
-    if return_maps:
-        _parse_and_reshape_cls(
-            output_data,
-            serialized_data,
-            f"cls",
-            f"cls",
-            n_noise,
-            n_cls,
-            n_z_cross,
-            noise_indices,
-            bin_indices,
-        )
+        if return_cls:
+            _parse_and_reshape_cls(
+                output_data,
+                serialized_data,
+                f"cls",
+                f"cl_{i}",
+                n_noise,
+                n_cls,
+                n_z_cross,
+                i,
+                bin_indices,
+            )
 
     # indices
     output_data["i_sobol"] = serialized_data["i_sobol"]
@@ -390,6 +378,7 @@ def parse_inverse_fiducial(
     with_lensing=True,
     with_clustering=True,
     return_maps=True,
+    return_cls=True,
 ):
     """Use the same structure as in in the forward pass above. Note that n_pix and n_z_bins have to be passed as
     arguments to ensure that the function can be converted to a graph.
@@ -477,18 +466,18 @@ def parse_inverse_fiducial(
                     output_data, serialized_data, f"dg_{label}", f"dg_{label}", n_pix, n_z_maglim, "n_z_maglim"
                 )
 
-        # power spectra
-        _parse_and_reshape_cls(
-            output_data,
-            serialized_data,
-            f"cl_{label}",
-            f"cl_{label}",
-            n_noise,
-            n_cls,
-            n_z_cross,
-            noise_indices,
-            bin_indices,
-        )
+        if return_cls:
+            _parse_and_reshape_cls(
+                output_data,
+                serialized_data,
+                f"cl_{label}",
+                f"cl_{label}",
+                n_noise,
+                n_cls,
+                n_z_cross,
+                noise_indices,
+                bin_indices,
+            )
 
     if return_maps:
         # all desired noise realizations
