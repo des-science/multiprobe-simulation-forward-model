@@ -54,7 +54,7 @@ def resources(args):
     if args.cluster == "perlmutter":
         # because of hyperthreading, there's a total of 256 threads per node
         resources = {
-            "main_time": 2,
+            "main_time": 8,
             "main_n_cores": 8,
             "main_memory": 1952,
             "merge_time": 4,
@@ -580,8 +580,6 @@ def _verify_tfrecord(serialized, n_noise_per_example, kg, sn_samples, dg, pn_sam
     assert np.allclose(inv_tfr["cosmo"], cosmo)
     assert np.allclose(inv_tfr["i_sobol"], i_sobol)
     assert np.allclose(inv_tfr["i_example"], i_example)
-
-    assert np.allclose(inv_tfr["cls"], cls)
     LOGGER.debug("Decoded the map part of the .tfrecord successfully")
 
     inv_cls = tfrecords.parse_inverse_grid_cls(serialized)

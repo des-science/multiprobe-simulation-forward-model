@@ -162,6 +162,7 @@ def bin_cls(
                     # the same binning for all cross bins, so that the scales are only suppressed by l_mins and l_maxs,
                     # but all scales are included in the binning
                     bins = get_cl_bins(l_min_binning, l_max_binning, n_bins)
+                    # max(l_min_binning[i], l_min_binning[j]), min(l_max_binning[i], l_max_binning[j]), n_bins
                 else:
                     # different binning for each cross bin
                     bins = get_cl_bins(l_min, l_max, n_bins)
