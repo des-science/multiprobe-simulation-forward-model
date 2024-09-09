@@ -25,14 +25,14 @@ def get_tasks(args):
     """Returns a list of task indices to be executed by the workers. Each index corresponds to one cosmology"""
     args = setup(args)
 
-    n_indices = int(np.ceil(args.n_noise / args.n_noise_per_index))
-    indices = list(range(n_indices))
+    conf = files.load_config(args.config)
+    n_cosmos = conf["analysis"]["grid"]["n_cosmos"]
+    indices = list(range(n_cosmos))
 
     if args.debug:
         indices = indices[:3]
-        LOGGER.warning(f"Debug mode: running on the first {len(indices)} indices of {n_indices}")
-    else:
-        LOGGER.warning(f"There are {n_indices} indices")
+
+    LOGGER.warning(f"There are {n_cosmos} cosmologies/tasks; running on the first {len(indices)} indices")
 
     return indices
 
@@ -60,8 +60,6 @@ def setup(args):
     description = "Generate realizations of the power spectrum of white noise within the footprint."
     parser = argparse.ArgumentParser(description=description, add_help=True)
 
-    parser.add_argument("--n_noise", type=int, required=True, help="number of white noise samples to generate")
-    parser.add_argument("--n_noise_per_index", type=int, default=int(1e5), help="number of noise samples per index")
     parser.add_argument(
         "--dir_out",
         type=str,
@@ -109,17 +107,31 @@ def main(indices, args):
     args = setup(args)
 
     conf = files.load_config(args.config)
+    n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
     n_z = len(conf["survey"]["metacal"]["z_bins"] + conf["survey"]["maglim"]["z_bins"])
-    n_bins = conf["analysis"]["power_spectra"]["n_bins"]
-    l_mins, l_maxs = power_spectra.get_l_limits(conf)
+
+    l_max = 3 * n_side
+    l_mins = conf["analysis"]["scale_cuts"]["lensing"]["l_min"] + conf["analysis"]["scale_cuts"]["clustering"]["l_min"]
+    l_min = np.unique(np.array(l_mins))
+    assert (
+        l_min.size == 1
+    ), f"l_min has size {l_min.size}, but should be 1 (the same largest scale for all redshift bins)"
+    l_min = l_min[0]
+
+    n_examples_per_cosmo = (
+        conf["analysis"]["n_patches"]
+        * conf["analysis"]["grid"]["n_perms_per_cosmo"]
+        * conf["analysis"]["grid"]["n_noise_per_example"]
+    )
+    LOGGER.info(f"Generating {n_examples_per_cosmo} noise realizations per cosmology")
 
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
     hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
 
     _, patches_pix_dict, _, _ = files.load_pixel_file(conf)
-    # TODO this assumes that the mask is the same for the different galaxy samples and tomographic bins
+    # TODO this assumes that there is no difference between the galaxy samples and tomographic bins
     base_patch = patches_pix_dict["metacal"][0][0]
 
     # every index corresponds to one grid cosmology
@@ -129,10 +141,10 @@ def main(indices, args):
         out_file = os.path.join(args.dir_out, f"white_noise_{index:04}.h5")
         with h5py.File(out_file, "w") as f:
             f.create_dataset(
-                "cls/binned", shape=(args.n_noise_per_index, n_bins - 1, int(n_z * (n_z + 1) / 2)), dtype=np.float32
+                "cls/raw", shape=(n_examples_per_cosmo, l_max, int(n_z * (n_z + 1) / 2)), dtype=np.float32
             )
 
-            for i in LOGGER.progressbar(range(args.n_noise_per_index), desc=f"Generating noise for index {index}"):
+            for i in LOGGER.progressbar(range(n_examples_per_cosmo), desc=f"Generating noise for cosmology {index}"):
                 standard_samples = rng.standard_normal(size=(base_patch.size, n_z), dtype=np.float32)
 
                 # ring ordering
@@ -141,20 +153,11 @@ def main(indices, args):
 
                 noise_alms = power_spectra.get_alms(noise_map, nest=False, datapath=hp_datapath)
                 noise_cls = power_spectra.get_cls(noise_alms, with_cross=True)
+                # because the maps in the .tfrecords get smoothed on the large scales too
+                for j in range(noise_cls.shape[-1]):
+                    noise_cls[..., j] = scales.cls_to_smoothed_cls(noise_cls[..., j], l_min=l_min)
 
-                # like in run_grid_postprocessing.py and run_fiducial_postprocessing.py
-                binned_cl, bin_edge = power_spectra.bin_cls(
-                    noise_cls,
-                    l_mins=l_mins,
-                    l_maxs=l_maxs,
-                    n_bins=conf["analysis"]["power_spectra"]["n_bins"],
-                    with_cross=True,
-                    fixed_binning=True,
-                    l_min_binning=conf["analysis"]["power_spectra"]["l_min"],
-                    l_max_binning=conf["analysis"]["power_spectra"]["l_max"],
-                )
-
-                f["cls/binned"][i, :] = binned_cl
+                f["cls/raw"][i, :] = noise_cls
 
         yield index
 
@@ -162,19 +165,25 @@ def main(indices, args):
 def merge(indices, args):
     args = setup(args)
 
-    # this one always exists
-    in_file = os.path.join(args.dir_out, f"white_noise_{0:04}.h5")
-    with h5py.File(in_file, "r") as f:
-        n_noise_per_index, n_bins, n_cross_z = f["cls/binned"].shape
+    conf = files.load_config(args.config)
+
+    n_side = conf["analysis"]["n_side"]
+    l_max = 3 * n_side
+    n_examples_per_cosmo = (
+        conf["analysis"]["n_patches"]
+        * conf["analysis"]["grid"]["n_perms_per_cosmo"]
+        * conf["analysis"]["grid"]["n_noise_per_example"]
+    )
+    n_z = len(conf["survey"]["metacal"]["z_bins"] + conf["survey"]["maglim"]["z_bins"])
 
     out_file = os.path.join(args.dir_out, "white_noise.h5")
     with h5py.File(out_file, "w") as f:
-        f.create_dataset("cls/binned", shape=(len(indices) * n_noise_per_index, n_bins, n_cross_z), dtype=np.float32)
+        f.create_dataset("cls/raw", shape=(len(indices), n_examples_per_cosmo, l_max, n_z), dtype=np.float32)
 
         for index in LOGGER.progressbar(indices, desc="Merging white noise realizations"):
             in_file = os.path.join(args.dir_out, f"white_noise_{index:04}.h5")
             with h5py.File(in_file, "r") as g:
-                f["cls/binned"][index * n_noise_per_index : (index + 1) * n_noise_per_index, :] = g["cls/binned"][:]
+                f["cls/raw"][index, :, :, :] = g["cls/raw"][:]
             os.remove(in_file)
 
     LOGGER.info(f"Merged white noise realizations to {out_file}")

@@ -254,10 +254,12 @@ def get_l_limits(conf):
     l_max_lensing = conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
     l_max_clustering = conf["analysis"]["scale_cuts"]["clustering"]["l_max"]
     n_z = len(conf["survey"]["metacal"]["z_bins"]) + len(conf["survey"]["maglim"]["z_bins"])
+
     if l_min_lensing is not None and l_min_clustering is not None:
         l_mins = l_min_lensing + l_min_clustering
     else:
         l_mins = [0] * n_z
+
     if l_max_lensing is not None and l_max_clustering is not None:
         l_maxs = l_max_lensing + l_max_clustering
     else:
