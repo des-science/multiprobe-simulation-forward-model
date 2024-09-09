@@ -117,9 +117,10 @@ analysis:
   normalization:
     # approximate per tomo bin standard deviation of the kg + ia + sn maps at the fiducial cosmology
     lensing: [0.0086, 0.0137, 0.0174, 0.0229]
+    clustering: [1, 1, 1, 1]
   power_spectra:
-    l_min: [0, 0, 0, 0]
-    l_max: [1535, 1535, 1535, 1535]
+    l_min: 0
+    l_max: 1535
     n_bins: 65
   peak_statistics:
     n_bins: 15

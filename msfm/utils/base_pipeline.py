@@ -111,16 +111,18 @@ class MSFMpipeline:
             self.m_bias_dist = lensing.get_m_bias_distribution(self.conf)
         else:
             self.m_bias_dist = None
-        self.tomo_kappa_std = tf.constant(self.conf["analysis"]["normalization"]["lensing"])
-        self.normalize_lensing = lambda lensing_dv: lensing_dv / self.tomo_kappa_std
+        self.normalize_lensing = lambda lensing_dv: lensing_dv / tf.constant(
+            self.conf["analysis"]["normalization"]["lensing"]
+        )
 
         # clustering
         self.with_clustering = with_clustering
         self.tomo_n_gal_maglim = tf.constant(self.conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(
             self.conf["analysis"]["n_side"], degrees=True
         )
-        self.normalize_clustering = lambda clustering_dv: clustering_dv
-        # self.normalize_clustering = lambda clustering_dv: clustering_dv / self.tomo_n_gal_maglim - 1.0
+        self.normalize_clustering = lambda clustering_dv: clustering_dv / tf.constant(
+            self.conf["analysis"]["normalization"]["clustering"]
+        )
 
         # power spectra
         self.n_cls = 3 * self.conf["analysis"]["n_side"]
