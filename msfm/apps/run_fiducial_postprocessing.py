@@ -828,6 +828,8 @@ def merge(indices, args):
     cls_dset = cls_dset.interleave(tf.data.TFRecordDataset, cycle_length=16, block_length=1)
     # the default arguments for parse_inverse_fiducial_cls are fine since we're not in graph mode
     cls_dset = cls_dset.map(tfrecords.parse_inverse_fiducial_cls)
+    if args.debug:
+        cls_dset = cls_dset.take(10)
 
     cls = []
     i_examples = []
@@ -856,32 +858,12 @@ def merge(indices, args):
     i_examples = i_examples[i_sort]
     i_noise = i_noise[i_sort]
 
-    l_min_lensing = conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
-    l_min_clustering = conf["analysis"]["scale_cuts"]["clustering"]["l_min"]
-    l_max_lensing = conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
-    l_max_clustering = conf["analysis"]["scale_cuts"]["clustering"]["l_max"]
-    n_z = len(conf["survey"]["metacal"]["z_bins"]) + len(conf["survey"]["maglim"]["z_bins"])
-    if l_min_lensing is not None and l_min_clustering is not None:
-        l_mins = l_min_lensing + l_min_clustering
-    else:
-        l_mins = [0] * n_z
-    if l_max_lensing is not None and l_max_clustering is not None:
-        l_maxs = l_max_lensing + l_max_clustering
-    else:
-        l_maxs = [3 * conf["analysis"]["n_side"] - 1] * n_z
-
     # perform the binning (all examples at the same time)
-    binned_cls, bin_edges = power_spectra.bin_cls(
-        cls,
-        l_mins=l_mins,
-        l_maxs=l_maxs,
-        n_bins=conf["analysis"]["power_spectra"]["n_bins"],
-        with_cross=True,
-    )
+    binned_cls, bin_edges = power_spectra.bin_according_to_config(cls, conf)
 
     # separate folder on the same level as tfrecords
     if args.debug:
-        out_dir = args.dir_out
+        out_dir = os.path.join(args.dir_out, "../../cls/debug")
     else:
         out_dir = os.path.join(args.dir_out, "../../cls")
     os.makedirs(out_dir, exist_ok=True)

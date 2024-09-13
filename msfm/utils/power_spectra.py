@@ -152,8 +152,14 @@ def bin_cls(
         for j in range(n_z):
             if (i == j) or (i < j and with_cross):
                 # always conservative for cross bins
-                l_min = max(l_mins[i], l_mins[j])
-                l_max = min(l_maxs[i], l_maxs[j])
+                if l_mins[i] is None or l_mins[j] is None:
+                    l_min = None
+                else:
+                    l_min = max(l_mins[i], l_mins[j])
+                if l_maxs[i] is None or l_maxs[j] is None:
+                    l_max = None
+                else:
+                    l_max = min(l_maxs[i], l_maxs[j])
 
                 cross_l_mins.append(l_min)
                 cross_l_maxs.append(l_max)
@@ -258,11 +264,28 @@ def get_l_limits(conf):
     if l_min_lensing is not None and l_min_clustering is not None:
         l_mins = l_min_lensing + l_min_clustering
     else:
-        l_mins = [0] * n_z
+        l_mins = [None] * n_z
 
     if l_max_lensing is not None and l_max_clustering is not None:
         l_maxs = l_max_lensing + l_max_clustering
     else:
-        l_maxs = [3 * conf["analysis"]["n_side"] - 1] * n_z
+        l_maxs = [None] * n_z
 
     return l_mins, l_maxs
+
+
+def bin_according_to_config(cls, conf):
+    l_mins, l_maxs = get_l_limits(conf)
+
+    binned_cls, bin_edges = bin_cls(
+        cls,
+        l_mins=l_mins,
+        l_maxs=l_maxs,
+        n_bins=conf["analysis"]["power_spectra"]["n_bins"],
+        with_cross=True,
+        fixed_binning=True,
+        l_min_binning=conf["analysis"]["power_spectra"]["l_min"],
+        l_max_binning=conf["analysis"]["power_spectra"]["l_max"],
+    )
+
+    return binned_cls, bin_edges

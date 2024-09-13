@@ -11,7 +11,7 @@ import numpy as np
 
 
 def get_cross_bin_indices(
-    n_z_lensing=4, n_z_clustering=4, with_lensing=True, with_clustering=True, with_cross_z=True, with_cross_probe=True
+    n_z_lensing=4, n_z_clustering=4, with_lensing=True, with_clustering=True, with_cross_z=True, with_cross_probe=None
 ):
     """Returns a list of indices corresponding to the auto and cross spectra of the selected probes and tomographic
     bins. Note that this assumes that the channels are assumed to be ordered as lensing first, followed by clustering.
@@ -30,6 +30,10 @@ def get_cross_bin_indices(
             that can be used for numpy fancy indexing. The length of this list is n_z_bins * (n_z_bins + 1) / 2, where
             n_z_bins = n_z_lensing + n_z_clustering.
     """
+
+    if with_cross_probe is None:
+        with_cross_probe = with_lensing and with_clustering
+
     assert not (
         with_cross_probe and (not with_lensing or not with_clustering)
     ), f"Cross probe correlations are only allowed if both lensing and clustering are considered."

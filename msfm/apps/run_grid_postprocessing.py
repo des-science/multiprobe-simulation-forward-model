@@ -57,8 +57,8 @@ def resources(args):
             "main_time": 8,
             "main_n_cores": 8,
             "main_memory": 1952,
-            "merge_time": 4,
-            "merge_n_cores": 128,
+            "merge_time": 8,
+            "merge_n_cores": 32,
             "merge_memory": 1952,
         }
     elif args.cluster == "euler":
@@ -600,7 +600,6 @@ def merge(indices, args):
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
     n_signal_per_cosmo = n_patches * n_perms_per_cosmo
-    l_mins, l_maxs = power_spectra.get_l_limits(conf)
 
     tfr_pattern = filenames.get_filename_tfrecords(
         args.dir_out,
@@ -621,7 +620,9 @@ def merge(indices, args):
 
     # separate folder on the same level as tfrecords
     if args.debug:
-        out_dir = args.dir_out
+        n_cosmos = 10
+        cls_dset = cls_dset.take(n_cosmos)
+        out_dir = os.path.join(args.dir_out, "../../cls/debug")
     else:
         out_dir = os.path.join(args.dir_out, "../../cls")
     os.makedirs(out_dir, exist_ok=True)
@@ -643,16 +644,7 @@ def merge(indices, args):
             cl = np.concatenate([cl[:, i, ...] for i in range(cl.shape[1])], axis=0)
 
             # perform the binning (all examples of a single cosmology at once)
-            binned_cl, bin_edge = power_spectra.bin_cls(
-                cl,
-                l_mins=l_mins,
-                l_maxs=l_maxs,
-                n_bins=conf["analysis"]["power_spectra"]["n_bins"],
-                with_cross=True,
-                fixed_binning=True,
-                l_min_binning=conf["analysis"]["power_spectra"]["l_min"],
-                l_max_binning=conf["analysis"]["power_spectra"]["l_max"],
-            )
+            binned_cl, bin_edge = power_spectra.bin_according_to_config(cl, conf)
 
             # tiling has the same form as the above concatenation
             cosmo = np.tile(cosmo, (n_noise_per_example, 1))

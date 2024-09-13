@@ -11,7 +11,7 @@ the linearity of Gaussians, the noise can be drawn for a fixed standard deviatio
 import numpy as np
 import os, argparse, warnings, h5py
 
-from msfm.utils import files, imports, logger, power_spectra, scales
+from msfm.utils import files, imports, logger, power_spectra
 
 hp = imports.import_healpy()
 
@@ -43,7 +43,7 @@ def resources(args):
     if args.cluster == "perlmutter":
         # because of hyperthreading, there's a total of 256 threads per node
         resources = {
-            "main_time": 1,
+            "main_time": 2,
             "main_n_cores": 2,
             "main_memory": 1952,
             "merge_time": 1,
@@ -111,8 +111,8 @@ def main(indices, args):
     conf = files.load_config(args.config)
     n_pix = conf["analysis"]["n_pix"]
     n_z = len(conf["survey"]["metacal"]["z_bins"] + conf["survey"]["maglim"]["z_bins"])
+
     n_bins = conf["analysis"]["power_spectra"]["n_bins"]
-    l_mins, l_maxs = power_spectra.get_l_limits(conf)
 
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
@@ -126,7 +126,11 @@ def main(indices, args):
     for index in indices:
         rng = np.random.default_rng(args.np_seed + index)
 
-        out_file = os.path.join(args.dir_out, f"white_noise_{index:04}.h5")
+        if args.debug:
+            out_file = os.path.join(args.dir_out, f"debug/white_noise_{index:04}.h5")
+        else:
+            out_file = os.path.join(args.dir_out, f"white_noise_{index:04}.h5")
+
         with h5py.File(out_file, "w") as f:
             f.create_dataset(
                 "cls/binned", shape=(args.n_noise_per_index, n_bins - 1, int(n_z * (n_z + 1) / 2)), dtype=np.float32
@@ -142,19 +146,11 @@ def main(indices, args):
                 noise_alms = power_spectra.get_alms(noise_map, nest=False, datapath=hp_datapath)
                 noise_cls = power_spectra.get_cls(noise_alms, with_cross=True)
 
+                # binned_cls = scipy.stats.binned_statistic(ell, noise_cls, statistic="mean", bins=bins)[0]
                 # like in run_grid_postprocessing.py and run_fiducial_postprocessing.py
-                binned_cl, bin_edge = power_spectra.bin_cls(
-                    noise_cls,
-                    l_mins=l_mins,
-                    l_maxs=l_maxs,
-                    n_bins=conf["analysis"]["power_spectra"]["n_bins"],
-                    with_cross=True,
-                    fixed_binning=True,
-                    l_min_binning=conf["analysis"]["power_spectra"]["l_min"],
-                    l_max_binning=conf["analysis"]["power_spectra"]["l_max"],
-                )
+                binned_cls, _ = power_spectra.bin_according_to_config(noise_cls, conf)
 
-                f["cls/binned"][i, :] = binned_cl
+                f["cls/binned"][i, :] = binned_cls
 
         yield index
 
@@ -175,6 +171,11 @@ def merge(indices, args):
             in_file = os.path.join(args.dir_out, f"white_noise_{index:04}.h5")
             with h5py.File(in_file, "r") as g:
                 f["cls/binned"][index * n_noise_per_index : (index + 1) * n_noise_per_index, :] = g["cls/binned"][:]
-            os.remove(in_file)
 
     LOGGER.info(f"Merged white noise realizations to {out_file}")
+
+    # only remove the files after the above loop has terminated successfully
+    for index in indices:
+        in_file = os.path.join(args.dir_out, f"white_noise_{index:04}.h5")
+        os.remove(in_file)
+    LOGGER.info(f"Removed temporary files")
