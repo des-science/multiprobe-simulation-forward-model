@@ -493,11 +493,11 @@ def merge(indices, args):
         cl = np.concatenate([cl[:, i, ...] for i in range(cl.shape[1])], axis=0)
 
         # perform the binning (all examples of a single cosmology at once)
-        binned_cl, bin_edge = power_spectra.bin_cls(
+        binned_cl, bin_edge = power_spectra.smooth_and_bin_cls(
             cl,
-            l_mins=conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
+            l_mins_smoothing=conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
             + conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-            l_maxs=conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
+            l_maxs_smoothing=conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
             + conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
             n_bins=conf["analysis"]["power_spectra"]["n_bins"],
             with_cross=True,

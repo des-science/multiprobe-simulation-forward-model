@@ -87,10 +87,10 @@ def get_cl_bins(l_min, l_max, n_bins):
     return np.linspace(np.sqrt(l_min), np.sqrt(l_max), n_bins, endpoint=True) ** 2
 
 
-def bin_cls(
+def smooth_and_bin_cls(
     cls,
-    l_mins,
-    l_maxs,
+    l_mins_smoothing,
+    l_maxs_smoothing,
     n_bins,
     n_side=None,
     with_cross=True,
@@ -100,6 +100,8 @@ def bin_cls(
 ):
     """Take the raw Cls and bin them within a given range of scales. This is done for each cross bin separately,
     always taking the more conservative cut.
+    TODO this function could use some refactoring like smarter handling of the input arguments (None for no smoothing,
+    l_mins_binning that could be a list for per-bin binning, etc.)
 
     Args:
         cls (np.ndarray): Array of shape (n_ell, n_z) or (n_examples, n_ell, n_z) containing the raw power
@@ -124,15 +126,17 @@ def bin_cls(
     assert (
         cls.ndim == 2 or cls.ndim == 3 or cls.ndim == 4
     ), f"cls has shape {cls.shape}, which is not 2, 3 or 4 dimensional"
-    assert len(l_mins) == len(l_maxs), f"l_mins and l_maxs have different lengths: {len(l_mins)} and {len(l_maxs)}"
-    n_z = len(l_mins)
+    assert len(l_mins_smoothing) == len(
+        l_maxs_smoothing
+    ), f"l_mins and l_maxs have different lengths: {len(l_mins_smoothing)} and {len(l_maxs_smoothing)}"
+    n_z = len(l_mins_smoothing)
 
     if n_side is not None:
-        l_mins = np.array(l_mins)
-        l_mins = np.clip(l_mins, 0, 3 * n_side - 1)
+        l_mins_smoothing = np.array(l_mins_smoothing)
+        l_mins_smoothing = np.clip(l_mins_smoothing, 0, 3 * n_side - 1)
 
-        l_maxs = np.array(l_maxs)
-        l_maxs = np.clip(l_maxs, 0, 3 * n_side - 1)
+        l_maxs_smoothing = np.array(l_maxs_smoothing)
+        l_maxs_smoothing = np.clip(l_maxs_smoothing, 0, 3 * n_side - 1)
 
     # minus indexing to be compatible with both the 2d and 3d case
     n_cross_z = cls.shape[-1]
@@ -152,14 +156,14 @@ def bin_cls(
         for j in range(n_z):
             if (i == j) or (i < j and with_cross):
                 # always conservative for cross bins
-                if l_mins[i] is None or l_mins[j] is None:
+                if l_mins_smoothing[i] is None or l_mins_smoothing[j] is None:
                     l_min = None
                 else:
-                    l_min = max(l_mins[i], l_mins[j])
-                if l_maxs[i] is None or l_maxs[j] is None:
+                    l_min = max(l_mins_smoothing[i], l_mins_smoothing[j])
+                if l_maxs_smoothing[i] is None or l_maxs_smoothing[j] is None:
                     l_max = None
                 else:
-                    l_max = min(l_maxs[i], l_maxs[j])
+                    l_max = min(l_maxs_smoothing[i], l_maxs_smoothing[j])
 
                 cross_l_mins.append(l_min)
                 cross_l_maxs.append(l_max)
@@ -277,10 +281,10 @@ def get_l_limits(conf):
 def bin_according_to_config(cls, conf):
     l_mins, l_maxs = get_l_limits(conf)
 
-    binned_cls, bin_edges = bin_cls(
+    binned_cls, bin_edges = smooth_and_bin_cls(
         cls,
-        l_mins=l_mins,
-        l_maxs=l_maxs,
+        l_mins_smoothing=l_mins,
+        l_maxs_smoothing=l_maxs,
         n_bins=conf["analysis"]["power_spectra"]["n_bins"],
         with_cross=True,
         fixed_binning=True,

@@ -635,16 +635,16 @@ def merge(indices, args):
             desc="Looping through the different cosmologies in the .tfrecords",
             at_level="info",
         ):
-            cl = example["cls"].numpy()
+            cls = example["cls"].numpy()
             cosmo = example["cosmo"].numpy()
             i_sobol = example["i_sobol"].numpy()
             i_example = example["i_example"].numpy()
 
             # concatenate the noise realizations along the same axis as the examples
-            cl = np.concatenate([cl[:, i, ...] for i in range(cl.shape[1])], axis=0)
+            cls = np.concatenate([cls[:, i, ...] for i in range(cls.shape[1])], axis=0)
 
             # perform the binning (all examples of a single cosmology at once)
-            binned_cl, bin_edge = power_spectra.bin_according_to_config(cl, conf)
+            binned_cls, bin_edges = power_spectra.bin_according_to_config(cls, conf)
 
             # tiling has the same form as the above concatenation
             cosmo = np.tile(cosmo, (n_noise_per_example, 1))
@@ -657,17 +657,17 @@ def merge(indices, args):
             i_noise = np.repeat(i_noise, n_signal_per_cosmo)
 
             if i == 0:
-                f.create_dataset("cls/raw", shape=(n_cosmos,) + cl.shape, dtype="f4")
-                f.create_dataset("cls/binned", shape=(n_cosmos,) + binned_cl.shape, dtype="f4")
-                f.create_dataset("cls/bin_edges", shape=(n_cosmos,) + bin_edge.shape, dtype="f4")
+                f.create_dataset("cls/raw", shape=(n_cosmos,) + cls.shape, dtype="f4")
+                f.create_dataset("cls/binned", shape=(n_cosmos,) + binned_cls.shape, dtype="f4")
+                f.create_dataset("cls/bin_edges", shape=(n_cosmos,) + bin_edges.shape, dtype="f4")
                 f.create_dataset("cosmo", shape=(n_cosmos,) + cosmo.shape, dtype="f4")
                 f.create_dataset("i_sobol", shape=(n_cosmos,) + i_sobol.shape, dtype="i4")
                 f.create_dataset("i_example", shape=(n_cosmos,) + i_example.shape, dtype="i4")
                 f.create_dataset("i_noise", shape=(n_cosmos,) + i_noise.shape, dtype="i4")
 
-            f["cls/raw"][i] = cl
-            f["cls/binned"][i] = binned_cl
-            f["cls/bin_edges"][i] = bin_edge
+            f["cls/raw"][i] = cls
+            f["cls/binned"][i] = binned_cls
+            f["cls/bin_edges"][i] = bin_edges
             f["cosmo"][i] = cosmo
             f["i_sobol"][i] = i_sobol
             f["i_example"][i] = i_example

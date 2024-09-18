@@ -122,11 +122,11 @@ def merge(indices, args):
     i_noise = i_noise[i_sort]
 
     # perform the binning (all examples at the same time)
-    binned_cls, bin_edges = power_spectra.bin_cls(
+    binned_cls, bin_edges = power_spectra.smooth_and_bin_cls(
         cls,
-        l_mins=conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
+        l_mins_smoothing=conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
         + conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
-        l_maxs=conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
+        l_maxs_smoothing=conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
         + conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
         n_bins=conf["analysis"]["power_spectra"]["n_bins"],
         with_cross=True,
