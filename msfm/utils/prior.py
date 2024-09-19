@@ -38,12 +38,13 @@ def in_grid_prior(cosmos, conf=None, params=None):
         contained within the prior.
     """
     conf = files.load_config(conf)
+
     params = parameters.get_parameters(params, conf)
 
     # make the params 2d
     cosmos = np.atleast_2d(cosmos)
 
-    prior_intervals = parameters.get_prior_intervals(params)
+    prior_intervals = parameters.get_prior_intervals(params, conf)
 
     # check if we are in the prior intervals
     in_prior = np.all(np.logical_and(prior_intervals[:, 0] <= cosmos, cosmos <= prior_intervals[:, 1]), axis=1)

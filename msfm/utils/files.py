@@ -50,7 +50,6 @@ def load_config(conf=None):
     else:
         raise ValueError(f"conf {conf} must be None, a str specifying the path to the .yaml file, or the read dict")
 
-    # LOGGER.info(f"Loaded the config")
     return conf
 
 
