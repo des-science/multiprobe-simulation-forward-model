@@ -279,15 +279,17 @@ def get_l_limits(conf):
 
 
 def bin_according_to_config(cls, conf):
-    l_mins, l_maxs = get_l_limits(conf)
+    n_z = len(conf["survey"]["metacal"]["z_bins"]) + len(conf["survey"]["maglim"]["z_bins"])
 
     binned_cls, bin_edges = smooth_and_bin_cls(
         cls,
-        l_mins_smoothing=l_mins,
-        l_maxs_smoothing=l_maxs,
-        n_bins=conf["analysis"]["power_spectra"]["n_bins"],
         with_cross=True,
+        # no additional smoothing, the smoothing is already done in the maps
+        l_mins_smoothing=n_z * [None],
+        l_maxs_smoothing=n_z * [None],
+        # binning
         fixed_binning=True,
+        n_bins=conf["analysis"]["power_spectra"]["n_bins"],
         l_min_binning=conf["analysis"]["power_spectra"]["l_min"],
         l_max_binning=conf["analysis"]["power_spectra"]["l_max"],
     )

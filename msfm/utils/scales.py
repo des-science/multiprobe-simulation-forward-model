@@ -216,6 +216,7 @@ def map_to_smoothed_map(
     theta_fwhm: float = None,
     arcmin: bool = True,
     nest: bool = False,
+    conf: dict = None,
 ) -> np.ndarray:
     """Takes in a (multiple) full sky healpy map(s) and returns a (multiple) map(s) that has (have) been smoothed
     according to l_min and l_max. The input can either be a single map, or a stack of multiple tomographic bins along
@@ -238,7 +239,7 @@ def map_to_smoothed_map(
     """
 
     # healpy path
-    conf = files.load_config()
+    conf = files.load_config(conf)
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
     hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
@@ -315,6 +316,7 @@ def data_vector_to_smoothed_data_vector(
     theta_fwhm: float = None,
     arcmin: bool = True,
     mask: np.ndarray = None,
+    conf: dict = None,
 ):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been
     smoothed according to l_min and l_max. The input can either be a single map, or a stack of multiple tomographic
@@ -356,7 +358,7 @@ def data_vector_to_smoothed_data_vector(
     else:
         raise ValueError(f"Unknown data_vector.ndim: {data_vector.ndim}, must be 1 or 2")
 
-    full_map, alm = map_to_smoothed_map(full_map, n_side, l_min, l_max, theta_fwhm, arcmin, nest=True)
+    full_map, alm = map_to_smoothed_map(full_map, n_side, l_min, l_max, theta_fwhm, arcmin, nest=True, conf=conf)
 
     data_vector = full_map[data_vec_pix]
     if mask is not None:

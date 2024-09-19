@@ -36,6 +36,7 @@ def load_config(conf=None):
         file_dir = os.path.dirname(__file__)
         repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
         conf = os.path.join(repo_dir, "configs/config.yaml")
+        LOGGER.warning(f"Loading the default config from {conf}")
         conf = input_output.read_yaml(conf)
 
     # load a config specified by a path

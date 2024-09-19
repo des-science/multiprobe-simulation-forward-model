@@ -146,17 +146,7 @@ def main(indices, args):
                 noise_alms = power_spectra.get_alms(noise_map, nest=False, datapath=hp_datapath)
                 noise_cls = power_spectra.get_cls(noise_alms, with_cross=True)
 
-                # no smoothing at all, to be in line with the maps
-                binned_cls, _ = power_spectra.smooth_and_bin_cls(
-                    noise_cls,
-                    l_mins_smoothing=n_z * [None],
-                    l_maxs_smoothing=n_z * [None],
-                    n_bins=conf["analysis"]["power_spectra"]["n_bins"],
-                    with_cross=True,
-                    fixed_binning=True,
-                    l_min_binning=conf["analysis"]["power_spectra"]["l_min"],
-                    l_max_binning=conf["analysis"]["power_spectra"]["l_max"],
-                )
+                binned_cls, _ = power_spectra.bin_according_to_config(noise_cls, conf)
 
                 f["cls/binned"][i, :] = binned_cls
 
