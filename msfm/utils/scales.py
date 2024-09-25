@@ -58,7 +58,7 @@ def angle_to_ell(theta, arcmin=False, method="naive"):
 
 
 def gaussian_low_pass_factor_alm(
-    l: np.ndarray, l_max: int = None, theta_fwhm: float = None, arcmin: bool = True
+    l: np.ndarray, l_max: int = None, theta_fwhm: float = None, arcmin: bool = True, dtype=np.float32
 ) -> np.ndarray:
     """Remove small scales with a low pass filter (Gaussian smoothing)
 
@@ -78,7 +78,7 @@ def gaussian_low_pass_factor_alm(
     """
 
     if l_max is None and (theta_fwhm is None or theta_fwhm == 0):
-        return np.ones_like(l)
+        return np.ones_like(l, dtype=dtype)
     elif l_max is not None and theta_fwhm is not None:
         raise ValueError("Either l_max or theta_fwhm must be specified, not both")
 
@@ -93,11 +93,11 @@ def gaussian_low_pass_factor_alm(
     # https://github.com/healpy/healpy/blob/be5d47b0720d2de69d422f661d75cd3577327d5a/healpy/sphtfunc.py#L974C13-L975C1
     low_pass_fac = np.exp(-0.5 * l * (l + 1) * sigma**2)
 
-    return low_pass_fac
+    return low_pass_fac.astype(dtype)
 
 
 def gaussian_high_pass_factor_alm(
-    l: np.ndarray, l_min: int = None, theta_fwhm: float = None, arcmin: bool = True
+    l: np.ndarray, l_min: int = None, theta_fwhm: float = None, arcmin: bool = True, dtype=np.float32
 ) -> np.ndarray:
     """Remove big scales with a high pass filter (1 - Gaussian smoothing)
 
@@ -117,13 +117,13 @@ def gaussian_high_pass_factor_alm(
     """
 
     if (l_min is None or l_min == 0) and theta_fwhm is None:
-        return np.ones_like(l)
+        return np.ones_like(l, dtype=dtype)
     elif l_min is not None and theta_fwhm is not None:
         raise ValueError("Either l_min or theta_fwhm must be specified, not both")
 
     high_pass_fac = 1 - gaussian_low_pass_factor_alm(l, l_min, theta_fwhm, arcmin)
 
-    return high_pass_fac
+    return high_pass_fac.astype(dtype)
 
 
 def cls_to_smoothed_cls(

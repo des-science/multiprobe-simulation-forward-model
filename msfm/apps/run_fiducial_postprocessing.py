@@ -258,6 +258,10 @@ def main(indices, args):
             san_dir_out = args.dir_out
             args.dir_out = os.environ["TMPDIR"]
 
+        if args.debug:
+            args.dir_out = os.path.join(args.dir_out, "debug")
+            os.makedirs(args.dir_out, exist_ok=True)
+
         tfr_file = filenames.get_filename_tfrecords(
             args.dir_out,
             tag=conf["survey"]["name"] + args.file_suffix,
@@ -557,6 +561,7 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mas
             theta_fwhm=theta_fwhm,
             arcmin=True,
             mask=mask,
+            conf=conf,
         )
 
     # standard smoothing with a Gaussian kernel
@@ -569,6 +574,7 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mas
             theta_fwhm=theta_fwhm,
             arcmin=True,
             mask=mask,
+            conf=conf,
         )
 
     return dv, alm

@@ -7,7 +7,8 @@ or three maps (polarized case), these functions are not vectorized accross the e
 """
 
 import numpy as np
-import tensorflow as tf
+
+# import tensorflow as tf
 import os
 
 from msfm.utils import files, imports
@@ -114,6 +115,8 @@ def galaxy_density_to_count(
         ng_clip = np.clip(ng, a_min=0, a_max=None, dtype=np.float32)
         ng = ng_clip * np.sum(ng) / np.sum(ng_clip)
     elif isinstance(dg, tf.Tensor):
+        import tensorflow as tf
+
         ng_clip = tf.clip_by_value(ng, clip_value_min=0, clip_value_max=1e5)
         ng = ng_clip * tf.reduce_sum(ng) / tf.reduce_sum(ng_clip)
     else:
@@ -156,7 +159,7 @@ def galaxy_count_to_noise(ng, n_noise, np_seed=None):
         # shape (n_noise, n_pix) is broadcast along the first axis
         poisson_noise = noisy_ngs - ng
 
-    elif isinstance(ng, tf.Tensor):
-        raise NotImplementedError
+    # elif isinstance(ng, tf.Tensor):
+    #     raise NotImplementedError
 
     return poisson_noise
