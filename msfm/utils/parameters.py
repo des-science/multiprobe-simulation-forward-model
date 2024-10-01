@@ -39,6 +39,9 @@ def get_parameters(params=None, conf=None):
         if conf["analysis"]["modelling"]["quadratic_biasing"]:
             params += conf["analysis"]["params"]["bg"]["quadratic"]
 
+        if conf["analysis"]["modelling"]["stochasticity"]:
+            params += conf["analysis"]["params"]["stochasticity"]
+
     return params
 
 

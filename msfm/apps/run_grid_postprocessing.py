@@ -208,15 +208,24 @@ def main(indices, args):
     )
 
     # modeling
+    LOGGER.info("Modeling choices:")
+    for key, value in dict(conf["analysis"]["modelling"]).items():
+        LOGGER.info(f"{key} = {value}")
+
     quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
     if quadratic_biasing:
         raise NotImplementedError("The quadratic biasing has not been updated yet")
 
-    # Latin hypercube extension
     astro_params = conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]["linear"]
     if quadratic_biasing:
         astro_params += conf["analysis"]["params"]["bg"]["quadratic"]
     astro_priors = parameters.get_prior_intervals(astro_params, conf=conf)
+
+    power_law_biasing = {"bg", "n_bg"}.issubset(astro_params)
+    per_bin_biasing = {f"bg{i+1}" for i, _ in enumerate(conf["survey"]["maglim"]["z_bins"])}.issubset(astro_params)
+    LOGGER.info(f"power_law_biasing = {power_law_biasing}")
+    LOGGER.info(f"per_bin_biasing = {per_bin_biasing}")
+    assert power_law_biasing or per_bin_biasing, f"Unsupported configuration of clustering params in {astro_params}"
 
     # .tfrecords
     if n_cosmos % args.n_files == 0:
@@ -329,11 +338,14 @@ def main(indices, args):
 
                     astro_sample = astro_samples[i_example]
                     cosmo_sample = np.concatenate([cosmo, astro_sample])
-                    if {"bg", "n_bg"}.issubset(astro_params):
+                    if power_law_biasing:
                         Aia, n_Aia, bg, n_bg = astro_sample
-                    elif {[f"bg{i}" for i in range(conf["survey"]["maglim"]["z_bins"])]}.issubset(astro_params):
-                        raise NotImplementedError("The per redshift bin biasing has not been implemented yet")
-                        # Aia, n_Aia, b1, bg2, bg3, bg4 = astro_samples[i_example]
+                        tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
+                        z0 = conf["analysis"]["modelling"]["z0"]
+                        tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+                    elif per_bin_biasing:
+                        Aia, n_Aia, b1, bg2, bg3, bg4 = astro_samples[i_example]
+                        tomo_bg = np.array([b1, bg2, bg3, bg4])
                     else:
                         raise ValueError(f"Unsupported configuration of clustering parameters in {astro_params}")
 
@@ -341,7 +353,7 @@ def main(indices, args):
                         kg, ia, sn_samples, Aia, n_Aia, np_seed=i_sobol + i_example
                     )
                     dg, pn_samples, alm_dg, alm_pn_samples = clustering_transform(
-                        dg, bg, n_bg, dg2=None, bg2=None, n_bg2=None, np_seed=i_sobol + i_example
+                        dg, tomo_bg, np_seed=i_sobol + i_example
                     )
 
                     # power spectra
@@ -487,8 +499,7 @@ def _get_clustering_transform(conf, pixel_file):
     def clustering_transform(
         # linear
         dg,
-        bg,
-        n_bg,
+        tomo_bg,
         # quadratic
         dg2=None,
         bg2=None,
@@ -499,9 +510,6 @@ def _get_clustering_transform(conf, pixel_file):
         assert (not quadratic_biasing and (bg2 is None) and (n_bg2 is None)) or (
             quadratic_biasing and (bg2 is not None) and (n_bg2 is not None)
         ), f"The galaxy biasing setup must be consistent"
-
-        # the linear galaxy bias is needed in both cases
-        tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
         LOGGER.debug(f"Per z bin linear bg = {tomo_bg}")
 
         if quadratic_biasing:
@@ -582,9 +590,10 @@ def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
     sobol_point = sobol_point * np.squeeze(np.diff(sobol_priors)) + sobol_priors[:, 0]
     sobol_point = sobol_point.astype(np.float32)
 
-    # like in msfm.utils.clustering.extend_sobol_sequence_by_stochasticity
-    rg = sobol_point[-1]
-    cosmo = np.concatenate((cosmo, np.array([rg])))
+    if stochasticity:
+        # like in msfm.utils.clustering.extend_sobol_sequence_by_stochasticity
+        rg = sobol_point[-1]
+        cosmo = np.concatenate((cosmo, np.array([rg])))
 
     # verify that the Sobol sequences (stored and newly generated) are identical for the cosmo params
     assert np.allclose(sobol_point[0], cosmo[0], rtol=1e-3, atol=1e-5)  # Om
