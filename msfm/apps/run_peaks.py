@@ -53,7 +53,14 @@ def resources(args):
         resource_dict = dict(main_memory=512, main_time=4, main_scratch=0, main_n_cores=8)
     elif args.simset == "grid":
         # when there's 2500 .tfrecords, such that each only contains a single cosmology, the 4h timeframe fits easily
-        resource_dict = dict(main_memory=512, main_time=4, main_scratch=0, main_n_cores=8)
+        resource_dict = {
+            "main_time": 4,
+            "main_memory": 1952,
+            "main_n_cores": 4,
+            "merge_time": 2,
+            "merge_memory": 1952,
+            "merge_n_cores": 32,
+        } #dict(main_memory=512, main_time=4, main_scratch=0, main_n_cores=8)
 
     return resource_dict
 
@@ -148,7 +155,8 @@ def main(indices, args):
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"][args.simset]["n_perms_per_cosmo"]
-    n_noise_per_example = conf["analysis"][args.simset]["n_noise_per_example"]
+    # n_noise_per_example = conf["analysis"][args.simset]["n_noise_per_example"]
+    n_noise_per_example = 1 # for inference, we do not need all the noise realizations, also to save CPU time
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo * n_noise_per_example
 
     def data_vector_to_peaks(data_vector, patch_pix):
@@ -190,7 +198,7 @@ def main(indices, args):
             dset = dset.as_numpy_iterator()
 
             # one cosmology each
-            for data_vectors, cosmos, (i_sobols, i_examples, i_noises) in dset:
+            for data_vectors, cls, cosmos, (i_sobols, i_examples, i_noises) in dset:
                 assert n_examples_per_cosmo == data_vectors.shape[0] == cosmos.shape[0] == i_sobols.shape[0]
                 assert np.all(i_sobols == i_sobols[0]), f"All i_sobols should be the same, but are {i_sobols}"
                 assert np.all(cosmos == cosmos[0]), f"All cosmological parameters should be the same, but are {cosmos}"
@@ -309,7 +317,6 @@ def merge(indices, args):
                     i_sobol = f["i_sobol"][()]
                     i_example = f["i_example"][()]
                     i_noise = f["i_noise"][()]
-                os.remove(h5_file)
 
                 # write to the combined .h5 file
                 f_combined["peaks"][i] = peaks
@@ -317,6 +324,7 @@ def merge(indices, args):
                 f_combined["i_noise"][i] = i_noise
                 f_combined["i_sobol"][i] = i_sobol
                 f_combined["cosmo"][i] = cosmo
+            
 
         elif args.simset == "fiducial":
             # define the combined output shapes
@@ -330,7 +338,6 @@ def merge(indices, args):
                     peaks = f["peaks"][:]
                     i_example = f["i_example"][()]
                     i_noise = f["i_noise"][()]
-                os.remove(h5_file)
 
                 # write to the combined .h5 file
                 f_combined["peaks"][i * peaks_shape[0] : (i + 1) * peaks_shape[0]] = peaks
@@ -341,3 +348,8 @@ def merge(indices, args):
             raise ValueError(f"Unknown simset {args.simset}")
 
     LOGGER.info(f"Merged the per cosmology files into one and deleted them")
+
+    # remove files after merged file has been written
+    for i, h5_file in LOGGER.progressbar(enumerate(h5_files), desc="loop over files", at_level="info"):
+        os.remove(h5_file)
+    LOGGER.info(f"Removed temporary files")

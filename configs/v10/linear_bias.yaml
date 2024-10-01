@@ -117,10 +117,9 @@ analysis:
   normalization:
     # approximate per tomo bin standard deviation of the kg + ia + sn maps at the fiducial cosmology
     lensing: [0.0086, 0.0137, 0.0174, 0.0229]
-    clustering: [1, 1, 1, 1]
   power_spectra:
-    l_min: 0
-    l_max: 1535
+    l_min: [0, 0, 0, 0]
+    l_max: [1535, 1535, 1535, 1535]
     n_bins: 65
   peak_statistics:
     n_bins: 15
@@ -131,11 +130,16 @@ analysis:
         [10.1, 15.1, 20.1],
         [7.5, 11.2, 15.0],
         [6.3, 9.4, 12.6],
-        # maglim 8, 10, 12 Mpc/h
-        [32.6, 40.7, 48.8],
-        [22.2, 27.8, 33.3],
-        [17.0, 21.3, 25.5],
-        [14.3, 17.8, 21.4],
+        # # maglim 8, 10, 12 Mpc/h
+        # [32.6, 40.7, 48.8],
+        # [22.2, 27.8, 33.3],
+        # [17.0, 21.3, 25.5],
+        # [14.3, 17.8, 21.4],
+        # maglim 10, 12, 16 Mpc/h
+        [40.7, 48.8, 65.1],
+        [27.8, 33.3, 44.5],
+        [21.3, 25.5, 34.1],
+        [17.8, 21.4, 28.5],
       ]
   grid:
     # CosmoGrid
