@@ -6,12 +6,12 @@ Contains functions that are specific to galaxy clustering. Since the healpy alm 
 or three maps (polarized case), these functions are not vectorized accross the example dimension.
 """
 
+import os
 import numpy as np
 
-# import tensorflow as tf
-import os
+from sobol_seq import i4_sobol
 
-from msfm.utils import files, imports
+from msfm.utils import files, imports, parameters
 
 hp = imports.import_healpy()
 
@@ -25,14 +25,11 @@ def galaxy_density_to_count(
     dg2=None,
     bg2=None,
     # modeling
-    conf=None,
     systematics_map=None,
-    stochasticity=None,
     # format
     nest=True,
     data_vec_pix=None,
     mask=None,
-    np_seed=None,
 ):
     """Transform a galaxy density to a galaxy count map, according to the constants defined in the config file.
     Negative values are clipped and the maps tranformed to conserve the total number of galaxies like in DeepLSS.
@@ -44,9 +41,6 @@ def galaxy_density_to_count(
         bg (np.ndarray): Effective linear galaxy biasing parameter (optionally per tomographic bin).
         dg2 (np.ndarray, optional): Squared galaxy density contrast map (optionally per tomographic bin).
         bg2 (np.ndarray, optional): Effective quadratic galaxy biasing parameter (optionally per tomographic bin).
-        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
-            passed through) or None (the default config is loaded). The relative paths are stored here. Defaults to
-            None.
         systematics_map (bool): Whether to multiply with the maglim systematics map. Defaults to False.
         stochasticity (float, optional): Raises a NotImplementedError if not None. Defaults to None.
 
@@ -57,46 +51,6 @@ def galaxy_density_to_count(
     Returns:
         ng: Galaxy number count map.
     """
-
-    # decorrelate the galaxy density contrast from the galaxy number
-    if stochasticity is not None:
-        raise NotImplementedError("The current implementation of stochasticity is known to be wrong, don't use it")
-
-        assert isinstance(stochasticity, float), f"stochasticity must be a float, got {type(stochasticity)}"
-        assert 0 < stochasticity < 1, f"stochasticity must be between 0 and 1, got {stochasticity}"
-        assert isinstance(dg, np.ndarray), f"dg must be a numpy array, got {type(dg)}"
-        assert nest, f"The healpy maps must be in nest ordering to add the stochasticity, got ring instead"
-        assert data_vec_pix is not None, f"data_vec_pix must be passed if stochasticity is not None"
-
-        # healpy path
-        conf = files.load_config(conf)
-        file_dir = os.path.dirname(__file__)
-        repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
-        hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
-
-        # convert to full sky map
-        n_side = conf["analysis"]["n_side"]
-        n_pix = conf["analysis"]["n_pix"]
-
-        rng = np.random.default_rng(np_seed)
-
-        # tomographic bins
-        n_z = dg.shape[1]
-        for i_z in range(n_z):
-            dg_full = np.zeros(n_pix)
-            dg_full[data_vec_pix] = dg[:, i_z]
-
-            dg_full = hp.reorder(dg_full, n2r=True)
-            alm = hp.map2alm(dg_full, pol=False, use_pixel_weights=True, datapath=hp_datapath)
-
-            # draw random phases
-            random_phases = stochasticity * rng.uniform(-np.pi, np.pi, alm.shape[0])
-            scrambled_alm = np.exp(1j * random_phases) * alm
-
-            dg_full = hp.alm2map(scrambled_alm, nside=n_side, pol=False)
-            dg_full = hp.reorder(dg_full, r2n=True)
-
-            dg[:, i_z] = dg_full[data_vec_pix]
 
     # linear bias
     if (bg2 is None) and (dg2 is None):
@@ -163,3 +117,29 @@ def galaxy_count_to_noise(ng, n_noise, np_seed=None):
     #     raise NotImplementedError
 
     return poisson_noise
+
+
+def extend_sobol_sequence_by_stochasticity(conf, full_sky_map, simset, i_sobol, rng):
+    """decorrelate the galaxy density contrast from the galaxy number"""
+
+    if simset == "grid":
+        # extend the Sobol sequence
+        cosmo_params = ["Om", "s8", "H0", "Ob", "ns", "w0"]
+        sobol_priors = parameters.get_prior_intervals(cosmo_params + ["rg"], conf=conf)
+        sobol_point, _ = i4_sobol(sobol_priors.shape[0], i_sobol)
+        sobol_params = sobol_point * np.squeeze(np.diff(sobol_priors)) + sobol_priors[:, 0]
+        # sobol_params = sobol_params.astype(np.float32)
+        rg = sobol_params[6]
+    elif simset == "fiducial":
+        rg = parameters.get_fiducials(["rg"], conf=conf)[0]
+
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
+
+    alm = hp.map2alm(full_sky_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
+    # empirical formula from (12) in DeepLSS https://arxiv.org/abs/2203.09616
+    random_phases = (1 - rg) ** (2 / 3) * rng.uniform(-np.pi, np.pi, alm.shape[0])
+    stochastic_alm = np.exp(1j * random_phases) * alm
+
+    return hp.alm2map(stochastic_alm, nside=conf["analysis"]["n_side"], pol=False)

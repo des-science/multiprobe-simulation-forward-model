@@ -26,6 +26,7 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
     LOGGER.timer.start("permutation")
 
     full_maps_file = _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm)
+    rng = np.random.default_rng()
 
     is_fiducial = "cosmo_fiducial" in cosmo_dir_in
 
@@ -57,7 +58,9 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
                         conf, full_sky_bin, in_map_type, i_z, "fiducial", pixel_file, noise_file
                     )
                 elif sample == "maglim":
-                    data_vecs = postprocess_maglim_bin(conf, full_sky_bin, in_map_type, i_z, pixel_file)
+                    data_vecs = postprocess_maglim_bin(
+                        conf, full_sky_bin, in_map_type, i_z, "fiducial", pixel_file, rng=rng
+                    )
 
                 # collect the different permutations along the first axis
                 data_vec_container[out_map_type][..., i_z] = data_vecs
@@ -102,6 +105,7 @@ def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
 def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_file):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
+    rng = np.random.default_rng()
 
     # output container, one for each cosmology
     data_vec_container = _set_up_per_cosmo_dv_container(conf, pixel_file)
@@ -135,7 +139,17 @@ def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fi
                             conf, full_sky_bin, in_map_type, i_z, "grid", pixel_file, noise_file
                         )
                     elif sample == "maglim":
-                        data_vecs = postprocess_maglim_bin(conf, full_sky_bin, in_map_type, i_z, pixel_file)
+                        data_vecs = postprocess_maglim_bin(
+                            conf,
+                            full_sky_bin,
+                            in_map_type,
+                            i_z,
+                            "grid",
+                            pixel_file,
+                            # hard-coded with respect to the filenames
+                            i_sobol=int(cosmo_dir_in[-7:-1]),
+                            rng=rng,
+                        )
 
                     # collect the different permutations along the first axis
                     data_vec_container[out_map_type][
@@ -297,9 +311,7 @@ def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file
     delta_full_sky = (delta_full_sky - np.mean(delta_full_sky)) / np.mean(delta_full_sky)
 
     # number of galaxies per pixel
-    counts_full = clustering.galaxy_density_to_count(
-        n_bar, delta_full_sky, bias, conf=conf, systematics_map=None
-    ).astype(int)
+    counts_full = clustering.galaxy_density_to_count(n_bar, delta_full_sky, bias, systematics_map=None).astype(int)
 
     kappa_dvs = np.zeros((n_patches, n_noise_per_example, data_vec_len), dtype=np.float32)
     for i_patch, patch_pix in enumerate(patches_pix):
@@ -345,20 +357,24 @@ def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file
 # clustering ##########################################################################################################
 
 
-def postprocess_maglim_bin(conf, full_sky_map, in_map_type, i_z, pixel_file):
+def postprocess_maglim_bin(conf, full_sky_map, in_map_type, i_z, simset, pixel_file, i_sobol=None, rng=None):
     n_pix = conf["analysis"]["n_pix"]
     n_patches = conf["analysis"]["n_patches"]
 
+    # pixel file
+    data_vec_pix, patches_pix_dict, corresponding_pix_dict, _ = pixel_file
+    patches_pix = patches_pix_dict["maglim"][i_z]
+    corresponding_pix = corresponding_pix_dict["maglim"][i_z]
+    data_vec_len = len(data_vec_pix)
+    base_patch_pix = patches_pix[0]
+
     # both bias maps are handled in the same way, simply cut out from the full sky without further processing
     if in_map_type in ["dg", "dg2"]:
-        # pixel file
-        data_vec_pix, patches_pix_dict, corresponding_pix_dict, _ = pixel_file
-        patches_pix = patches_pix_dict["maglim"][i_z]
-        corresponding_pix = corresponding_pix_dict["maglim"][i_z]
-        data_vec_len = len(data_vec_pix)
-        base_patch_pix = patches_pix[0]
-
         delta_full = full_sky_map
+
+        # DeepLSS-style stochasticity has to be applied to the full-sky maps
+        if conf["analysis"]["modelling"]["galaxy_stochasticity"]:
+            delta_full = clustering.extend_sobol_sequence_by_stochasticity(conf, delta_full, simset, i_sobol, rng)
 
         delta_dvs = np.zeros((n_patches, data_vec_len), dtype=np.float32)
         for i_patch, patch_pix in enumerate(patches_pix):

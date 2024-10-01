@@ -422,7 +422,6 @@ def _get_clustering_transform(conf, pixel_file):
 
     # modeling
     quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
-    stochasticity = conf["analysis"]["modelling"]["galaxy_stochasticity"]
 
     maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
     tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
@@ -480,12 +479,9 @@ def _get_clustering_transform(conf, pixel_file):
                 dg2,
                 tomo_bg2,
                 # misc
-                conf=conf,
-                stochasticity=stochasticity,
                 data_vec_pix=pixel_file[0],
                 systematics_map=tomo_maglim_sys_dv,
                 mask=maglim_mask,
-                np_seed=np_seed + 1,
             )
         else:
             dg = clustering.galaxy_density_to_count(
@@ -494,12 +490,9 @@ def _get_clustering_transform(conf, pixel_file):
                 dg,
                 tomo_bg,
                 # misc
-                conf=conf,
-                stochasticity=stochasticity,
                 data_vec_pix=pixel_file[0],
                 systematics_map=tomo_maglim_sys_dv,
                 mask=maglim_mask,
-                np_seed=np_seed,
             )
 
         # draw noise, mask, smooth

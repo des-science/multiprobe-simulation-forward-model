@@ -182,6 +182,10 @@ def main(indices, args):
     if not args.to_san:
         with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
             yaml.dump(conf, f)
+    if conf["analysis"]["modelling"]["galaxy_stochasticity"]:
+        LOGGER.warning(
+            f"The derivatives of galaxy stochasticity are not implemented. Delta loss models are insensitive to it"
+        )
 
     # modeling
     baryonified = conf["analysis"]["modelling"]["baryonified"]
@@ -676,12 +680,9 @@ def _get_clustering_transform(conf, pixel_file):
             dg2,
             bg2_tomo,
             # rest
-            conf=conf,
             systematics_map=tomo_maglim_sys_dv,
-            stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
             data_vec_pix=pixel_file[0],
             mask=maglim_mask,
-            np_seed=None,
         )
 
         return galaxy_counts
