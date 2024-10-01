@@ -112,8 +112,8 @@ def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fi
     for i_perm in LOGGER.progressbar(range(n_perms_per_cosmo), desc="Looping through permutations\n", at_level="info"):
         LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
 
-        if args.debug and i_perm > 0:
-            LOGGER.warning("Debug mode, aborting after 1 permutation")
+        if args.debug and i_perm > 3:
+            LOGGER.warning("Debug mode, aborting after 3 permutations")
             break
 
         full_maps_file = _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm)
@@ -373,7 +373,7 @@ def postprocess_maglim_bin(conf, full_sky_map, in_map_type, i_z, simset, pixel_f
         delta_full = full_sky_map
 
         # DeepLSS-style stochasticity has to be applied to the full-sky maps
-        if conf["analysis"]["modelling"]["galaxy_stochasticity"]:
+        if conf["analysis"]["modelling"]["stochasticity"]:
             delta_full = clustering.extend_sobol_sequence_by_stochasticity(conf, delta_full, simset, i_sobol, rng)
 
         delta_dvs = np.zeros((n_patches, data_vec_len), dtype=np.float32)

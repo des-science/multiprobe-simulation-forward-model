@@ -182,14 +182,18 @@ def main(indices, args):
     if not args.to_san:
         with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
             yaml.dump(conf, f)
-    if conf["analysis"]["modelling"]["galaxy_stochasticity"]:
-        LOGGER.warning(
-            f"The derivatives of galaxy stochasticity are not implemented. Delta loss models are insensitive to it"
-        )
 
     # modeling
     baryonified = conf["analysis"]["modelling"]["baryonified"]
     quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
+    stochasticity = conf["analysis"]["modelling"]["stochasticity"]
+
+    if stochasticity:
+        LOGGER.warning(
+            f"The derivatives of galaxy stochasticity are not implemented. Delta loss models are insensitive to it"
+        )
+    if quadratic_biasing:
+        raise NotImplementedError("The quadratic biasing has not been updated yet")
 
     # directories
     file_dir = os.path.dirname(__file__)

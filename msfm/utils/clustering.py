@@ -124,12 +124,16 @@ def extend_sobol_sequence_by_stochasticity(conf, full_sky_map, simset, i_sobol, 
 
     if simset == "grid":
         # extend the Sobol sequence
-        cosmo_params = ["Om", "s8", "H0", "Ob", "ns", "w0"]
-        sobol_priors = parameters.get_prior_intervals(cosmo_params + ["rg"], conf=conf)
+        cosmo_params = conf["analysis"]["params"]["cosmo"].copy()
+        if conf["analysis"]["modelling"]["baryonified"]:
+            cosmo_params += conf["analysis"]["params"]["bary"]
+        sobol_params = cosmo_params + conf["analysis"]["params"]["bg"]["stochasticity"]
+
+        sobol_priors = parameters.get_prior_intervals(sobol_params, conf=conf)
         sobol_point, _ = i4_sobol(sobol_priors.shape[0], i_sobol)
-        sobol_params = sobol_point * np.squeeze(np.diff(sobol_priors)) + sobol_priors[:, 0]
-        # sobol_params = sobol_params.astype(np.float32)
-        rg = sobol_params[6]
+        sobol_point = sobol_point * np.squeeze(np.diff(sobol_priors)) + sobol_priors[:, 0]
+        sobol_point = sobol_point.astype(np.float32)
+        rg = sobol_point[-1]
     elif simset == "fiducial":
         rg = parameters.get_fiducials(["rg"], conf=conf)[0]
 
