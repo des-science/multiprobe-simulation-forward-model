@@ -6,6 +6,8 @@ Author: Arne Thomsen
 
 These utils used to be in run_data_vectors.py, but were moved here to facilitate the CosmoGridV1.1 all-in-one 
 processing where no intermediate .h5 files are stored.
+
+TODO the function argument orders in this file aren't consistent, this should be fixed at some point
 """
 
 import numpy as np
@@ -55,11 +57,11 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
 
                 if sample == "metacal":
                     data_vecs = postprocess_metacal_bin(
-                        conf, full_sky_bin, in_map_type, i_z, "fiducial", pixel_file, noise_file
+                        conf, full_sky_bin, in_map_type, out_map_type, i_z, "fiducial", pixel_file, noise_file
                     )
                 elif sample == "maglim":
                     data_vecs = postprocess_maglim_bin(
-                        conf, full_sky_bin, in_map_type, i_z, "fiducial", pixel_file, rng=rng
+                        conf, full_sky_bin, in_map_type, out_map_type, i_z, "fiducial", pixel_file, rng=rng
                     )
 
                 # collect the different permutations along the first axis
@@ -136,13 +138,14 @@ def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fi
 
                     if sample == "metacal":
                         data_vecs = postprocess_metacal_bin(
-                            conf, full_sky_bin, in_map_type, i_z, "grid", pixel_file, noise_file
+                            conf, full_sky_bin, in_map_type, out_map_type, i_z, "grid", pixel_file, noise_file
                         )
                     elif sample == "maglim":
                         data_vecs = postprocess_maglim_bin(
                             conf,
                             full_sky_bin,
                             in_map_type,
+                            out_map_type,
                             i_z,
                             "grid",
                             pixel_file,
@@ -171,7 +174,7 @@ def _set_up_per_cosmo_dv_container(conf, pixel_file):
 
     data_vec_container = {}
     for out_map_type in out_map_types:
-        if out_map_type in ["kg", "ia"]:
+        if out_map_type in ["kg", "ia", "ds"]:
             n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
             dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
         elif out_map_type == "dg":
@@ -189,13 +192,18 @@ def _set_up_per_cosmo_dv_container(conf, pixel_file):
 # lensing #############################################################################################################
 
 
-def postprocess_metacal_bin(conf, full_sky_map, in_map_type, i_z, simset, pixel_file, noise_file):
+def postprocess_metacal_bin(conf, full_sky_map, in_map_type, out_map_type, i_z, simset, pixel_file, noise_file):
     if in_map_type in ["kg", "ia"]:
         # shape (n_patches, data_vec_len)
         kappa_dvs = postprocess_lensing(full_sky_map, conf, pixel_file, i_z)
-    elif in_map_type == "dg":
+    elif in_map_type == "dg" and out_map_type == "sn":
         # shape (n_patches, n_noise_per_example, data_vec_len)
         kappa_dvs = postprocess_shape_noise(full_sky_map, conf, simset, pixel_file, noise_file, i_z)
+    elif in_map_type == "dg" and out_map_type == "ds":
+        # shape (n_patches, data_vec_len)
+        delta_dvs = postprocess_clustering(full_sky_map, conf, i_z, simset, pixel_file, "metacal")
+        # this is not a kappa map, but to keep the function signature consistent
+        kappa_dvs = delta_dvs
     else:
         raise ValueError(f"Unknown input map type {in_map_type} for metacal/weak lensing")
 
@@ -357,40 +365,46 @@ def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file
 # clustering ##########################################################################################################
 
 
-def postprocess_maglim_bin(conf, full_sky_map, in_map_type, i_z, simset, pixel_file, i_sobol=None, rng=None):
+def postprocess_maglim_bin(
+    conf, full_sky_map, in_map_type, out_map_type, i_z, simset, pixel_file, i_sobol=None, rng=None
+):
+    if in_map_type in ["dg", "dg2"]:
+        delta_dvs = postprocess_clustering(full_sky_map, conf, i_z, simset, pixel_file, "maglim", i_sobol, rng)
+    else:
+        raise ValueError(f"Unknown input map type {in_map_type} for maglim/galaxy clustering")
+
+    return delta_dvs
+
+
+def postprocess_clustering(
+    delta_full_sky, conf, i_z, simset, pixel_file, galaxy_sample="maglim", i_sobol=None, rng=None
+):
     n_pix = conf["analysis"]["n_pix"]
     n_patches = conf["analysis"]["n_patches"]
 
     # pixel file
     data_vec_pix, patches_pix_dict, corresponding_pix_dict, _ = pixel_file
-    patches_pix = patches_pix_dict["maglim"][i_z]
-    corresponding_pix = corresponding_pix_dict["maglim"][i_z]
+    patches_pix = patches_pix_dict[galaxy_sample][i_z]
+    corresponding_pix = corresponding_pix_dict[galaxy_sample][i_z]
     data_vec_len = len(data_vec_pix)
     base_patch_pix = patches_pix[0]
 
-    # both bias maps are handled in the same way, simply cut out from the full sky without further processing
-    if in_map_type in ["dg", "dg2"]:
-        delta_full = full_sky_map
+    # DeepLSS-style stochasticity has to be applied to the full-sky maps
+    if conf["analysis"]["modelling"]["clustering"]["stochasticity"] and (i_sobol is not None) and (rng is not None):
+        delta_full_sky = clustering.extend_sobol_sequence_by_stochasticity(conf, delta_full_sky, simset, i_sobol, rng)
 
-        # DeepLSS-style stochasticity has to be applied to the full-sky maps
-        if conf["analysis"]["modelling"]["stochasticity"]:
-            delta_full = clustering.extend_sobol_sequence_by_stochasticity(conf, delta_full, simset, i_sobol, rng)
+    delta_dvs = np.zeros((n_patches, data_vec_len), dtype=np.float32)
+    for i_patch, patch_pix in enumerate(patches_pix):
+        # always populate the same patch
+        delta_patch = np.zeros(n_pix, dtype=np.float32)
+        delta_patch[base_patch_pix] = delta_full_sky[patch_pix]
 
-        delta_dvs = np.zeros((n_patches, data_vec_len), dtype=np.float32)
-        for i_patch, patch_pix in enumerate(patches_pix):
-            # always populate the same patch
-            delta_patch = np.zeros(n_pix, dtype=np.float32)
-            delta_patch[base_patch_pix] = delta_full[patch_pix]
+        # cut out padded data vector
+        delta_dv = maps.map_to_data_vec(
+            delta_patch, data_vec_len, corresponding_pix, base_patch_pix, divide_by_mean=True
+        )
 
-            # cut out padded data vector
-            delta_dv = maps.map_to_data_vec(
-                delta_patch, data_vec_len, corresponding_pix, base_patch_pix, divide_by_mean=True
-            )
-
-            delta_dvs[i_patch] = delta_dv
-
-    else:
-        raise ValueError(f"Unknown input map type {in_map_type} for maglim/galaxy clustering")
+        delta_dvs[i_patch] = delta_dv
 
     # shape (n_patches, data_vec_len)
     return delta_dvs

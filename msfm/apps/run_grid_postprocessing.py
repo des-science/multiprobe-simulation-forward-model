@@ -39,6 +39,7 @@ from msfm.utils import (
     scales,
     redshift,
     parameters,
+    configuration,
 )
 
 hp = imports.import_healpy()
@@ -208,24 +209,26 @@ def main(indices, args):
     )
 
     # modeling
-    LOGGER.info("Modeling choices:")
-    for key, value in dict(conf["analysis"]["modelling"]).items():
-        LOGGER.info(f"{key} = {value}")
+    configuration.print_and_check_modeling_in_config(conf)
 
-    quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
-    if quadratic_biasing:
-        raise NotImplementedError("The quadratic biasing has not been updated yet")
+    baryonified = conf["analysis"]["modelling"]["baryonified"]
 
-    astro_params = conf["analysis"]["params"]["ia"] + conf["analysis"]["params"]["bg"]["linear"]
+    extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
+
+    power_law_biasing = conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]
+    per_bin_biasing = conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]
+    quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
+    assert not quadratic_biasing, "The quadratic biasing has not been updated yet"
+
+    astro_params = conf["analysis"]["params"]["ia"]["nla"]
+    if extended_nla:
+        astro_params += conf["analysis"]["params"]["ia"]["tatt"]
+    astro_params += conf["analysis"]["params"]["bg"]["linear"]
     if quadratic_biasing:
         astro_params += conf["analysis"]["params"]["bg"]["quadratic"]
-    astro_priors = parameters.get_prior_intervals(astro_params, conf=conf)
+    LOGGER.info(f"Sampling the astrophysical parameters {astro_params} from a Latin hypercube")
 
-    power_law_biasing = {"bg", "n_bg"}.issubset(astro_params)
-    per_bin_biasing = {f"bg{i+1}" for i, _ in enumerate(conf["survey"]["maglim"]["z_bins"])}.issubset(astro_params)
-    LOGGER.info(f"power_law_biasing = {power_law_biasing}")
-    LOGGER.info(f"per_bin_biasing = {per_bin_biasing}")
-    assert power_law_biasing or per_bin_biasing, f"Unsupported configuration of clustering params in {astro_params}"
+    astro_priors = parameters.get_prior_intervals(astro_params, conf=conf)
 
     # .tfrecords
     if n_cosmos % args.n_files == 0:
@@ -270,7 +273,7 @@ def main(indices, args):
             tag=conf["survey"]["name"] + args.file_suffix,
             index=index,
             simset="grid",
-            with_bary=conf["analysis"]["modelling"]["baryonified"],
+            with_bary=baryonified,
         )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
@@ -289,7 +292,7 @@ def main(indices, args):
             ):
                 LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
 
-                state_file = os.path.join(args.dir_out, f"program_state{i_cosmo:06}.pkl")
+                state_file = os.path.join(args.dir_out, f"program_state{i_cosmo:06}" + args.file_suffix + ".pkl")
                 if args.debug and os.path.exists(state_file):
                     with open(state_file, "rb") as f:
                         state = pickle.load(f)
@@ -310,11 +313,11 @@ def main(indices, args):
                 # (n_examples_per_cosmo, n_pix, n_z_bins)
                 kg_examples = data_vec_container["kg"]
                 ia_examples = data_vec_container["ia"]
+                ds_examples = data_vec_container["ds"] if extended_nla else [None] * n_examples_per_cosmo
+
                 dg_examples = data_vec_container["dg"]
-                if quadratic_biasing:
-                    dg2_examples = data_vec_container["dg2"]
-                else:
-                    dg2_examples = [None] * n_examples_per_cosmo
+                dg2_examples = data_vec_container["dg2"] if quadratic_biasing else [None] * n_examples_per_cosmo
+
                 # (n_examples_per_cosmo, n_noise_per_examplen_pix, n_z_bins)
                 sn_examples = data_vec_container["sn"]
 
@@ -326,8 +329,8 @@ def main(indices, args):
                 astro_samples = astro_samples.astype(np.float32)
 
                 # loop over the n_examples_per_cosmo
-                for i_example, (kg, ia, sn_samples, dg, dg2) in LOGGER.progressbar(
-                    enumerate(zip(kg_examples, ia_examples, sn_examples, dg_examples, dg2_examples)),
+                for i_example, (kg, ia, ds, sn_samples, dg, dg2) in LOGGER.progressbar(
+                    enumerate(zip(kg_examples, ia_examples, ds_examples, sn_examples, dg_examples, dg2_examples)),
                     at_level="info",
                     desc="Looping through the per cosmology examples",
                     total=n_examples_per_cosmo // n_noise_per_example,
@@ -338,19 +341,27 @@ def main(indices, args):
 
                     astro_sample = astro_samples[i_example]
                     cosmo_sample = np.concatenate([cosmo, astro_sample])
+
+                    if extended_nla:
+                        Aia, n_Aia, bta = astro_sample[:3]
+                    else:
+                        Aia, n_Aia = astro_sample[:2]
+                        bta = None
+
+                    # TODO this has to be extended for the quadratic biasing
                     if power_law_biasing:
-                        Aia, n_Aia, bg, n_bg = astro_sample
+                        bg, n_bg = astro_sample[-2:]
                         tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
                         z0 = conf["analysis"]["modelling"]["z0"]
                         tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
                     elif per_bin_biasing:
-                        Aia, n_Aia, b1, bg2, bg3, bg4 = astro_samples[i_example]
+                        b1, bg2, bg3, bg4 = astro_sample[-4:]
                         tomo_bg = np.array([b1, bg2, bg3, bg4])
                     else:
                         raise ValueError(f"Unsupported configuration of clustering parameters in {astro_params}")
 
                     kg, sn_samples, alm_kg, alm_sn_samples = lensing_transform(
-                        kg, ia, sn_samples, Aia, n_Aia, np_seed=i_sobol + i_example
+                        kg, ia, ds, sn_samples, Aia, n_Aia, bta, np_seed=i_sobol + i_example
                     )
                     dg, pn_samples, alm_dg, alm_pn_samples = clustering_transform(
                         dg, tomo_bg, np_seed=i_sobol + i_example
@@ -416,6 +427,8 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mas
 
 
 def _get_lensing_transform(conf, pixel_file):
+    extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
+
     z0 = conf["analysis"]["modelling"]["z0"]
     tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
     m_bias_dist = lensing.get_m_bias_distribution(conf)
@@ -434,12 +447,17 @@ def _get_lensing_transform(conf, pixel_file):
 
         return kg, alm
 
-    def lensing_transform(kg, ia, sn_samples, Aia, n_Aia, np_seed=None):
+    def lensing_transform(kg, ia, ds, sn_samples, Aia, n_Aia, bta, np_seed=None):
         # intrinsic alignment
         tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
         LOGGER.debug(f"Per z bin Aia = {tomo_Aia}")
 
-        kg = kg + tomo_Aia * ia
+        if extended_nla:
+            # first two TATT terms like in eq. (19) in https://arxiv.org/pdf/2105.13544
+            kg = kg + tomo_Aia * (1 + bta * ds) * ia
+        else:
+            # standard NLA
+            kg = kg + tomo_Aia * ia
 
         # fixing this in the .tfrecords simplifies reproducibility
         m_bias = m_bias_dist.sample()
@@ -471,14 +489,14 @@ def _get_clustering_transform(conf, pixel_file):
     z0 = conf["analysis"]["modelling"]["z0"]
 
     # modeling
-    quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
+    quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
 
     maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
     tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
     tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
     # survey systematics
-    if conf["analysis"]["modelling"]["maglim_survey_systematics_map"]:
+    if conf["analysis"]["modelling"]["clustering"]["maglim_survey_systematics_map"]:
         tomo_maglim_sys_dv = files.get_clustering_systematics(conf, pixel_type="data_vector")
     else:
         tomo_maglim_sys_dv = None
@@ -571,7 +589,7 @@ def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
     identical (computed here vs. stored in the CosmoGrid)"""
 
     baryonified = conf["analysis"]["modelling"]["baryonified"]
-    stochasticity = conf["analysis"]["modelling"]["stochasticity"]
+    stochasticity = conf["analysis"]["modelling"]["clustering"]["stochasticity"]
 
     cosmo_params = conf["analysis"]["params"]["cosmo"].copy()
     if baryonified:

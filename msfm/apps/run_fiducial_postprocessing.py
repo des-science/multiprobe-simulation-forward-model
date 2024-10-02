@@ -34,6 +34,7 @@ from msfm.utils import (
     power_spectra,
     scales,
     parameters,
+    configuration,
 )
 
 hp = imports.import_healpy()
@@ -184,16 +185,20 @@ def main(indices, args):
             yaml.dump(conf, f)
 
     # modeling
-    baryonified = conf["analysis"]["modelling"]["baryonified"]
-    quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
-    stochasticity = conf["analysis"]["modelling"]["stochasticity"]
+    configuration.print_and_check_modeling_in_config(conf)
 
-    if stochasticity:
-        LOGGER.warning(
-            f"The derivatives of galaxy stochasticity are not implemented. Delta loss models are insensitive to it"
-        )
-    if quadratic_biasing:
-        raise NotImplementedError("The quadratic biasing has not been updated yet")
+    baryonified = conf["analysis"]["modelling"]["baryonified"]
+
+    extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
+    assert not extended_nla, "The extension to NLA has not been implemented yet"
+
+    power_law_biasing = conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]
+    per_bin_biasing = conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]
+    quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
+    stochasticity = conf["analysis"]["modelling"]["clustering"]["stochasticity"]
+    assert not quadratic_biasing, "The quadratic biasing has not been implemented yet"
+    assert not stochasticity, "The stochasticity has not been implemented yet"
+    assert not per_bin_biasing, "Per bin biasing has not been implemented yet"
 
     # directories
     file_dir = os.path.dirname(__file__)
@@ -643,7 +648,7 @@ def _get_lensing_transform(conf, pixel_file):
 def _get_clustering_transform(conf, pixel_file):
     n_side = conf["analysis"]["n_side"]
     n_noise_per_example = conf["analysis"]["fiducial"]["n_noise_per_example"]
-    quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
+    quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
 
     maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
     tomo_n_gal_maglim = tf.constant(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
@@ -654,7 +659,7 @@ def _get_clustering_transform(conf, pixel_file):
         tomo_bg2_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg2", conf)
 
     # survey systematics
-    if conf["analysis"]["modelling"]["maglim_survey_systematics_map"]:
+    if conf["analysis"]["modelling"]["clustering"]["maglim_survey_systematics_map"]:
         tomo_maglim_sys_dv = files.get_clustering_systematics(conf, pixel_type="data_vector")
     else:
         tomo_maglim_sys_dv = None
