@@ -85,6 +85,7 @@ analysis:
   # see scale_cuts.ipynb. All angles are in arcmin.
   # The angle -> ell conversion is done in the "naive" way in 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
   scale_cuts:
+    hard_cut: True
     lensing:
       # from 6.1 in https://arxiv.org/pdf/2110.10135.pdf
       l_min: [30, 30, 30, 30]
@@ -185,7 +186,7 @@ analysis:
     # CosmoGrid
     n_cosmos: 17 # 1 + 2 * n_perts
     n_perms_per_cosmo: 1000
-    n_noise_per_example: 2
+    n_noise_per_example: 10
     # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
     Om: 0.26
     s8: 0.84

@@ -58,7 +58,12 @@ def angle_to_ell(theta, arcmin=False, method="naive"):
 
 
 def gaussian_low_pass_factor_alm(
-    l: np.ndarray, l_max: int = None, theta_fwhm: float = None, arcmin: bool = True, dtype=np.float32
+    l: np.ndarray,
+    l_max: int = None,
+    theta_fwhm: float = None,
+    arcmin: bool = True,
+    hard_cut: bool = False,
+    dtype=np.float32,
 ) -> np.ndarray:
     """Remove small scales with a low pass filter (Gaussian smoothing)
 
@@ -82,22 +87,33 @@ def gaussian_low_pass_factor_alm(
     elif l_max is not None and theta_fwhm is not None:
         raise ValueError("Either l_max or theta_fwhm must be specified, not both")
 
-    if l_max is not None:
-        theta_fwhm = ell_to_angle(l_max, arcmin, method="naive")
+    if hard_cut:
+        if l_max is None:
+            l_max = angle_to_ell(theta_fwhm, arcmin, method="naive")
 
-    if arcmin:
-        theta_fwhm = arcmin_to_rad(theta_fwhm)
+        low_pass_fac = np.zeros_like(l, dtype=dtype)
+        low_pass_fac[l <= l_max] = 1
+    else:
+        if theta_fwhm is None:
+            theta_fwhm = ell_to_angle(l_max, arcmin, method="naive")
+        if arcmin:
+            theta_fwhm = arcmin_to_rad(theta_fwhm)
 
-    sigma = theta_fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+        sigma = theta_fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 
-    # https://github.com/healpy/healpy/blob/be5d47b0720d2de69d422f661d75cd3577327d5a/healpy/sphtfunc.py#L974C13-L975C1
-    low_pass_fac = np.exp(-0.5 * l * (l + 1) * sigma**2)
+        # https://github.com/healpy/healpy/blob/be5d47b0720d2de69d422f661d75cd3577327d5a/healpy/sphtfunc.py#L974C13-L975C1
+        low_pass_fac = np.exp(-0.5 * l * (l + 1) * sigma**2)
 
     return low_pass_fac.astype(dtype)
 
 
 def gaussian_high_pass_factor_alm(
-    l: np.ndarray, l_min: int = None, theta_fwhm: float = None, arcmin: bool = True, dtype=np.float32
+    l: np.ndarray,
+    l_min: int = None,
+    theta_fwhm: float = None,
+    arcmin: bool = True,
+    hard_cut: bool = False,
+    dtype=np.float32,
 ) -> np.ndarray:
     """Remove big scales with a high pass filter (1 - Gaussian smoothing)
 
@@ -121,13 +137,25 @@ def gaussian_high_pass_factor_alm(
     elif l_min is not None and theta_fwhm is not None:
         raise ValueError("Either l_min or theta_fwhm must be specified, not both")
 
-    high_pass_fac = 1 - gaussian_low_pass_factor_alm(l, l_min, theta_fwhm, arcmin)
+    if hard_cut:
+        if l_min is None:
+            l_min = angle_to_ell(theta_fwhm, arcmin, method="naive")
+
+        high_pass_fac = np.zeros_like(l, dtype=dtype)
+        high_pass_fac[l >= l_min] = 1
+    else:
+        high_pass_fac = 1 - gaussian_low_pass_factor_alm(l, l_min, theta_fwhm, arcmin)
 
     return high_pass_fac.astype(dtype)
 
 
 def cls_to_smoothed_cls(
-    cls: np.ndarray, l_min: int = None, l_max: int = None, theta_fwhm: float = None, arcmin: bool = True
+    cls: np.ndarray,
+    l_min: int = None,
+    l_max: int = None,
+    theta_fwhm: float = None,
+    arcmin: bool = True,
+    hard_cut: bool = False,
 ) -> np.ndarray:
     """
     Apply high-pass and low-pass filters to the input power spectrum to obtain a smoothed power spectrum. This is
@@ -151,8 +179,8 @@ def cls_to_smoothed_cls(
     l = np.arange(cls.shape[-1])
 
     # extra square because we're smoothing Cls, not alms
-    high_pass_fac = gaussian_high_pass_factor_alm(l, l_min) ** 2
-    low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin) ** 2
+    high_pass_fac = gaussian_high_pass_factor_alm(l, l_min, hard_cut=hard_cut) ** 2
+    low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin, hard_cut=hard_cut) ** 2
 
     if cls.ndim == 1:
         cls = cls * high_pass_fac * low_pass_fac
@@ -172,6 +200,7 @@ def alm_to_smoothed_map(
     theta_fwhm: float = None,
     arcmin: bool = True,
     nest: bool = False,
+    hard_cut: bool = False,
 ) -> np.ndarray:
     """Takes in alm coefficients and returns a map that has been smoothed according to l_min and l_max or theta_fwhm.
 
@@ -193,10 +222,10 @@ def alm_to_smoothed_map(
     l = hp.Alm.getlm(3 * n_side - 1)[0]
 
     # remove large scales (map - Gaussian smoothing)
-    high_pass_fac = gaussian_high_pass_factor_alm(l, l_min)
+    high_pass_fac = gaussian_high_pass_factor_alm(l, l_min, hard_cut=hard_cut)
 
     # remove small scales (Gaussian smoothing), this produces identical results as hp.smoothalm(fwhm=theta_fwhm)
-    low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin)
+    low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin, hard_cut=hard_cut)
 
     alm = alm * high_pass_fac * low_pass_fac
 
@@ -216,6 +245,7 @@ def map_to_smoothed_map(
     theta_fwhm: float = None,
     arcmin: bool = True,
     nest: bool = False,
+    hard_cut: bool = False,
     conf: dict = None,
 ) -> np.ndarray:
     """Takes in a (multiple) full sky healpy map(s) and returns a (multiple) map(s) that has (have) been smoothed
@@ -278,6 +308,7 @@ def map_to_smoothed_map(
                 theta_fwhm[i_z],
                 arcmin,
                 nest,
+                hard_cut=hard_cut,
             )
 
             alms.append(alm)
@@ -299,6 +330,7 @@ def map_to_smoothed_map(
             theta_fwhm,
             arcmin,
             nest,
+            hard_cut=hard_cut,
         )
 
     else:
@@ -316,6 +348,7 @@ def data_vector_to_smoothed_data_vector(
     theta_fwhm: float = None,
     arcmin: bool = True,
     mask: np.ndarray = None,
+    hard_cut: bool = False,
     conf: dict = None,
 ):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been
@@ -358,7 +391,9 @@ def data_vector_to_smoothed_data_vector(
     else:
         raise ValueError(f"Unknown data_vector.ndim: {data_vector.ndim}, must be 1 or 2")
 
-    full_map, alm = map_to_smoothed_map(full_map, n_side, l_min, l_max, theta_fwhm, arcmin, nest=True, conf=conf)
+    full_map, alm = map_to_smoothed_map(
+        full_map, n_side, l_min, l_max, theta_fwhm, arcmin, nest=True, conf=conf, hard_cut=hard_cut
+    )
 
     data_vector = full_map[data_vec_pix]
     if mask is not None:
@@ -380,6 +415,7 @@ def data_vector_to_grf_data_vector(
     theta_fwhm: float = None,
     arcmin: bool = True,
     mask: np.ndarray = None,
+    hard_cut: bool = False,
 ):
     """Takes in a (multiple) padded data vector(s) and returns a (multiple) data vectors(s) that has (have) been
     smoothed according to l_min and l_max and transformed to a Gaussian Random Field. This destroys all non-Gaussian
@@ -446,8 +482,8 @@ def data_vector_to_grf_data_vector(
             alm = hp.map2alm(full_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
 
             # smoothing
-            high_pass_fac = gaussian_high_pass_factor_alm(l, l_min[i_z])
-            low_pass_fac = gaussian_low_pass_factor_alm(l, l_max[i_z], theta_fwhm[i_z], arcmin)
+            high_pass_fac = gaussian_high_pass_factor_alm(l, l_min[i_z], hard_cut=hard_cut)
+            low_pass_fac = gaussian_low_pass_factor_alm(l, l_max[i_z], theta_fwhm[i_z], arcmin, hard_cut=hard_cut)
             alm = alm * high_pass_fac * low_pass_fac
 
             # make a Gaussian Random Field
@@ -476,8 +512,8 @@ def data_vector_to_grf_data_vector(
         alm = hp.map2alm(full_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
 
         # smoothing
-        high_pass_fac = gaussian_high_pass_factor_alm(l, l_min)
-        low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin)
+        high_pass_fac = gaussian_high_pass_factor_alm(l, l_min, hard_cut=hard_cut)
+        low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin, hard_cut=hard_cut)
         alm = alm * high_pass_fac * low_pass_fac
 
         # make a Gaussian Random Field

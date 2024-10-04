@@ -42,7 +42,7 @@ def get_parameters(params=None, conf=None):
             params += conf["analysis"]["params"]["ia"]["tatt"]
 
         params += conf["analysis"]["params"]["bg"]["linear"]
-        if conf["analysis"]["modelling"]["quadratic_biasing"]:
+        if conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]:
             params += conf["analysis"]["params"]["bg"]["quadratic"]
 
     return params

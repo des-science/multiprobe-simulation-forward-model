@@ -409,6 +409,7 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mas
             arcmin=True,
             mask=mask,
             conf=conf,
+            hard_cut=conf["analysis"]["scale_cuts"]["hard_cut"],
         )
     # standard smoothing with a Gaussian kernel
     else:
@@ -421,6 +422,7 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mas
             arcmin=True,
             mask=mask,
             conf=conf,
+            hard_cut=conf["analysis"]["scale_cuts"]["hard_cut"],
         )
 
     return dv, alm
