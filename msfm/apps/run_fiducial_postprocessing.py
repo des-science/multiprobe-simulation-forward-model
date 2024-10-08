@@ -241,7 +241,7 @@ def main(indices, args):
     LOGGER.info(f"There's {len(cosmo_pert_labels)} cosmological labels = {cosmo_pert_labels}")
 
     # separate label lists for astrophysics perturbations
-    ia_pert_labels = parameters.get_fiducial_perturbation_labels(conf["analysis"]["params"]["ia"])[1:]
+    ia_pert_labels = parameters.get_fiducial_perturbation_labels(conf["analysis"]["params"]["ia"]["nla"])[1:]
     LOGGER.info(f"There's {len(ia_pert_labels)} intrinsic alignment labels = {ia_pert_labels}")
 
     bg_params = conf["analysis"]["params"]["bg"]["linear"]
@@ -562,7 +562,7 @@ def main(indices, args):
         yield index
 
 
-def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mask):
+def _data_vector_smoothing(dv, l_min, l_max, theta_fwhm, np_seed, conf, pixel_file, mask):
     # Gaussian Random Field
     if conf["analysis"]["modelling"]["degrade_to_grf"]:
         dv, alm = scales.data_vector_to_grf_data_vector(
@@ -571,6 +571,7 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mas
             data_vec_pix=pixel_file[0],
             n_side=conf["analysis"]["n_side"],
             l_min=l_min,
+            l_max=l_max,
             theta_fwhm=theta_fwhm,
             arcmin=True,
             mask=mask,
@@ -585,6 +586,7 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mas
             data_vec_pix=pixel_file[0],
             n_side=conf["analysis"]["n_side"],
             l_min=l_min,
+            l_max=l_max,
             theta_fwhm=theta_fwhm,
             arcmin=True,
             mask=mask,
@@ -603,6 +605,7 @@ def _get_lensing_transform(conf, pixel_file):
         kg, alm = _data_vector_smoothing(
             kg,
             conf["analysis"]["scale_cuts"]["lensing"]["l_min"],
+            conf["analysis"]["scale_cuts"]["lensing"]["l_max"],
             conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"],
             np_seed,
             conf,
@@ -670,6 +673,7 @@ def _get_clustering_transform(conf, pixel_file):
         dg, alm = _data_vector_smoothing(
             dg,
             conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+            conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
             conf["analysis"]["scale_cuts"]["clustering"]["theta_fwhm"],
             np_seed,
             conf,

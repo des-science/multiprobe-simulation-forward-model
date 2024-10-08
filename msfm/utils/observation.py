@@ -114,6 +114,7 @@ def forward_model_observation_map(
             l_min=conf["analysis"]["scale_cuts"]["lensing"]["l_min"],
             theta_fwhm=conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"],
             arcmin=True,
+            hard_cut=conf["analysis"]["scale_cuts"]["hard_cut"],
             conf=conf,
         )
         wl_kappa_dv *= masks_metacal
@@ -149,6 +150,7 @@ def forward_model_observation_map(
             l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
             theta_fwhm=conf["analysis"]["scale_cuts"]["clustering"]["theta_fwhm"],
             arcmin=True,
+            hard_cut=conf["analysis"]["scale_cuts"]["hard_cut"],
             conf=conf,
         )
         gc_count_dv *= masks_maglim
