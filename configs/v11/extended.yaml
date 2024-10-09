@@ -200,12 +200,12 @@ analysis:
     # intrinsic alignment
     Aia: 0.5
     n_Aia: 1.5
-    bta: 1.0
-    # galaxy clustering
-    bg1: 1.5
-    bg2: 1.6
-    bg3: 1.7
-    bg4: 1.8
+    bta: 0.0
+    # galaxy clustering (corresponds to bg=1.5, n_bg=0.5)
+    bg1: 1.3433586
+    bg2: 1.4218498
+    bg3: 1.4996815
+    bg4: 1.5668583
     rg: 0.8
     perturbations:
       Om: 0.01

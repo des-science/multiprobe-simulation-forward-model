@@ -15,18 +15,18 @@ dirs:
 
 files:
   # relative to the root of this repository
-  pixels: data/DESY3_pixels_v11_octant_512.h5
+  pixels: data/DESY3_pixels_v11_fiducial_512.h5
   noise: data/DESY3_noise_v11.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
-  peak_binning: data/peaks/binning/v10_linear_bias.h5
+  peak_binning: data/peaks/binning/v11_extended.h5
 
 survey:
   name: DESy3
   metacal:
     map_types:
-      input: [kg, ia, dg]
-      output: [kg, ia, sn]
+      input: [kg, ia, dg, dg]
+      output: [kg, ia, sn, ds]
     # from Table 1 in https://arxiv.org/pdf/2105.13543.pdf, in units of galaxies/deg^2
     n_gal: [5313.6, 5324.4, 5342.4, 5259.6]
     # from Table 2 in https://arxiv.org/pdf/2012.08566.pdf
@@ -79,12 +79,13 @@ analysis:
       tatt: [bta]
     # galaxy biasing
     bg:
-      linear: [bg, n_bg]
-      quadratic: [bg_q, n_bg_q]
+      linear: [bg1, bg2, bg3, bg4]
+      quadratic: [bg1_q, bg2_q, bg3_q, bg4_q]
       stochasticity: [rg]
   # see scale_cuts.ipynb. All angles are in arcmin.
   # The angle -> ell conversion is done in the "naive" way in 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
   scale_cuts:
+    hard_cut: False
     lensing:
       # from 6.1 in https://arxiv.org/pdf/2110.10135.pdf
       l_min: [30, 30, 30, 30]
@@ -112,10 +113,10 @@ analysis:
     degrade_to_grf: False
     lensing:
       # whether to include the TATT cross-term on top of NLA
-      extended_nla: False
+      extended_nla: True
     clustering:
-      power_law_biasing: True
-      per_bin_biasing: False
+      power_law_biasing: False
+      per_bin_biasing: True
       # linear + quadratic galaxy biasing or just linear
       quadratic_biasing: False
       # whether to include a stochasticity i n the galaxy biasing. This scales the [-pi, pi] interval from which the
@@ -149,8 +150,8 @@ analysis:
   grid:
     # CosmoGrid
     n_cosmos: 2500
-    n_perms_per_cosmo: 20
-    n_noise_per_example: 5
+    n_perms_per_cosmo: 1
+    n_noise_per_example: 2
     priors:
       # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
       Om: [0.1, 0.5]
@@ -159,14 +160,19 @@ analysis:
       Ob: [0.03, 0.06]
       ns: [0.87, 1.07]
       w0: [-2.0, -0.333]
+      # baryons
       bary_Mc: [12.0, 15.0]
       bary_nu: [-2.0, 2.0]
+      # intrinsic alignment
       Aia: [-3.0, 3.0]
       n_Aia: [-4.0, 6.0]
-      bg: [0.8, 3.0]
-      n_bg: [-3.0, 3.0]
-      bg2: [-1.0, 1.0]
-      n_bg2: [-2.0, 2.0]
+      bta: [0.0, 2.0]
+      # galaxy clustering
+      bg1: [0.8, 3.0]
+      bg2: [0.8, 3.0]
+      bg3: [0.8, 3.0]
+      bg4: [0.8, 3.0]
+      rg: [0.6, 1.0]
       Om_s8_border_points:
         [
           [0.1, 1.4],
@@ -180,7 +186,7 @@ analysis:
     # CosmoGrid
     n_cosmos: 17 # 1 + 2 * n_perts
     n_perms_per_cosmo: 1000
-    n_noise_per_example: 10
+    n_noise_per_example: 2
     # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
     Om: 0.26
     s8: 0.84
@@ -188,14 +194,19 @@ analysis:
     Ob: 0.0493
     ns: 0.9649
     w0: -1.0
+    # baryons
     bary_Mc: 13.82
     bary_nu: 0.0
+    # intrinsic alignment
     Aia: 0.5
     n_Aia: 1.5
-    bg: 1.5
-    n_bg: 0.5
-    bg2: 0.5
-    n_bg2: 0.0
+    bta: 1.0
+    # galaxy clustering
+    bg1: 1.5
+    bg2: 1.6
+    bg3: 1.7
+    bg4: 1.8
+    rg: 0.8
     perturbations:
       Om: 0.01
       s8: 0.015
@@ -207,7 +218,7 @@ analysis:
       bary_nu: 0.1
       Aia: 0.1
       n_Aia: 0.2
-      bg: 0.1
-      n_bg: 0.2
+      bg1: 0.1
       bg2: 0.1
-      n_bg2: 0.2
+      bg3: 0.1
+      bg4: 0.1
