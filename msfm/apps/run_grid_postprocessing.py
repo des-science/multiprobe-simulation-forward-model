@@ -459,7 +459,8 @@ def _get_lensing_transform(conf, pixel_file):
 
         if extended_nla:
             # first two TATT terms like in eq. (19) in https://arxiv.org/pdf/2105.13544
-            kg = kg + tomo_Aia * (1 + bta * ds) * ia
+            # kg = kg + tomo_Aia * (1 + bta * ds) * ia
+            kg = kg + tomo_Aia * (ia + bta * ds)
         else:
             # standard NLA
             kg = kg + tomo_Aia * ia

@@ -27,7 +27,7 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
     LOGGER.info(f"Starting simulation permutation {i_perm:04d}")
     LOGGER.timer.start("permutation")
 
-    full_maps_file = _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm)
+    full_maps_file = _get_full_sky_perm(args, conf, cosmo_dir_in, i_perm)
     rng = np.random.default_rng()
 
     is_fiducial = "cosmo_fiducial" in cosmo_dir_in
@@ -49,7 +49,7 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
                 LOGGER.info(f"Skipping input map type {in_map_type} for this perturbation")
                 continue
 
-            LOGGER.info(f"Starting with input map type {in_map_type}")
+            LOGGER.info(f"Starting with map type {in_map_type} -> {out_map_type}")
             LOGGER.timer.start("map_type")
 
             for i_z, z_bin in enumerate(z_bins):
@@ -118,7 +118,7 @@ def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fi
             LOGGER.warning("Debug mode, aborting after 3 permutations")
             break
 
-        full_maps_file = _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm)
+        full_maps_file = _get_full_sky_perm(args, conf, cosmo_dir_in, i_perm)
 
         for sample in ["metacal", "maglim"]:
             LOGGER.timer.start("sample")
@@ -130,7 +130,7 @@ def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fi
             z_bins = conf["survey"][sample]["z_bins"]
 
             for in_map_type, out_map_type in zip(in_map_types, out_map_types):
-                LOGGER.info(f"Starting with input map type {in_map_type}")
+                LOGGER.info(f"Starting with map type {in_map_type} -> {out_map_type}")
                 LOGGER.timer.start("map_type")
 
                 for i_z, z_bin in enumerate(z_bins):
@@ -138,7 +138,15 @@ def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fi
 
                     if sample == "metacal":
                         data_vecs = postprocess_metacal_bin(
-                            conf, full_sky_bin, in_map_type, out_map_type, i_z, "grid", pixel_file, noise_file
+                            conf,
+                            full_sky_bin,
+                            in_map_type,
+                            out_map_type,
+                            i_z,
+                            "grid",
+                            pixel_file,
+                            noise_file,
+                            full_maps_file,
                         )
                     elif sample == "maglim":
                         data_vecs = postprocess_maglim_bin(
@@ -192,7 +200,9 @@ def _set_up_per_cosmo_dv_container(conf, pixel_file):
 # lensing #############################################################################################################
 
 
-def postprocess_metacal_bin(conf, full_sky_map, in_map_type, out_map_type, i_z, simset, pixel_file, noise_file):
+def postprocess_metacal_bin(
+    conf, full_sky_map, in_map_type, out_map_type, i_z, simset, pixel_file, noise_file, full_maps_file
+):
     if in_map_type in ["kg", "ia"]:
         # shape (n_patches, data_vec_len)
         kappa_dvs = postprocess_lensing(full_sky_map, conf, pixel_file, i_z)
@@ -200,10 +210,18 @@ def postprocess_metacal_bin(conf, full_sky_map, in_map_type, out_map_type, i_z, 
         # shape (n_patches, n_noise_per_example, data_vec_len)
         kappa_dvs = postprocess_shape_noise(full_sky_map, conf, simset, pixel_file, noise_file, i_z)
     elif in_map_type == "dg" and out_map_type == "ds":
+        full_sky_ia = _read_full_sky_bin(conf, full_maps_file, "ia", conf["survey"]["metacal"]["z_bins"][i_z])
+        full_sky_ds = (full_sky_ia - np.mean(full_sky_ia)) * (
+            (full_sky_map - np.mean(full_sky_map)) / np.mean(full_sky_map)
+        )
         # shape (n_patches, data_vec_len)
-        delta_dvs = postprocess_clustering(full_sky_map, conf, i_z, simset, pixel_file, "metacal")
-        # this is not a kappa map, but to keep the function signature consistent
-        kappa_dvs = delta_dvs
+        kappa_dvs = postprocess_lensing(full_sky_ds, conf, pixel_file, i_z)
+
+        # in this old implementation, only ds is stored and not the product with IA. This lacks mode removal
+        # # shape (n_patches, data_vec_len)
+        # delta_dvs = postprocess_clustering(full_sky_map, conf, i_z, simset, pixel_file, "metacal")
+        # # this is not a kappa map, but to keep the function signature consistent
+        # kappa_dvs = delta_dvs
     else:
         raise ValueError(f"Unknown input map type {in_map_type} for metacal/weak lensing")
 
@@ -413,7 +431,7 @@ def postprocess_clustering(
 # shared utils ########################################################################################################
 
 
-def _rsync_full_sky_perm(args, conf, cosmo_dir_in, i_perm):
+def _get_full_sky_perm(args, conf, cosmo_dir_in, i_perm):
     with_bary = conf["analysis"]["modelling"]["baryonified"]
 
     # prepare the full sky input file
