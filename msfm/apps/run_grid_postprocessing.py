@@ -218,7 +218,6 @@ def main(indices, args):
     power_law_biasing = conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]
     per_bin_biasing = conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]
     quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
-    assert not quadratic_biasing, "The quadratic biasing has not been updated yet"
 
     astro_params = conf["analysis"]["params"]["ia"]["nla"]
     if extended_nla:
@@ -316,7 +315,9 @@ def main(indices, args):
                 ds_examples = data_vec_container["ds"] if extended_nla else [None] * n_examples_per_cosmo
 
                 dg_examples = data_vec_container["dg"]
-                dg2_examples = data_vec_container["dg2"] if quadratic_biasing else [None] * n_examples_per_cosmo
+                # qdg_examples = data_vec_container["dg2"] if quadratic_biasing else [None] * n_examples_per_cosmo
+                # NOTE this is the naive quadratic bias map from DeepLSS
+                qdg_examples = dg_examples**2 if quadratic_biasing else [None] * n_examples_per_cosmo
 
                 # (n_examples_per_cosmo, n_noise_per_examplen_pix, n_z_bins)
                 sn_examples = data_vec_container["sn"]
@@ -329,8 +330,8 @@ def main(indices, args):
                 astro_samples = astro_samples.astype(np.float32)
 
                 # loop over the n_examples_per_cosmo
-                for i_example, (kg, ia, ds, sn_samples, dg, dg2) in LOGGER.progressbar(
-                    enumerate(zip(kg_examples, ia_examples, ds_examples, sn_examples, dg_examples, dg2_examples)),
+                for i_example, (kg, ia, ds, sn_samples, dg, qdg) in LOGGER.progressbar(
+                    enumerate(zip(kg_examples, ia_examples, ds_examples, sn_examples, dg_examples, qdg_examples)),
                     at_level="info",
                     desc="Looping through the per cosmology examples",
                     total=n_examples_per_cosmo // n_noise_per_example,
@@ -342,29 +343,40 @@ def main(indices, args):
                     astro_sample = astro_samples[i_example]
                     cosmo_sample = np.concatenate([cosmo, astro_sample])
 
+                    # lensing
                     if extended_nla:
                         Aia, n_Aia, bta = astro_sample[:3]
                     else:
                         Aia, n_Aia = astro_sample[:2]
                         bta = None
 
-                    # TODO this has to be extended for the quadratic biasing
+                    # clustering
                     if power_law_biasing:
-                        bg, n_bg = astro_sample[-2:]
                         tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
                         z0 = conf["analysis"]["modelling"]["z0"]
+                        if quadratic_biasing:
+                            bg, n_bg, qbg, n_qbg = astro_sample[-4:]
+                            tomo_qbg = redshift.get_tomo_amplitudes(qbg, n_qbg, tomo_z_maglim, tomo_nz_maglim, z0)
+                        else:
+                            bg, n_bg = astro_sample[-2:]
+                            tomo_qbg = None
                         tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
                     elif per_bin_biasing:
-                        b1, bg2, bg3, bg4 = astro_sample[-4:]
-                        tomo_bg = np.array([b1, bg2, bg3, bg4])
+                        if quadratic_biasing:
+                            bg1, bg2, bg3, bg4, qbg1, qbg2, qbg3, qbg4 = astro_sample[-8:]
+                            tomo_qbg = np.array([qbg1, qbg2, qbg3, qbg4])
+                        else:
+                            bg1, bg2, bg3, bg4 = astro_sample[-4:]
+                            tomo_qbg = None
+                        tomo_bg = np.array([bg1, bg2, bg3, bg4])
                     else:
-                        raise ValueError(f"Unsupported configuration of clustering parameters in {astro_params}")
+                        raise ValueError(f"Unsupported configuration of clustering bias")
 
                     kg, sn_samples, alm_kg, alm_sn_samples = lensing_transform(
                         kg, ia, ds, sn_samples, Aia, n_Aia, bta, np_seed=i_sobol + i_example
                     )
                     dg, pn_samples, alm_dg, alm_pn_samples = clustering_transform(
-                        dg, tomo_bg, np_seed=i_sobol + i_example
+                        dg, tomo_bg, qdg, tomo_qbg, np_seed=i_sobol + i_example
                     )
 
                     # power spectra
@@ -459,7 +471,7 @@ def _get_lensing_transform(conf, pixel_file):
 
         if extended_nla:
             # first two TATT terms like in eq. (19) in https://arxiv.org/pdf/2105.13544
-            # kg = kg + tomo_Aia * (1 + bta * ds) * ia
+            # NOTE ds already contains the ia map (in postprocessing.py)
             kg = kg + tomo_Aia * (ia + bta * ds)
         else:
             # standard NLA
@@ -492,13 +504,11 @@ def _get_lensing_transform(conf, pixel_file):
 def _get_clustering_transform(conf, pixel_file):
     n_side = conf["analysis"]["n_side"]
     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
-    z0 = conf["analysis"]["modelling"]["z0"]
 
     # modeling
     quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
 
     maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
-    tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
     tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
     # survey systematics
@@ -526,45 +536,33 @@ def _get_clustering_transform(conf, pixel_file):
         dg,
         tomo_bg,
         # quadratic
-        dg2=None,
-        bg2=None,
-        n_bg2=None,
+        qdg=None,
+        tomo_qdg=None,
         # noise
         np_seed=None,
     ):
-        assert (not quadratic_biasing and (bg2 is None) and (n_bg2 is None)) or (
-            quadratic_biasing and (bg2 is not None) and (n_bg2 is not None)
+        assert (not quadratic_biasing and ((qdg is None) or (tomo_qdg is None))) or (
+            quadratic_biasing and (qdg is not None) and (tomo_qdg is not None)
         ), f"The galaxy biasing setup must be consistent"
-        LOGGER.debug(f"Per z bin linear bg = {tomo_bg}")
+        LOGGER.debug(f"Per z bin linear bias = {tomo_bg}")
 
         if quadratic_biasing:
-            tomo_bg2 = redshift.get_tomo_amplitudes(bg2, n_bg2, tomo_z_maglim, tomo_nz_maglim, z0)
-            LOGGER.debug(f"Per z bin quadratic bg2 = {tomo_bg2}")
+            LOGGER.debug(f"Per z bin quadratic bias = {tomo_qdg}")
 
-            dg = clustering.galaxy_density_to_count(
-                tomo_n_gal_maglim,
-                # linear
-                dg,
-                tomo_bg,
-                # quadratic
-                dg2,
-                tomo_bg2,
-                # misc
-                data_vec_pix=pixel_file[0],
-                systematics_map=tomo_maglim_sys_dv,
-                mask=maglim_mask,
-            )
-        else:
-            dg = clustering.galaxy_density_to_count(
-                tomo_n_gal_maglim,
-                # linear
-                dg,
-                tomo_bg,
-                # misc
-                data_vec_pix=pixel_file[0],
-                systematics_map=tomo_maglim_sys_dv,
-                mask=maglim_mask,
-            )
+        # the distinction between linear and quadratic biasing is done in main with conditional None values
+        dg = clustering.galaxy_density_to_count(
+            tomo_n_gal_maglim,
+            # linear
+            dg,
+            tomo_bg,
+            # quadratic
+            qdg,
+            tomo_qdg,
+            # misc
+            data_vec_pix=pixel_file[0],
+            systematics_map=tomo_maglim_sys_dv,
+            mask=maglim_mask,
+        )
 
         # draw noise, mask, smooth
         pn_samples = clustering.galaxy_count_to_noise(dg, n_noise_per_example, np_seed=np_seed)
@@ -585,7 +583,6 @@ def _get_clustering_transform(conf, pixel_file):
         dg, alm_dg = clustering_smoothing(dg, np_seed)
 
         # shapes (n_pix, n_z_maglim), (n_noise_per_example, n_pix, n_z_maglim)
-        # (n_noise_per_example, )
         return dg, pn_samples, alm_dg, alm_pn_samples
 
     return clustering_transform

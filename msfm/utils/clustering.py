@@ -22,8 +22,8 @@ def galaxy_density_to_count(
     dg,
     bg,
     # quadratic
-    dg2=None,
-    bg2=None,
+    qdg=None,
+    qbg=None,
     # modeling
     systematics_map=None,
     # format
@@ -39,8 +39,8 @@ def galaxy_density_to_count(
         dg (Union[np.ndarray, tf.Tensor]): Galaxy density contrast map or datavector. Optionally per tomographic bin
             in the last array dimension.
         bg (np.ndarray): Effective linear galaxy biasing parameter (optionally per tomographic bin).
-        dg2 (np.ndarray, optional): Squared galaxy density contrast map (optionally per tomographic bin).
-        bg2 (np.ndarray, optional): Effective quadratic galaxy biasing parameter (optionally per tomographic bin).
+        qdg (np.ndarray, optional): Squared galaxy density contrast map (optionally per tomographic bin).
+        qbg (np.ndarray, optional): Effective quadratic galaxy biasing parameter (optionally per tomographic bin).
         systematics_map (bool): Whether to multiply with the maglim systematics map. Defaults to False.
         stochasticity (float, optional): Raises a NotImplementedError if not None. Defaults to None.
 
@@ -53,15 +53,15 @@ def galaxy_density_to_count(
     """
 
     # linear bias
-    if (bg2 is None) and (dg2 is None):
+    if (qbg is None) and (qdg is None):
         ng = ng_bar * (1 + bg * dg)
 
     # quadratic bias
-    elif (bg2 is not None) and (dg2 is not None):
-        ng = ng_bar * (1 + bg * dg + bg2 * dg2)
+    elif (qbg is not None) and (qdg is not None):
+        ng = ng_bar * (1 + bg * dg + qbg * qdg)
 
     else:
-        raise ValueError("Both or none of dg2 and bg2 must be passed")
+        raise ValueError("Both or none of qdg and qbg must be passed")
 
     # transform like in DeepLSS Appendix E and https://github.com/tomaszkacprzak/deep_lss/blob/3c145cf8fe04c4e5f952dca984c5ce7e163b8753/deep_lss/lss_astrophysics_model_batch.py#L609
     # this ensures that all of the values are positive, while the total number of galaxies is conserved
