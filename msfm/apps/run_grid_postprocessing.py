@@ -317,7 +317,11 @@ def main(indices, args):
                 dg_examples = data_vec_container["dg"]
                 # qdg_examples = data_vec_container["dg2"] if quadratic_biasing else [None] * n_examples_per_cosmo
                 # NOTE this is the naive quadratic bias map from DeepLSS
-                qdg_examples = dg_examples**2 if quadratic_biasing else [None] * n_examples_per_cosmo
+                qdg_examples = (
+                    np.square(dg_examples) * np.sign(dg_examples)
+                    if quadratic_biasing
+                    else [None] * n_examples_per_cosmo
+                )
 
                 # (n_examples_per_cosmo, n_noise_per_examplen_pix, n_z_bins)
                 sn_examples = data_vec_container["sn"]
