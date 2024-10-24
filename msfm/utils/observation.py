@@ -112,8 +112,10 @@ def forward_model_observation_map(
             data_vec_pix=data_vec_pix,
             n_side=n_side,
             l_min=conf["analysis"]["scale_cuts"]["lensing"]["l_min"],
+            l_max=conf["analysis"]["scale_cuts"]["lensing"]["l_max"],
             theta_fwhm=conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"],
             arcmin=True,
+            mask=masks_metacal,
             hard_cut=conf["analysis"]["scale_cuts"]["hard_cut"],
             conf=conf,
         )
@@ -148,8 +150,10 @@ def forward_model_observation_map(
             data_vec_pix=data_vec_pix,
             n_side=n_side,
             l_min=conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+            l_max=conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
             theta_fwhm=conf["analysis"]["scale_cuts"]["clustering"]["theta_fwhm"],
             arcmin=True,
+            mask=masks_maglim,
             hard_cut=conf["analysis"]["scale_cuts"]["hard_cut"],
             conf=conf,
         )
@@ -167,8 +171,9 @@ def forward_model_observation_map(
     else:
         raise ValueError("At least one of wl_gamma or gc_count must be provided.")
 
-    # go from padded datavector to non-padded patch
-    if not with_padding:
+    if with_padding:
+        return observation, observation_cls, data_vec_pix
+    else:
         # only keep indices that are in all (per tomographic bin and galaxy sample) masks
         mask_total = np.prod(np.concatenate([masks_metacal, masks_maglim], axis=-1), axis=-1)
         mask_total = mask_total.astype(bool)
@@ -179,11 +184,21 @@ def forward_model_observation_map(
         observation = observation_full_sky[footprint_pix]
 
         return observation, observation_cls, footprint_pix
-    else:
-        return observation, observation_cls, data_vec_pix
 
 
-def forward_model_fiducial_cosmogrid(map_dir, conf=None, with_lensing=True, with_clustering=True, noisy=False):
+def forward_model_cosmogrid(
+    map_dir,
+    conf=None,
+    noisy=False,
+    # lensing
+    with_lensing=True,
+    tomo_Aia=None,
+    bta=None,
+    # clustering
+    with_clustering=True,
+    tomo_bg=None,
+    tomo_qbg=None,
+):
     """Take a full-sky CosmoGrid maps as they are projected with UFalcon and transform them into fiducial probe maps
     that are in the same format as the (synthetic) observations like a gamma map for weak lensing, no smoothing, etc.
     The steps here are the same what is implemented in the run_grid/fiducial_postprocessing.py files. The later steps
@@ -217,13 +232,7 @@ def forward_model_fiducial_cosmogrid(map_dir, conf=None, with_lensing=True, with
         if with_lensing:
             maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
             kappa2gamma_fac, _, _ = lensing.get_kaiser_squires_factors(3 * n_side - 1)
-
-            Aia = conf["analysis"]["fiducial"]["Aia"]
-            n_Aia = conf["analysis"]["fiducial"]["n_Aia"]
-
             metacal_bins = conf["survey"]["metacal"]["z_bins"]
-            tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
-            tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
 
             file_dir = os.path.dirname(__file__)
             repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
@@ -231,19 +240,44 @@ def forward_model_fiducial_cosmogrid(map_dir, conf=None, with_lensing=True, with
 
             kg = []
             ia = []
+            ds = []
             dg = []
             for z_bin in metacal_bins:
                 kg.append(hp.ud_grade(f[f"map/kg/{z_bin}"], n_side))
                 ia.append(hp.ud_grade(f[f"map/ia/{z_bin}"], n_side))
+                ia.append(hp.ud_grade(f[f"map/ds/{z_bin}"], n_side))
                 if noisy:
                     dg.append(hp.ud_grade(f[f"map/dg/{z_bin}"], n_side))
             kg = np.stack(kg, axis=-1)
             ia = np.stack(ia, axis=-1)
+            ds = np.stack(ds, axis=-1)
             if noisy:
                 dg = np.stack(dg, axis=-1)
 
             # create the noiseless fiducial map
-            wl_kappa_map = kg + tomo_Aia * ia
+            extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"] if bta is None else True
+
+            if tomo_Aia is None:
+                Aia = conf["analysis"]["fiducial"]["Aia"]
+                n_Aia = conf["analysis"]["fiducial"]["n_Aia"]
+                tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
+                tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+                LOGGER.info(f"Using Aia={Aia} from the config")
+            else:
+                LOGGER.info(f"Using Aia={tomo_Aia} from the function call")
+
+            if bta is None and extended_nla:
+                bta = conf["analysis"]["fiducial"]["bta"]
+                LOGGER.info(f"Using bta={bta} from the config")
+            else:
+                LOGGER.info(f"Using bta={bta} from the function call")
+
+            if extended_nla:
+                wl_kappa_map = kg + tomo_Aia * (ia + bta * ds)
+                LOGGER.info("Using delta-NLA")
+            else:
+                wl_kappa_map = kg + tomo_Aia * ia
+                LOGGER.info("Using standard NLA")
 
             gamma1 = []
             gamma2 = []
@@ -272,7 +306,7 @@ def forward_model_fiducial_cosmogrid(map_dir, conf=None, with_lensing=True, with
 
                     dg = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
                     counts_map = clustering.galaxy_density_to_count(
-                        tomo_n_gal, dg, tomo_bias, conf=conf, systematics_map=None
+                        tomo_n_gal, dg, tomo_bias, systematics_map=None
                     ).astype(int)
 
                     with tf.device("/CPU:0"):
@@ -312,13 +346,8 @@ def forward_model_fiducial_cosmogrid(map_dir, conf=None, with_lensing=True, with
             patch_pix = patches_pix_dict["maglim"][0]
             maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
 
-            bg = conf["analysis"]["fiducial"]["bg"]
-            n_bg = conf["analysis"]["fiducial"]["n_bg"]
-
             maglim_bins = conf["survey"]["maglim"]["z_bins"]
-            tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
             tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
-            tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
 
             dg = []
             for z_bin in maglim_bins:
@@ -336,11 +365,47 @@ def forward_model_fiducial_cosmogrid(map_dir, conf=None, with_lensing=True, with
             dg_dv = dg_patch[data_vec_pix]
 
             # density contrast to count
+            if tomo_bg is None:
+                if conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]:
+                    bg = conf["analysis"]["fiducial"]["bg"]
+                    n_bg = conf["analysis"]["fiducial"]["n_bg"]
+                    tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
+                    tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+                elif conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]:
+                    tomo_bg = np.array(
+                        [conf["analysis"]["fiducial"][f"bg{i}"] for i in range(1, len(maglim_bins) + 1)]
+                    )
+                LOGGER.info(f"Using bg={tomo_bg} from the config")
+            else:
+                LOGGER.info(f"Using bg={tomo_bg} from the function call")
+
+            if tomo_qbg is None:
+                if conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]:
+                    if conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]:
+                        bg = conf["analysis"]["fiducial"]["qbg"]
+                        n_bg = conf["analysis"]["fiducial"]["n_qbg"]
+                        tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
+                        tomo_qbg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+                    elif conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]:
+                        tomo_qbg = np.array(
+                            [conf["analysis"]["fiducial"][f"qbg{i}"] for i in range(1, len(maglim_bins) + 1)]
+                        )
+                    LOGGER.info(f"Using qbg={tomo_qbg} from the config")
+                    qdg_dv = dg_dv**2 * np.sign(dg_dv)
+                else:
+                    tomo_qbg = None
+                    qdg_dv = None
+                    LOGGER.info("No quadratic biasing")
+            else:
+                LOGGER.info(f"Using qbg={tomo_qbg} from the function call")
+                qdg_dv = dg_dv**2 * np.sign(dg_dv)
+
             gc_count_dv = clustering.galaxy_density_to_count(
                 tomo_n_gal_maglim,
                 dg_dv,
                 tomo_bg,
-                conf=conf,
+                qdg_dv,
+                tomo_qbg,
                 mask=maglim_mask,
                 nest=True,
             )
