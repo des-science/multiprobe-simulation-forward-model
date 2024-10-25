@@ -238,6 +238,8 @@ def forward_model_cosmogrid(
             repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
             hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
 
+            extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"] if bta is None else True
+
             kg = []
             ia = []
             ds = []
@@ -245,26 +247,27 @@ def forward_model_cosmogrid(
             for z_bin in metacal_bins:
                 kg.append(hp.ud_grade(f[f"map/kg/{z_bin}"], n_side))
                 ia.append(hp.ud_grade(f[f"map/ia/{z_bin}"], n_side))
-                ia.append(hp.ud_grade(f[f"map/ds/{z_bin}"], n_side))
+                if extended_nla:
+                    ds.append(hp.ud_grade(f[f"map/ds/{z_bin}"], n_side))
                 if noisy:
                     dg.append(hp.ud_grade(f[f"map/dg/{z_bin}"], n_side))
             kg = np.stack(kg, axis=-1)
             ia = np.stack(ia, axis=-1)
-            ds = np.stack(ds, axis=-1)
+            if extended_nla:
+                ds = np.stack(ds, axis=-1)
             if noisy:
                 dg = np.stack(dg, axis=-1)
 
             # create the noiseless fiducial map
-            extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"] if bta is None else True
 
             if tomo_Aia is None:
                 Aia = conf["analysis"]["fiducial"]["Aia"]
                 n_Aia = conf["analysis"]["fiducial"]["n_Aia"]
                 tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
                 tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
-                LOGGER.info(f"Using Aia={Aia} from the config")
+                LOGGER.info(f"Using tomo_Aia={tomo_Aia} from the config")
             else:
-                LOGGER.info(f"Using Aia={tomo_Aia} from the function call")
+                LOGGER.info(f"Using tomo_Aia={tomo_Aia} from the function call")
 
             if bta is None and extended_nla:
                 bta = conf["analysis"]["fiducial"]["bta"]
@@ -343,11 +346,11 @@ def forward_model_cosmogrid(
             wl_gamma_patch = None
 
         if with_clustering:
-            patch_pix = patches_pix_dict["maglim"][0]
-            maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
-
             maglim_bins = conf["survey"]["maglim"]["z_bins"]
             tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
+
+            patch_pix = np.stack([patches_pix_dict["maglim"][i][0] for i in range(len(maglim_bins))], axis=-1)
+            maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
 
             dg = []
             for z_bin in maglim_bins:
@@ -358,8 +361,10 @@ def forward_model_cosmogrid(
             dg_patch = np.zeros_like(dg)
             dg_patch[patch_pix] = dg[patch_pix]
 
-            # subtract and divide by mean (within the patch)
-            dg_patch[patch_pix] = (dg_patch[patch_pix] - np.mean(dg_patch[patch_pix])) / np.mean(dg_patch[patch_pix])
+            # subtract and divide by mean (within the patch and tomographic bin)
+            dg_patch[patch_pix] = (dg_patch[patch_pix] - np.mean(dg_patch[patch_pix], axis=0)) / np.mean(
+                dg_patch[patch_pix], axis=0
+            )
 
             dg_patch = maps.tomographic_reorder(dg_patch, r2n=True)
             dg_dv = dg_patch[data_vec_pix]
@@ -375,9 +380,9 @@ def forward_model_cosmogrid(
                     tomo_bg = np.array(
                         [conf["analysis"]["fiducial"][f"bg{i}"] for i in range(1, len(maglim_bins) + 1)]
                     )
-                LOGGER.info(f"Using bg={tomo_bg} from the config")
+                LOGGER.info(f"Using tomo_bg={tomo_bg} from the config")
             else:
-                LOGGER.info(f"Using bg={tomo_bg} from the function call")
+                LOGGER.info(f"Using tomo_bg={tomo_bg} from the function call")
 
             if tomo_qbg is None:
                 if conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]:
@@ -390,14 +395,14 @@ def forward_model_cosmogrid(
                         tomo_qbg = np.array(
                             [conf["analysis"]["fiducial"][f"qbg{i}"] for i in range(1, len(maglim_bins) + 1)]
                         )
-                    LOGGER.info(f"Using qbg={tomo_qbg} from the config")
+                    LOGGER.info(f"Using tomo_qbg={tomo_qbg} from the config")
                     qdg_dv = dg_dv**2 * np.sign(dg_dv)
                 else:
                     tomo_qbg = None
                     qdg_dv = None
                     LOGGER.info("No quadratic biasing")
             else:
-                LOGGER.info(f"Using qbg={tomo_qbg} from the function call")
+                LOGGER.info(f"Using tomo_qbg={tomo_qbg} from the function call")
                 qdg_dv = dg_dv**2 * np.sign(dg_dv)
 
             gc_count_dv = clustering.galaxy_density_to_count(

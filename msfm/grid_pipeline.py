@@ -120,7 +120,7 @@ class GridPipeline(MSFMpipeline):
                 RAM usage, especially if there's more than one dataset within the same script.
             n_prefetch (int, optional): Number of dataset elements to prefetch.
             is_eval (bool, optional): If this is True, then the dataset won't be shuffled repeatedly, such that one can
-                go through it deterministically exactly once. Defaults to False.
+                go through it deterministically exactly once. Defaults to True.
             eval_seed (int, optional): Fixed seed for evaluation. Defaults to 32.
             file_name_shuffle_seed (int, optional): Defaults to 17.
             examples_shuffle_seed (int, optional): Defaults to 67.

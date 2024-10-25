@@ -216,12 +216,6 @@ def postprocess_metacal_bin(
         )
         # shape (n_patches, data_vec_len)
         kappa_dvs = postprocess_lensing(full_sky_ds, conf, pixel_file, i_z)
-
-        # in this old implementation, only ds is stored and not the product with IA. This lacks mode removal
-        # # shape (n_patches, data_vec_len)
-        # delta_dvs = postprocess_clustering(full_sky_map, conf, i_z, simset, pixel_file, "metacal")
-        # # this is not a kappa map, but to keep the function signature consistent
-        # kappa_dvs = delta_dvs
     else:
         raise ValueError(f"Unknown input map type {in_map_type} for metacal/weak lensing")
 
