@@ -198,6 +198,7 @@ def forward_model_cosmogrid(
     with_clustering=True,
     tomo_bg=None,
     tomo_qbg=None,
+    noise_seed=12,
 ):
     """Take a full-sky CosmoGrid maps as they are projected with UFalcon and transform them into fiducial probe maps
     that are in the same format as the (synthetic) observations like a gamma map for weak lensing, no smoothing, etc.
@@ -248,7 +249,12 @@ def forward_model_cosmogrid(
                 kg.append(hp.ud_grade(f[f"map/kg/{z_bin}"], n_side))
                 ia.append(hp.ud_grade(f[f"map/ia/{z_bin}"], n_side))
                 if extended_nla:
-                    ds.append(hp.ud_grade(f[f"map/ds/{z_bin}"], n_side))
+                    full_sky_ia = hp.ud_grade(f[f"map/ia/{z_bin}"], n_side)
+                    full_sky_dg = hp.ud_grade(f[f"map/dg/{z_bin}"], n_side)
+                    ds.append(
+                        (full_sky_ia - np.mean(full_sky_ia))
+                        * ((full_sky_dg - np.mean(full_sky_dg)) / np.mean(full_sky_dg))
+                    )
                 if noisy:
                     dg.append(hp.ud_grade(f[f"map/dg/{z_bin}"], n_side))
             kg = np.stack(kg, axis=-1)
@@ -282,6 +288,16 @@ def forward_model_cosmogrid(
                 wl_kappa_map = kg + tomo_Aia * ia
                 LOGGER.info("Using standard NLA")
 
+            if noisy:
+                tomo_bias = conf["survey"]["metacal"]["galaxy_bias"]
+                tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
+                dg = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
+                counts_map = clustering.galaxy_density_to_count(
+                    tomo_n_gal, dg, tomo_bias, systematics_map=None
+                ).astype(int)
+
+                tomo_gamma_cat, _ = files.load_noise_file(conf)
+
             gamma1 = []
             gamma2 = []
             for i in range(wl_kappa_map.shape[-1]):
@@ -303,14 +319,7 @@ def forward_model_cosmogrid(
                     import tensorflow as tf
                     import tensorflow_probability as tfp
 
-                    tomo_bias = conf["survey"]["metacal"]["galaxy_bias"]
-                    tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
-                    tomo_gamma_cat, _ = files.load_noise_file(conf)
-
-                    dg = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
-                    counts_map = clustering.galaxy_density_to_count(
-                        tomo_n_gal, dg, tomo_bias, systematics_map=None
-                    ).astype(int)
+                    tf.random.set_seed(noise_seed)
 
                     with tf.device("/CPU:0"):
                         counts = counts_map[patch_pix, i]
@@ -416,7 +425,7 @@ def forward_model_cosmogrid(
             )
 
             if noisy:
-                gc_count_dv += clustering.galaxy_count_to_noise(gc_count_dv, n_noise=1)[0]
+                gc_count_dv += clustering.galaxy_count_to_noise(gc_count_dv, n_noise=1, np_seed=noise_seed)[0]
 
             gc_count_patch = np.zeros((n_pix, gc_count_dv.shape[-1]))
             gc_count_patch[data_vec_pix] = gc_count_dv
