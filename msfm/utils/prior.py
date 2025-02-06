@@ -11,6 +11,7 @@ by Janis Fluri
 import numpy as np
 from scipy.spatial import Delaunay
 from scipy.optimize import fsolve
+from scipy.stats import norm
 
 from msfm.utils import files, parameters, logger, parameters
 
@@ -38,7 +39,6 @@ def in_grid_prior(cosmos, conf=None, params=None):
         contained within the prior.
     """
     conf = files.load_config(conf)
-
     params = parameters.get_parameters(params, conf)
 
     # make the params 2d
@@ -77,11 +77,11 @@ def in_grid_prior(cosmos, conf=None, params=None):
     return in_prior
 
 
-def log_posterior(cosmos, log_probs, conf=None, params=None):
+def log_posterior(cosmos, log_probs, conf=None, params=None, gaussian_kwargs=None):
     """Vectorized version of the log posterior to be used in the MCMC runs, for example with emcee.
 
     Args:
-        cosmos (np.ndarray): A 2D array of cosmological parameterss with shape (n_cosmos, n_params), where n_params
+        cosmos (np.ndarray): A 2D array of cosmological parameters with shape (n_cosmos, n_params), where n_params
             has to be in the right ordering (as defined in the config) and n_theta corresponds to n_cosmos.
         log_probs (np.ndarray): Log probabilities associated with the parameters of shape (n_cosmos, 1) or (n_cosmos,).
             These are output values of the Gaussian Process emulator for example.
@@ -98,7 +98,12 @@ def log_posterior(cosmos, log_probs, conf=None, params=None):
         np.ndarray: The log posterior values obtained by restricting the emulator's predictions to the prior range.
     """
     # - infinity if outside the pior range, given input probability otherwise
-    return np.where(in_grid_prior(cosmos, conf, params), np.squeeze(log_probs), -np.inf)
+    log_post = np.where(in_grid_prior(cosmos, conf, params), np.squeeze(log_probs), -np.inf)
+
+    if gaussian_kwargs is not None:
+        log_post += gaussian_prior(cosmos, conf, params, **gaussian_kwargs)
+
+    return log_post
 
 
 def get_min_w0(Om, margin=0.01):
@@ -115,3 +120,18 @@ def get_min_w0(Om, margin=0.01):
     f = lambda w: 1.0 - ((Om - 1.0) / Om * (1.0 + w)) ** (1.0 / (3.0 * w))
     w0 = fsolve(f, -1.05)[0]
     return w0 + margin
+
+
+def gaussian_prior(cosmos, conf=None, params=None, std_fac=0.01, params_unaffected=["Om", "s8"]):
+    """For debugging purposes only! This has no physical meaing"""
+    conf = files.load_config(conf)
+    params = parameters.get_parameters(params, conf)
+    fiducials = parameters.get_fiducials(params, conf)
+    prior_size = np.squeeze(np.diff(parameters.get_prior_intervals(params, conf)))
+
+    log_prior = np.zeros(cosmos.shape[0])
+    for i, param in enumerate(params):
+        if not param in params_unaffected:
+            log_prior += norm(loc=fiducials[i], scale=std_fac * prior_size[i]).logpdf(cosmos[:, i])
+
+    return log_prior
