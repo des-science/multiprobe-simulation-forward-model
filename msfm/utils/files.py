@@ -10,7 +10,7 @@ Functions to handle the configuration and read in the survey files on the data v
 import os, h5py, warnings
 import numpy as np
 
-from msfm.utils import logger, input_output, filenames, scales
+from msfm.utils import logger, input_output, filenames, scales, maps
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -209,6 +209,27 @@ def get_tomo_dv_masks(conf=None):
         "metacal": np.array(masks_metacal).T,
         "maglim": np.array(masks_maglim).T,
     }
+
+    return masks_dict
+
+
+def get_tomo_masks(conf=None, nest_out=True):
+    conf = load_config(conf)
+
+    n_pix = conf["analysis"]["n_pix"]
+    data_vec_pix, _, _, _ = load_pixel_file(conf)
+    dv_masks_dict = get_tomo_dv_masks(conf)
+
+    masks_dict = {}
+    for sample in dv_masks_dict.keys():
+        dv_masks = dv_masks_dict[sample]
+        masks = np.zeros((n_pix, dv_masks.shape[-1]))
+        masks[data_vec_pix] = dv_masks
+
+        if nest_out == False:
+            masks = maps.tomographic_reorder(masks, n2r=True)
+
+        masks_dict[sample] = masks
 
     return masks_dict
 
