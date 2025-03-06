@@ -443,3 +443,47 @@ def forward_model_cosmogrid(
             gc_count_patch = None
 
         return wl_gamma_patch, gc_count_patch
+
+
+def make_shape_noise_map(wl_counts_map, conf, noise_seed=12):
+    import tensorflow as tf
+    import tensorflow_probability as tfp
+
+    tf.random.set_seed(noise_seed)
+
+    # constants
+    n_pix = conf["analysis"]["n_pix"]
+    _, patches_pix_dict, _, _ = files.load_pixel_file(conf)
+
+    tomo_gamma_cat, _ = files.load_noise_file(conf)
+
+    gamma1 = []
+    gamma2 = []
+    for i in range(wl_counts_map.shape[-1]):
+        patch_pix = patches_pix_dict["metacal"][i][0]
+
+        with tf.device("/CPU:0"):
+            counts = wl_counts_map[patch_pix, i]
+
+            # create joint distribution, as this is faster than random indexing
+            gamma_abs = tf.math.abs(tomo_gamma_cat[i][:, 0] + 1j * tomo_gamma_cat[i][:, 1])
+            w = tomo_gamma_cat[i][:, 2]
+            cat_dist = tfp.distributions.Empirical(samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1)
+
+            gamma1_noise, gamma2_noise = lensing.noise_gen(counts, cat_dist, n_noise_per_example=1)
+            gamma1_noise = gamma1_noise[:, 0]
+            gamma2_noise = gamma2_noise[:, 0]
+
+        gamma1_patch = np.zeros(n_pix, dtype=np.float32)
+        gamma1_patch[patch_pix] = gamma1_noise
+
+        gamma2_patch = np.zeros(n_pix, dtype=np.float32)
+        gamma2_patch[patch_pix] = gamma2_noise
+
+        gamma1.append(gamma1_patch)
+        gamma2.append(gamma2_patch)
+
+    gamma1 = np.stack(gamma1, axis=-1)
+    gamma2 = np.stack(gamma2, axis=-1)
+
+    return np.stack([gamma1, gamma2], axis=-1)
