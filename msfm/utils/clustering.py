@@ -107,8 +107,15 @@ def galaxy_count_to_noise(ng, n_noise, np_seed=None):
     if isinstance(ng, np.ndarray):
         rng = np.random.default_rng(np_seed)
 
-        # draw noise, poisson realizations along axis
-        noisy_ngs = rng.poisson(np.repeat(ng[np.newaxis, :], n_noise, axis=0), size=None).astype(np.float32)
+        try:
+            # draw noise, poisson realizations along axis
+            noisy_ngs = rng.poisson(np.repeat(ng[np.newaxis, :], n_noise, axis=0), size=None).astype(np.float32)
+        except ValueError:
+            out_dir = os.getcwd()
+            np.save(os.path.join(out_dir, f"ng_seed={np_seed}.npy"), ng)
+            print(f"Saved ng to {out_dir}")
+            print("nan count", np.sum(np.isnan(ng)))
+            print("neg count", np.sum(ng < 0))
 
         # shape (n_noise, n_pix) is broadcast along the first axis
         poisson_noise = noisy_ngs - ng
