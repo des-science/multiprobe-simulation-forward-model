@@ -4,7 +4,7 @@
 Created March 2024
 Author: Arne Thomsen
 
-These utils used to be in run_data_vectors.py, but were moved here to facilitate the CosmoGridV1.1 all-in-one 
+These utils used to be in run_data_vectors.py, but were moved here to facilitate the CosmoGridV1.1 all-in-one
 processing where no intermediate .h5 files are stored.
 
 TODO the function argument orders in this file aren't consistent, this should be fixed at some point
@@ -13,7 +13,7 @@ TODO the function argument orders in this file aren't consistent, this should be
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-import os, time, h5py, copy_guardian
+import os, time, h5py, copy_guardian, pickle
 from msfm.utils import logger, filenames, imports, lensing, clustering, maps, input_output
 
 hp = imports.import_healpy()
@@ -105,6 +105,8 @@ def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
 
 
 def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_file):
+    # hard-coded with respect to the filenames
+    i_sobol = int(cosmo_dir_in[-7:-1])
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
     rng = np.random.default_rng()
@@ -147,6 +149,7 @@ def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fi
                             pixel_file,
                             noise_file,
                             full_maps_file,
+                            i_sobol=i_sobol,
                         )
                     elif sample == "maglim":
                         data_vecs = postprocess_maglim_bin(
@@ -157,8 +160,7 @@ def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fi
                             i_z,
                             "grid",
                             pixel_file,
-                            # hard-coded with respect to the filenames
-                            i_sobol=int(cosmo_dir_in[-7:-1]),
+                            i_sobol=i_sobol,
                             rng=rng,
                         )
 
@@ -201,14 +203,14 @@ def _set_up_per_cosmo_dv_container(conf, pixel_file):
 
 
 def postprocess_metacal_bin(
-    conf, full_sky_map, in_map_type, out_map_type, i_z, simset, pixel_file, noise_file, full_maps_file
+    conf, full_sky_map, in_map_type, out_map_type, i_z, simset, pixel_file, noise_file, full_maps_file, i_sobol
 ):
     if in_map_type in ["kg", "ia"]:
         # shape (n_patches, data_vec_len)
         kappa_dvs = postprocess_lensing(full_sky_map, conf, pixel_file, i_z)
     elif in_map_type == "dg" and out_map_type == "sn":
         # shape (n_patches, n_noise_per_example, data_vec_len)
-        kappa_dvs = postprocess_shape_noise(full_sky_map, conf, simset, pixel_file, noise_file, i_z)
+        kappa_dvs = postprocess_shape_noise(full_sky_map, conf, simset, pixel_file, noise_file, i_z, i_sobol)
     elif in_map_type == "dg" and out_map_type == "ds":
         full_sky_ia = _read_full_sky_bin(conf, full_maps_file, "ia", conf["survey"]["metacal"]["z_bins"][i_z])
         full_sky_ds = (full_sky_ia - np.mean(full_sky_ia)) * (
@@ -293,7 +295,7 @@ def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
     return kappa_dvs
 
 
-def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file, i_z):
+def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file, i_z, i_sobol):
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
     n_patches = conf["analysis"]["n_patches"]
@@ -310,9 +312,14 @@ def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file
     tomo_gamma_cat, _ = noise_file
     gamma_cat = tomo_gamma_cat[i_z]
 
-    # TODO the clustering bias for metacal still has to be determined
-    tomo_bias = conf["survey"]["metacal"]["galaxy_bias"]
+    # metacal clustering
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    with open(os.path.join(repo_dir, conf["files"]["metacal_bias"]), "rb") as f:
+        bias_table = pickle.load(f)
+    tomo_bias = bias_table[f"cosmo_{i_sobol:06}"]
     bias = tomo_bias[i_z]
+
     tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
     n_bar = tomo_n_gal[i_z]
 
@@ -332,6 +339,7 @@ def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file
 
     # number of galaxies per pixel
     counts_full = clustering.galaxy_density_to_count(n_bar, delta_full_sky, bias, systematics_map=None).astype(int)
+    counts_full = np.random.poisson(counts_full).astype(int)
 
     kappa_dvs = np.zeros((n_patches, n_noise_per_example, data_vec_len), dtype=np.float32)
     for i_patch, patch_pix in enumerate(patches_pix):
