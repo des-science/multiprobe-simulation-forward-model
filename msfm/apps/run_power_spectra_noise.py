@@ -4,7 +4,7 @@ Created August 2024
 Author: Arne Thomsen
 
 Generate white noise maps from independent, pixel-wise Gaussian samples and compute their power spectra. This is needed
-to make the power spectra consistent with the map-level summary statistics in terms of the scale cuts. Because of 
+to make the power spectra consistent with the map-level summary statistics in terms of the scale cuts. Because of
 the linearity of Gaussians, the noise can be drawn for a fixed standard deviation of one and rescaled later.
 """
 
@@ -22,7 +22,7 @@ LOGGER = logger.get_logger(__file__)
 
 
 def get_tasks(args):
-    """Returns a list of task indices to be executed by the workers. Each index corresponds to one cosmology"""
+    """Returns a list of task indices to be executed by the workers"""
     args = setup(args)
 
     n_indices = int(np.ceil(args.n_noise / args.n_noise_per_index))
@@ -61,7 +61,9 @@ def setup(args):
     parser = argparse.ArgumentParser(description=description, add_help=True)
 
     parser.add_argument("--n_noise", type=int, required=True, help="number of white noise samples to generate")
-    parser.add_argument("--n_noise_per_index", type=int, default=int(1e5), help="number of noise samples per index")
+    parser.add_argument(
+        "--n_noise_per_index", type=int, default=int(1e5), help="number of noise samples per task/index"
+    )
     parser.add_argument(
         "--dir_out",
         type=str,
@@ -122,7 +124,7 @@ def main(indices, args):
     # TODO this assumes that the mask is the same for the different galaxy samples and tomographic bins
     base_patch = patches_pix_dict["metacal"][0][0]
 
-    # every index corresponds to one grid cosmology
+    # every index corresponds to one worker and produces n_noise_per_index samples
     for index in indices:
         rng = np.random.default_rng(args.np_seed + index)
 

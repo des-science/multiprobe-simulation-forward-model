@@ -4,14 +4,14 @@
 Created March 2024
 Author: Arne Thomsen
 
-Transform the full sky weak lensing signal and intrinsic alignment maps into multiple survey footprint cut-outs and 
+Transform the full sky weak lensing signal and intrinsic alignment maps into multiple survey footprint cut-outs and
 store them in .tfrecord files. The parallelization is done over the .tfrecord files, every jobarray element corresponds
 to one.
 
 For the grid, the main loop runs over the cosmologies.
 
-Meant for 
- - Euler (CPU nodes, local scratch) 
+Meant for
+ - Euler (CPU nodes, local scratch)
  - esub jobarrays
  - Read the CosmoGrid directly from the SAN
  - CosmoGridV1.1
@@ -19,7 +19,7 @@ Meant for
 
 import numpy as np
 import tensorflow as tf
-import os, argparse, warnings, time, yaml, h5py, pickle
+import os, argparse, warnings, time, yaml, h5py, pickle, glob
 
 from scipy.stats import qmc
 from sobol_seq import i4_sobol
@@ -675,8 +675,10 @@ def merge(indices, args):
         simset="grid",
         return_pattern=True,
     )
+    tfr_files = glob.glob(tfr_pattern)
+    tfr_files = sorted(tfr_files)
 
-    cls_dset = tf.data.Dataset.list_files(tfr_pattern)
+    cls_dset = tf.data.Dataset.list_files(tfr_files)
     # flat_map to not mix cosmologies
     cls_dset = cls_dset.flat_map(tf.data.TFRecordDataset)
     # the default arguments for parse_inverse_fiducial_cls are fine since we're not in graph mode
