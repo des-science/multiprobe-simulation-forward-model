@@ -113,7 +113,7 @@ def get_peaks(
                     kappa_E=[maps[:, i], maps[:, j]],
                     scales=current_theta_fwhm,
                     NSIDE=n_side,
-                    verbosity=1,
+                    # verbosity=1,
                 )
 
                 # compute cross peaks
