@@ -4,14 +4,14 @@
 Created March 2024
 Author: Arne Thomsen
 
-Transform the full sky weak lensing signal and intrinsic alignment maps into multiple survey footprint cut-outs and 
+Transform the full sky weak lensing signal and intrinsic alignment maps into multiple survey footprint cut-outs and
 store them in .tfrecord files. The parallelization is done over the .tfrecord files, every jobarray element corresponds
-to one. 
+to one.
 
-For the fiducial, the main loop runs over the different permutations (simulation runs). 
+For the fiducial, the main loop runs over the different permutations (simulation runs).
 
-Meant for 
- - Euler (CPU nodes, local scratch) 
+Meant for
+ - Euler (CPU nodes, local scratch)
  - esub jobarrays
  - Read the CosmoGrid directly from the SAN
  - CosmoGridV1.1
@@ -112,6 +112,11 @@ def setup(args):
         default="perlmutter",
         choices=("perlmutter", "euler"),
         help="the cluster to execute on",
+    )
+    parser.add_argument(
+        "--no_derivatives",
+        action="store_true",
+        help="do not compute the derivatives",
     )
     parser.add_argument(
         "--file_suffix",
@@ -354,6 +359,10 @@ def main(indices, args):
                         (n_patches, n_bg_perts, n_noise_per_example, n_ell, n_cross_bins), dtype=np.float32
                     )
 
+                    if args.no_derivatives:
+                        LOGGER.warning("Not computing the derivatives")
+                        cosmo_dirs_in = [cosmo_dirs_in[0]]
+
                     # loop over the perturbations in the right order, there's 2 * n_cosmos + 1 iterations
                     for i_cosmo, cosmo_dir_in in LOGGER.progressbar(
                         enumerate(cosmo_dirs_in),
@@ -439,43 +448,6 @@ def main(indices, args):
                                 alm_kg, all_alm_sn[i_patch], alm_dg, all_alm_pn[i_patch]
                             )
 
-                            # if args.debug and i_cosmo < 2:
-                            #     import matplotlib.pyplot as plt
-
-                            #     n_pix = conf["analysis"]["n_pix"]
-
-                            #     i_z = 0
-                            #     i_noise = 0
-
-                            #     cl_alm = hp.alm2cl(alm_kg[:, i_z] + alm_sn[i_noise, :, i_z])
-                            #     cl_cl = cl_perts[i_patch, i_cosmo, i_noise, :, i_z]
-
-                            #     hp_map = np.zeros((n_pix))
-                            #     hp_map[pixel_file[0]] = kg[:, i_z] + sn_samples[i_noise, :, i_z]
-                            #     hp_map = hp.reorder(hp_map, n2r=True)
-                            #     hp.mollview(hp_map, title="pre")
-                            #     plt.savefig(f"./plots/map_pre_patch_{i_patch}_{i_cosmo}.png")
-                            #     cl_map = hp.anafast(hp_map)
-
-                            #     fig, ax = plt.subplots()
-                            #     ax.plot(cl_alm, label="alm", alpha=0.5)
-                            #     ax.plot(cl_cl, label="cl", alpha=0.5)
-                            #     ax.plot(cl_map, label="map", alpha=0.5)
-                            #     ax.legend()
-                            #     fig.savefig(f"./plots/pre_patch_{i_patch}_{i_cosmo}.png")
-
-                            #     hp_map = np.zeros((n_pix))
-                            #     hp_map[pixel_file[0]] = kg[:, i_z]
-                            #     hp_map = hp.reorder(hp_map, n2r=True)
-                            #     hp.mollview(hp_map, title="pre (kg)")
-                            #     plt.savefig(f"./plots/kg_patch_{i_patch}_{cosmo_pert_labels[i_cosmo]}_pre.png")
-
-                            #     hp_map = np.zeros((n_pix))
-                            #     hp_map[pixel_file[0]] = sn_samples[i_noise, :, i_z]
-                            #     hp_map = hp.reorder(hp_map, n2r=True)
-                            #     hp.mollview(hp_map, title="pre (sn)")
-                            #     plt.savefig(f"./plots/sn_patch_{i_patch}_{cosmo_pert_labels[i_cosmo]}_pre.png")
-
                     if args.debug:
                         state = {
                             "kg_perts": kg_perts,
@@ -496,42 +468,6 @@ def main(indices, args):
                 # the .tfrecord entries are individual examples
                 LOGGER.info(f"Writing the {n_patches} patches to the .tfrecord")
                 for i_patch in range(n_patches):
-                    # if args.debug:
-                    #     import matplotlib.pyplot as plt
-
-                    #     n_pix = conf["analysis"]["n_pix"]
-                    #     i_z = 0
-                    #     i_noise = 0
-                    #     for j, label in enumerate(cosmo_pert_labels[:2]):
-                    #         cl_alm = cl_perts[i_patch, j, i_noise, :, i_z]
-
-                    #         hp_map = np.zeros((n_pix))
-                    #         hp_map[pixel_file[0]] = (
-                    #             kg_perts[i_patch, j, :, i_z] + all_sn_samples[i_patch, i_noise, :, i_z]
-                    #         )
-                    #         hp_map = hp.reorder(hp_map, n2r=True)
-                    #         hp.mollview(hp_map, title="post")
-                    #         plt.savefig(f"./plots/map_post_patch_{i_patch}_{label}.png")
-                    #         cl_map = hp.anafast(hp_map)
-
-                    #         fig, ax = plt.subplots()
-                    #         ax.plot(cl_map, label="map", alpha=0.5)
-                    #         ax.plot(cl_alm, label="alm", alpha=0.5)
-                    #         ax.legend()
-                    #         fig.savefig(f"./plots/post_patch_{i_patch}_{label}.png")
-
-                    #         hp_map = np.zeros((n_pix))
-                    #         hp_map[pixel_file[0]] = kg_perts[i_patch, j, :, i_z]
-                    #         hp_map = hp.reorder(hp_map, n2r=True)
-                    #         hp.mollview(hp_map, title="post (kg)")
-                    #         plt.savefig(f"./plots/kg_patch_{i_patch}_{label}_post.png")
-
-                    #         hp_map = np.zeros((n_pix))
-                    #         hp_map[pixel_file[0]] = all_sn_samples[i_patch, i_noise, :, i_z]
-                    #         hp_map = hp.reorder(hp_map, n2r=True)
-                    #         hp.mollview(hp_map, title="post (kg)")
-                    #         plt.savefig(f"./plots/sn_patch_{i_patch}_{label}_post.png")
-
                     serialized = _serialize_and_verify(
                         n_noise_per_example,
                         # labels

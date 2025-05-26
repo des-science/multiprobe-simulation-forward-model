@@ -3,8 +3,8 @@
 # postprocessing
 - name: fiducial_tfrecords
   cmd: esub ../../msfm/apps/run_fiducial_postprocessing.py \
-    --n_files=1000 \
-    --config=../../configs/v14/extended.yaml \
+    --n_files=1000 --no_derivatives \
+    --config=../../configs/v14/simple.yaml \
     --dir_in=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary \
     --dir_out=/pscratch/sd/a/athomsen/v11desy3/v14/extended/tfrecords/fiducial \
     --cosmogrid_version="1.1" \

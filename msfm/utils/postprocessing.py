@@ -57,7 +57,17 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
 
                 if sample == "metacal":
                     data_vecs = postprocess_metacal_bin(
-                        conf, full_sky_bin, in_map_type, out_map_type, i_z, "fiducial", pixel_file, noise_file
+                        conf,
+                        full_sky_bin,
+                        in_map_type,
+                        out_map_type,
+                        i_z,
+                        "fiducial",
+                        pixel_file,
+                        noise_file,
+                        full_maps_file,
+                        # TODO the metacal bias table needs to include a fiducial entry
+                        i_sobol=1,
                     )
                 elif sample == "maglim":
                     data_vecs = postprocess_maglim_bin(
@@ -82,7 +92,7 @@ def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
 
     data_vec_container = {}
     for out_map_type in out_map_types:
-        if out_map_type in ["kg", "ia"]:
+        if out_map_type in ["kg", "ia", "ds"]:
             n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
             dvs_shape = (n_patches, data_vec_len, n_z_bins)
         elif out_map_type == "sn":
