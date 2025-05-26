@@ -455,13 +455,13 @@ esub ../msfm/apps/run_fiducial_preprocessing.py \
 esub msfm/apps/run_fiducial_preprocessing.py \
     --n_files=1000 \
     --config=configs/v9/linear_bias.yaml \
-    --dir_in=/global/cfs/cdirs/des/cosmogrid/v11desy3 \
+    --dir_in=/pscratch/sd/a/athomsen/v11desy3 \
     --dir_out=/pscratch/sd/a/athomsen/v11desy3/v9/linear_bias/tfrecords/fiducial \
     --cosmogrid_version="1.1" \
-    --mode=jobarray --function=all --n_jobs=32 --max_nnodes=100 --tasks="0>32" --per_node_accounting \
+    --mode=jobarray --function=main --n_jobs=10 --max_nnodes=100 --tasks="0>10" --per_node_accounting \
     --job_name=tfr_fidu_node --system=slurm --source_file=pipelines/v9/perlmutter_setup.sh \
     --main_time=0.5 \
-    --additional_slurm_args="--account=des,--constraint=cpu,--qos=debug" --keep_submit_files --test
+    --additional_slurm_args="--account=des,--constraint=cpu,--qos=debug"
 
 # no smoothing
 esub msfm/apps/run_fiducial_preprocessing.py \
