@@ -7,7 +7,7 @@ Author: Arne Thomsen
 Utilities to forward model (mock) observations to be consistent with the CosmoGrid maps.
 """
 
-import os, h5py
+import os, h5py, pickle
 import numpy as np
 from msfm.utils import (
     files,
@@ -199,10 +199,13 @@ def forward_model_cosmogrid(
     map_dir,
     conf=None,
     noisy=False,
+    i_patch=0,
     # lensing
     with_lensing=True,
     tomo_Aia=None,
     bta=None,
+    tomo_bg_metacal=None,
+    i_sobol=None,
     # clustering
     with_clustering=True,
     tomo_bg=None,
@@ -238,8 +241,12 @@ def forward_model_cosmogrid(
     z0 = conf["analysis"]["modelling"]["z0"]
 
     map_file = filenames.get_filename_full_maps(map_dir, with_bary=conf["analysis"]["modelling"]["baryonified"])
+    LOGGER.info(f"Loading the full-sky map from {map_file}")
     with h5py.File(map_file, "r") as f:
         if with_lensing:
+            LOGGER.info(f"Starting with the weak lensing map")
+            LOGGER.timer.start("weak_lensing")
+
             maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
             kappa2gamma_fac, _, _ = lensing.get_kaiser_squires_factors(3 * n_side - 1)
             metacal_bins = conf["survey"]["metacal"]["z_bins"]
@@ -298,11 +305,20 @@ def forward_model_cosmogrid(
                 LOGGER.info("Using standard NLA")
 
             if noisy:
-                tomo_bias = conf["survey"]["metacal"]["galaxy_bias"]
+                if tomo_bg_metacal is not None:
+                    LOGGER.info(f"Using tomo_bg_metacal={tomo_bg_metacal} from the function call")
+                elif i_sobol is not None:
+                    with open(os.path.join(repo_dir, conf["files"]["metacal_bias"]), "rb") as f_metacal:
+                        bias_table = pickle.load(f_metacal)
+                    tomo_bg_metacal = bias_table[f"cosmo_{i_sobol:06}"]
+                    LOGGER.info(f"Using tomo_bg_metacal={tomo_bg_metacal} from the Sobol index {i_sobol}")
+                else:
+                    raise ValueError("Either tomo_bg_metacal or i_sobol must be provided to generate the shape noise")
+
                 tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
                 dg = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
                 counts_map = clustering.galaxy_density_to_count(
-                    tomo_n_gal, dg, tomo_bias, systematics_map=None
+                    tomo_n_gal, dg, tomo_bg_metacal, systematics_map=None
                 ).astype(int)
 
                 tomo_gamma_cat, _ = files.load_noise_file(conf)
@@ -310,7 +326,7 @@ def forward_model_cosmogrid(
             gamma1 = []
             gamma2 = []
             for i in range(wl_kappa_map.shape[-1]):
-                patch_pix = patches_pix_dict["metacal"][i][0]
+                patch_pix = patches_pix_dict["metacal"][i][i_patch]
 
                 # kappa -> gamma (full sky)
                 kappa_alm = hp.map2alm(
@@ -360,14 +376,18 @@ def forward_model_cosmogrid(
             gamma2 = np.stack(gamma2, axis=-1)
 
             wl_gamma_patch = np.stack([gamma1, gamma2], axis=-1)
+            LOGGER.info(f"Finished weak lensing after {LOGGER.timer.elapsed('weak_lensing')}")
         else:
             wl_gamma_patch = None
 
         if with_clustering:
+            LOGGER.info(f"Starting with the galaxy clustering map")
+            LOGGER.timer.start("galaxy_clustering")
+
             maglim_bins = conf["survey"]["maglim"]["z_bins"]
             tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
-            patch_pix = np.stack([patches_pix_dict["maglim"][i][0] for i in range(len(maglim_bins))], axis=-1)
+            patch_pix = np.stack([patches_pix_dict["maglim"][i][i_patch] for i in range(len(maglim_bins))], axis=-1)
             maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
 
             dg = []
@@ -439,6 +459,8 @@ def forward_model_cosmogrid(
             gc_count_patch = np.zeros((n_pix, gc_count_dv.shape[-1]))
             gc_count_patch[data_vec_pix] = gc_count_dv
             gc_count_patch = maps.tomographic_reorder(gc_count_patch, n2r=True)
+
+            LOGGER.info(f"Finished galaxy clustering after {LOGGER.timer.elapsed('galaxy_clustering')}")
         else:
             gc_count_patch = None
 

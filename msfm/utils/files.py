@@ -106,7 +106,7 @@ def load_pixel_file(conf=None):
             maglim_tomo_patches_pix.append(patches_pix)
             maglim_tomo_corresponding_pix.append(corresponding_pix)
 
-    LOGGER.info(f"Loaded the pixel file {pixel_file}")
+    LOGGER.debug(f"Loaded the pixel file {pixel_file}")
 
     # package into dictionaries
     patches_pix_dict = {}
