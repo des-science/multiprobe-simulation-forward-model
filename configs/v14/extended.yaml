@@ -20,7 +20,7 @@ files:
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
   peak_binning: data/peaks/binning/v11_extended.h5
-  metacal_bias: data/metacal_biases_buzzard_0.pkl
+  metacal_bias: data/metacal_biases_buzzard_0.h5
 
 survey:
   name: DESy3
@@ -128,8 +128,8 @@ analysis:
     lensing: [0.0086, 0.0137, 0.0174, 0.0229]
     clustering: [1, 1, 1, 1]
   power_spectra:
-    l_min: 0
-    l_max: 1535
+    l_min: 30
+    l_max: 1500
     n_bins: 33
   peak_statistics:
     n_bins: 15

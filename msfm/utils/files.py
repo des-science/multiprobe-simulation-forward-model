@@ -300,3 +300,15 @@ def load_redshift_distributions(galaxy_sample, conf=None):
         tomo_nz.append(z_dist[:, 1])
 
     return tomo_z, tomo_nz
+
+
+def read_metacal_bias(key, conf=None):
+    conf = load_config(conf)
+
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    metacal_bias_file = os.path.join(repo_dir, conf["files"]["metacal_bias"])
+    with h5py.File(metacal_bias_file, "r") as f:
+        metacal_bias = f[key][:]
+
+    return np.array(metacal_bias)

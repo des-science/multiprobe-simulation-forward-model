@@ -11,7 +11,8 @@ example usage:
 esub ../../msfm/apps/run_single_postprocessing.py \
     --dir_in=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/grid/cosmo_008963 \
     --dir_out=/pscratch/sd/a/athomsen/v11desy3/v14/extended/obs \
-    --suffix_out="test" \
+    --with_lensing --with_clustering \
+    --suffix_out="_test" \
     --msfm_config=../../configs/v14/extended.yaml \
     --debug \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
@@ -43,8 +44,8 @@ def resources(args):
             "main_time": 1,
             "main_n_cores": 8,
             "main_memory": 1952,
-            "merge_time": 2,
-            "merge_n_cores": 32,
+            "merge_time": 0.1,
+            "merge_n_cores": 8,
             "merge_memory": 1952,
         }
     elif args.cluster == "euler":
@@ -88,13 +89,19 @@ def setup(args):
 
     # input arguments to observation.forward_model_cosmogrid
     parser.add_argument(
+        "--noiseless",
+        action="store_true",
+        help="whether to include shape and Poisson noise",
+    )
+    parser.add_argument(
         "--with_lensing",
         action="store_true",
         help="whether to include lensing in the forward model",
     )
     parser.add_argument(
         "--tomo_Aia",
-        type=list,
+        type=float,
+        nargs="+",
         default=None,
     )
     parser.add_argument(
@@ -105,6 +112,7 @@ def setup(args):
     parser.add_argument(
         "--tomo_bg_metacal",
         type=float,
+        nargs="+",
         default=None,
     )
     parser.add_argument(
@@ -114,12 +122,14 @@ def setup(args):
     )
     parser.add_argument(
         "--tomo_bg",
-        type=list,
+        type=float,
+        nargs="+",
         default=None,
     )
     parser.add_argument(
         "--tomo_qbg",
-        type=list,
+        type=float,
+        nargs="+",
         default=None,
     )
 
@@ -184,15 +194,14 @@ def main(indices, args):
 
         # metacal bias logic
         if args.tomo_bg_metacal is None:
-            if "grid" in perm_dir:
+            if "/grid/" in perm_dir:
                 match = re.search(r"cosmo_(\d{6})", perm_dir)
                 i_sobol = int(match.group(1))
-            # TODO for benchmark
-            elif "fiducial" in perm_dir or "benchmark" in perm_dir:
-                # TODO
-                i_sobol = 0
+                tomo_bg_metacal = files.read_metacal_bias(f"cosmo_{i_sobol:06}", conf=msfm_conf)
+            elif "/fiducial/" in perm_dir or "benchmark" in perm_dir:
+                tomo_bg_metacal = files.read_metacal_bias(f"fiducial", conf=msfm_conf)
         else:
-            i_sobol = None
+            tomo_bg_metacal = args.tomo_bg_metacal
 
         obs_maps = []
         obs_cls_raw = []
@@ -206,14 +215,13 @@ def main(indices, args):
             wl_gamma_patch, gc_count_patch = observation.forward_model_cosmogrid(
                 perm_dir,
                 conf=msfm_conf,
-                noisy=True,
+                noisy=not args.noiseless,
                 i_patch=i_patch,
                 # lensing
                 with_lensing=args.with_lensing,
                 tomo_Aia=args.tomo_Aia,
                 bta=args.bta,
-                tomo_bg_metacal=args.tomo_bg_metacal,
-                i_sobol=i_sobol,
+                tomo_bg_metacal=tomo_bg_metacal,
                 # clustering
                 with_clustering=args.with_clustering,
                 tomo_bg=args.tomo_bg,
@@ -275,7 +283,7 @@ def merge(indices, args):
 
     LOGGER.info(f"Merged all files into {out_file}")
 
-    # only remove the files after the above lop has terminated successfully
+    # only remove the files after the above loop has terminated successfully
     for index in indices:
         in_file = os.path.join(args.dir_out, f"{cosmo_name}_obs_maps{args.suffix_out}_{index:04}.h5")
         os.remove(in_file)
