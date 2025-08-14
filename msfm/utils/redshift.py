@@ -11,7 +11,7 @@ from msfm.utils import files
 
 
 def get_tomo_amplitudes(
-    amplitude, exponent, tomo_z, tomo_nz, z0, truncate_nz=False, z_min_quantile=0.05, z_max_quantile=0.95
+    amplitude, exponent, tomo_z, tomo_nz, z0, truncate_nz=True, z_min_quantile=0.05, z_max_quantile=0.95
 ):
     """Parametrization of an effective per redshift bin evolution like in equastions (8) and (9) in DeepLSS
     https://arxiv.org/pdf/2203.09616.pdf. This is suitable both for the intrinsic alignment amplitude and the linear
@@ -27,6 +27,7 @@ def get_tomo_amplitudes(
     Returns:
         list: Per redshift bin amplitude.
     """
+
     tomo_amplitudes = []
     for z, nz in zip(tomo_z, tomo_nz):
         if truncate_nz:
@@ -43,21 +44,18 @@ def get_tomo_amplitudes(
     return np.array(tomo_amplitudes).astype(np.float32)
 
 
-def get_tomo_amplitudes_according_to_config(
-    conf, amplitude, exponent, sample="metacal", truncate_nz=False, z_min_quantile=0.05, z_max_quantile=0.95
-):
+def get_tomo_amplitudes_according_to_config(conf, amplitude, exponent, sample="metacal"):
     tomo_z, tomo_nz = files.load_redshift_distributions(sample, conf)
-    z0 = conf["analysis"]["modelling"]["z0"]
 
     return get_tomo_amplitudes(
         amplitude,
         exponent,
         tomo_z,
         tomo_nz,
-        z0,
-        truncate_nz=truncate_nz,
-        z_min_quantile=z_min_quantile,
-        z_max_quantile=z_max_quantile,
+        z0=conf["analysis"]["modelling"]["z0"],
+        truncate_nz=conf["analysis"]["modelling"]["lensing"]["nla"]["truncate_nz"],
+        z_min_quantile=conf["analysis"]["modelling"]["lensing"]["nla"]["z_min_quantile"],
+        z_max_quantile=conf["analysis"]["modelling"]["lensing"]["nla"]["z_max_quantile"],
     )
 
 
@@ -67,7 +65,7 @@ def get_tomo_amplitudes_vectorized(
     tomo_z,
     tomo_nz,
     z0,
-    truncate_nz: bool = False,
+    truncate_nz: bool = True,
     z_min_quantile: float = 0.05,
     z_max_quantile: float = 0.95,
 ):
@@ -151,7 +149,7 @@ def get_tomo_amplitudes_according_to_config_vectorized(
     amplitude,
     exponent,
     sample: str = "metacal",
-    truncate_nz: bool = False,
+    truncate_nz: bool = True,
     z_min_quantile: float = 0.05,
     z_max_quantile: float = 0.95,
 ):

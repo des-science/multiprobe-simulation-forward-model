@@ -286,8 +286,7 @@ def forward_model_cosmogrid(
             if tomo_Aia is None:
                 Aia = conf["analysis"]["fiducial"]["Aia"]
                 n_Aia = conf["analysis"]["fiducial"]["n_Aia"]
-                tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
-                tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+                tomo_Aia = redshift.get_tomo_amplitudes_according_to_config(conf, Aia, n_Aia, "metacal")
                 LOGGER.info(f"Using tomo_Aia={tomo_Aia} from the config")
             else:
                 LOGGER.info(f"Using tomo_Aia={tomo_Aia} from the function call")
@@ -422,8 +421,7 @@ def forward_model_cosmogrid(
                 if conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]:
                     bg = conf["analysis"]["fiducial"]["bg"]
                     n_bg = conf["analysis"]["fiducial"]["n_bg"]
-                    tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
-                    tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+                    tomo_bg = redshift.get_tomo_amplitudes_according_to_config(conf, bg, n_bg, "maglim")
                 elif conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]:
                     tomo_bg = np.array(
                         [conf["analysis"]["fiducial"][f"bg{i}"] for i in range(1, len(maglim_bins) + 1)]
@@ -437,8 +435,7 @@ def forward_model_cosmogrid(
                     if conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]:
                         bg = conf["analysis"]["fiducial"]["qbg"]
                         n_bg = conf["analysis"]["fiducial"]["n_qbg"]
-                        tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
-                        tomo_qbg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+                        tomo_qbg = redshift.get_tomo_amplitudes_according_to_config(conf, bg, n_bg, "maglim")
                     elif conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]:
                         tomo_qbg = np.array(
                             [conf["analysis"]["fiducial"][f"qbg{i}"] for i in range(1, len(maglim_bins) + 1)]

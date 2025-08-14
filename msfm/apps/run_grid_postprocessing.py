@@ -356,15 +356,13 @@ def main(indices, args):
 
                     # clustering
                     if power_law_biasing:
-                        tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
-                        z0 = conf["analysis"]["modelling"]["z0"]
                         if quadratic_biasing:
                             bg, n_bg, qbg, n_qbg = astro_sample[-4:]
-                            tomo_qbg = redshift.get_tomo_amplitudes(qbg, n_qbg, tomo_z_maglim, tomo_nz_maglim, z0)
+                            tomo_qbg = redshift.get_tomo_amplitudes_according_to_config(conf, qbg, n_qbg, "maglim")
                         else:
                             bg, n_bg = astro_sample[-2:]
                             tomo_qbg = None
-                        tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+                        tomo_bg = redshift.get_tomo_amplitudes_according_to_config(conf, bg, n_bg, "maglim")
                     elif per_bin_biasing:
                         if quadratic_biasing:
                             bg1, bg2, bg3, bg4, qbg1, qbg2, qbg3, qbg4 = astro_sample[-8:]
@@ -449,7 +447,6 @@ def _data_vector_smoothing(dv, l_min, l_max, theta_fwhm, np_seed, conf, pixel_fi
 def _get_lensing_transform(conf, pixel_file):
     extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
 
-    z0 = conf["analysis"]["modelling"]["z0"]
     tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
     m_bias_dist = lensing.get_m_bias_distribution(conf)
     metacal_mask = files.get_tomo_dv_masks(conf)["metacal"]
@@ -470,7 +467,16 @@ def _get_lensing_transform(conf, pixel_file):
 
     def lensing_transform(kg, ia, ds, sn_samples, Aia, n_Aia, bta, np_seed=None):
         # intrinsic alignment
-        tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+        tomo_Aia = redshift.get_tomo_amplitudes(
+            Aia,
+            n_Aia,
+            tomo_z_metacal,
+            tomo_nz_metacal,
+            z0=conf["analysis"]["modelling"]["z0"],
+            truncate_nz=conf["analysis"]["modelling"]["lensing"]["nla"]["truncate_nz"],
+            z_min_quantile=conf["analysis"]["modelling"]["lensing"]["nla"]["z_min_quantile"],
+            z_max_quantile=conf["analysis"]["modelling"]["lensing"]["nla"]["z_max_quantile"],
+        )
         LOGGER.debug(f"Per z bin Aia = {tomo_Aia}")
 
         if extended_nla:
