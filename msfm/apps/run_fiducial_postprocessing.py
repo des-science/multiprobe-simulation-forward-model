@@ -55,9 +55,11 @@ def resources(args):
             "main_time": 1,
             "main_n_cores": 8,
             "main_memory": 1952,
+            "main_scratch": 0,
             "merge_time": 2,
             "merge_n_cores": 32,
             "merge_memory": 1952,
+            "merge_scratch": 0,
         }
     elif args.cluster == "euler":
         resources = {"main_time": 4, "main_memory": 4096, "main_n_cores": 8, "merge_memory": 4096, "merge_n_cores": 16}
