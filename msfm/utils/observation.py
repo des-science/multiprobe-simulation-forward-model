@@ -207,6 +207,7 @@ def forward_model_cosmogrid(
     tomo_bg_metacal=None,
     i_sobol=None,
     shear_biasing=False,
+    reduced_shear=False,
     # clustering
     with_clustering=True,
     tomo_bg=None,
@@ -332,9 +333,11 @@ def forward_model_cosmogrid(
                 patch_pix = patches_pix_dict["metacal"][i_z][0]
                 cutout_patch_pix = patches_pix_dict["metacal"][i_z][i_patch]
 
+                kappa_full = wl_kappa_map[:, i_z]
+
                 # kappa -> gamma (full sky)
                 kappa_alm = hp.map2alm(
-                    wl_kappa_map[:, i_z],
+                    kappa_full,
                     use_pixel_weights=True,
                     datapath=hp_datapath,
                 )
@@ -343,6 +346,10 @@ def forward_model_cosmogrid(
                 _, gamma1_full, gamma2_full = hp.alm2map(
                     [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
                 )
+
+                if reduced_shear:
+                    gamma1_full /= 1 - kappa_full
+                    gamma2_full /= 1 - kappa_full
 
                 if noisy:
                     import tensorflow as tf

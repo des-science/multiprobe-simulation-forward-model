@@ -118,6 +118,11 @@ def setup(args):
         default=None,
     )
     parser.add_argument(
+        "--reduced_shear",
+        action="store_true",
+        help="whether to use the reduced shear instead of shear in the forward model",
+    )
+    parser.add_argument(
         "--with_clustering",
         action="store_true",
         help="whether to include clustering in the forward model",
@@ -224,6 +229,7 @@ def main(indices, args):
                 tomo_Aia=args.tomo_Aia,
                 bta=args.bta,
                 tomo_bg_metacal=tomo_bg_metacal,
+                reduced_shear=args.reduced_shear,
                 # clustering
                 with_clustering=args.with_clustering,
                 tomo_bg=args.tomo_bg,
