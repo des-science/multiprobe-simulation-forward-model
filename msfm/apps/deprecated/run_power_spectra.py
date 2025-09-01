@@ -1,18 +1,18 @@
 # Copyright (C) 2023 ETH Zurich, Institute for Particle Physics and Astrophysics
 
 """
-Created December 2022
+Created September 2024
 Author: Arne Thomsen
 
-Evaluate the power spectra from the .tfrecords files produced by the forward model pipelines. This is obsolete now that
-the power spectra are calculated in the generation of the .tfrecords.
+Evaluate the power spectra from the maps in the .tfrecords, analogous to the peaks. This is in contrast to the cls
+that are built into the map pipeline. The difference are effects due to the pixel size and sharp masking. 
 """
 
 import numpy as np
-import os, argparse, warnings, h5py, glob
+import os, argparse, warnings, h5py, glob, time
 
 from msfm import fiducial_pipeline, grid_pipeline
-from msfm.utils import power_spectra, files, logger, input_output, imports
+from msfm.utils import files, logger, input_output, imports, maps, power_spectra
 
 hp = imports.import_healpy(parallel=False)
 
@@ -42,13 +42,26 @@ def get_tasks(args):
 def resources(args):
     args = setup(args)
 
-    # 1h should actually be enough. CPU utilization is not great, but the memory usage is necessary
-    if args.simset == "fiducial":
-        resource_dict = dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=4)
-    elif args.simset == "grid":
-        resource_dict = dict(main_memory=2048, main_time=4, main_scratch=0, main_n_cores=4)
+    if args.cluster == "perlmutter":
+        # because of hyperthreading, there's a total of 256 threads per node
+        # the 8 cores don't speed things up much, but are included to increase the memory
+        resources = {
+            "main_memory": 1952,
+            "merge_time": 2,
+            "merge_n_cores": 32,
+            "merge_memory": 1952,
+        }
+        if args.simset == "fiducial":
+            resources["main_time"] = 1
+            resources["main_n_cores"] = 12
+        if args.simset == "grid":
+            resources["main_time"] = 1
+            resources["main_n_cores"] = 12
 
-    return resource_dict
+    elif args.cluster == "euler":
+        resources = {"main_time": 4, "main_memory": 4096, "main_n_cores": 8, "merge_memory": 4096, "merge_n_cores": 16}
+
+    return resources
 
 
 def setup(args):
@@ -73,6 +86,13 @@ def setup(args):
         "--simset", type=str, default="grid", choices=("grid", "fiducial"), help="set of simulations to use"
     )
     parser.add_argument(
+        "--cluster",
+        type=str,
+        default="perlmutter",
+        choices=("perlmutter", "euler"),
+        help="the cluster to execute on",
+    )
+    parser.add_argument(
         "--dir_out",
         type=str,
         default="/pscratch/sd/a/athomsen/DESY3/grid",
@@ -83,6 +103,12 @@ def setup(args):
         type=str,
         default="configs/config.yaml",
         help="configuration yaml file",
+    )
+    parser.add_argument(
+        "--max_sleep",
+        type=int,
+        default=60,
+        help="set the maximal amount of time to sleep before copying to avoid clashes",
     )
     parser.add_argument("--debug", action="store_true", help="activate debug mode, then only run on 5 indices")
 
@@ -105,8 +131,15 @@ def main(indices, args):
     args = setup(args)
     tfrecords = sorted(glob.glob(args.tfr_pattern))
 
+    if args.debug:
+        args.max_sleep = 0
+        LOGGER.warning("!!! debug mode !!!")
+
+    sleep_sec = np.random.uniform(0, args.max_sleep) if args.max_sleep > 0 else 0
+    LOGGER.info(f"Waiting for {sleep_sec:.2f}s to prevent overloading IO")
+    time.sleep(sleep_sec)
+
     conf = files.load_config(args.config)
-    data_vec_pix, _, _, _ = files.load_pixel_file(conf)
 
     # setup up directories
     file_dir = os.path.dirname(__file__)
@@ -116,13 +149,7 @@ def main(indices, args):
     # constants
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
-
-    # power spectra
-    n_bins = conf["analysis"]["power_spectra"]["n_bins"]
-    l_mins, l_maxs, _ = _get_l_ranges(conf)
-
-    LOGGER.info(f"l_mins = {l_mins}")
-    LOGGER.info(f"l_maxs = {l_maxs}")
+    data_vec_pix, _, _, _ = files.load_pixel_file(conf)
 
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
@@ -131,17 +158,14 @@ def main(indices, args):
     n_examples_per_cosmo = n_patches * n_perms_per_cosmo * n_noise_per_example
 
     def data_vector_to_cls(data_vector):
-        # swap the tomographic and pixel axes
-        maps = np.zeros((len(l_mins), n_pix))
-        maps[:, data_vec_pix] = data_vector.T
+        full_sky = np.full((n_pix, data_vector.shape[-1]), hp.UNSEEN)
+        full_sky[data_vec_pix] = data_vector
 
-        # get the alm coefficients
-        alms = power_spectra.get_alms(maps, nest=True, datapath=hp_datapath)
+        alms = power_spectra.get_alms(full_sky, nest=True, datapath=hp_datapath)
+        cls = power_spectra.get_cls(alms, with_cross=True)
+        binned_cls, _ = power_spectra.bin_according_to_config(cls, conf)
 
-        # get the power spectra
-        cls = power_spectra.get_cls(alms, l_mins, l_maxs, n_bins, with_cross=True)
-
-        return cls
+        return binned_cls
 
     # index corresponds to a .tfrecord file ###########################################################################
     for index in indices:
@@ -151,7 +175,9 @@ def main(indices, args):
         LOGGER.info(f"Index {index} is reading from {tfrecord}")
 
         if args.simset == "grid":
-            pipe = grid_pipeline.GridPipeline(conf, with_lensing=True, with_clustering=True, apply_norm=False)
+            pipe = grid_pipeline.GridPipeline(
+                conf, with_lensing=True, with_clustering=True, with_padding=True, apply_norm=False
+            )
             dset = pipe.get_dset(
                 tfr_pattern=tfrecord,
                 local_batch_size="cosmo",
@@ -162,7 +188,7 @@ def main(indices, args):
             dset = dset.as_numpy_iterator()
 
             # one cosmology each
-            for data_vectors, cosmos, (i_sobols, i_examples, i_noises) in dset:
+            for data_vectors, _, cosmos, (i_sobols, i_examples, i_noises) in dset:
                 assert n_examples_per_cosmo == data_vectors.shape[0] == cosmos.shape[0] == i_sobols.shape[0]
                 assert np.all(i_sobols == i_sobols[0]), f"All i_sobols should be the same, but are {i_sobols}"
                 assert np.all(cosmos == cosmos[0]), f"All cosmological parameters should be the same, but are {cosmos}"
@@ -171,17 +197,18 @@ def main(indices, args):
                 LOGGER.info(f"Processing the cosmology with i_sobol = {i_sobol}")
 
                 # loop over the batch dimension
-                cls = []
+                binned_cls = []
                 for data_vector in LOGGER.progressbar(
-                    data_vectors, total=n_examples_per_cosmo, desc="Loop over examples", at_level="info"
+                    data_vectors, total=data_vectors.shape[0], desc="Loop over examples", at_level="info"
                 ):
-                    cls.append(data_vector_to_cls(data_vector))
+                    binned_cls.append(data_vector_to_cls(data_vector))
 
-                cls = np.stack(cls, axis=0)
+                # shape (n_examples_per_cosmo, n_bins, n_z_cross)
+                binned_cls = np.stack(binned_cls, axis=0)
 
-                # save one .h5 file per cosmology, TODO could also save to local scratch instead
-                with h5py.File(os.path.join(args.dir_out, f"grid_cls_{i_sobol:06}.h5"), "w") as f:
-                    f.create_dataset(name="cls", data=cls)
+                # save one .h5 file per cosmology
+                with h5py.File(os.path.join(args.dir_out, f"grid_cls_from_maps_{i_sobol:06}.h5"), "w") as f:
+                    f.create_dataset(name="cls/binned", data=binned_cls)
                     f.create_dataset(name="cosmo", data=cosmo)
                     f.create_dataset(name="i_sobol", data=i_sobol)
                     f.create_dataset(name="i_example", data=i_examples)
@@ -208,27 +235,28 @@ def main(indices, args):
             )
             dset = dset.as_numpy_iterator()
 
-            cls = []
+            binned_cls = []
             i_examples = []
             i_noises = []
             # loop over individual examples
-            for data_vector, (i_example, i_noise) in LOGGER.progressbar(
-                dset, desc="Loop over examples", at_level="info"
+            for data_vector, _, (i_example, i_noise) in LOGGER.progressbar(
+                dset, total=n_examples_per_cosmo // len(tfrecords), desc="Loop over examples", at_level="info"
             ):
                 # get rid of the batch dimension
                 i_examples.append(i_example[0])
                 i_noises.append(i_noise[0])
                 data_vector = np.squeeze(data_vector)
 
-                cls.append(data_vector_to_cls(data_vector))
+                binned_cls.append(data_vector_to_cls(data_vector))
 
-            cls = np.stack(cls, axis=0)
+            # shape (n_examples, n_scales, n_bins, n_z_cross)
+            binned_cls = np.stack(binned_cls, axis=0)
             i_examples = np.stack(i_examples, axis=0)
             i_noises = np.stack(i_noises, axis=0)
 
             # save one .h5 file per input .tfrecord
-            with h5py.File(os.path.join(args.dir_out, f"fiducial_cls_{index:06}.h5"), "w") as f:
-                f.create_dataset(name="cls", data=cls)
+            with h5py.File(os.path.join(args.dir_out, f"fiducial_cls_from_maps_{index:06}.h5"), "w") as f:
+                f.create_dataset(name="cls/binned", data=binned_cls)
                 f.create_dataset(name="i_example", data=i_examples)
                 f.create_dataset(name="i_noise", data=i_noises)
 
@@ -241,17 +269,16 @@ def main(indices, args):
 
 def merge(indices, args):
     args = setup(args)
-    h5_pattern = os.path.join(args.dir_out, f"{args.simset}_cls_??????.h5")
+    LOGGER.info(f"Beginning with merge for {args.simset}")
+
+    h5_pattern = os.path.join(args.dir_out, f"{args.simset}_cls_from_maps_??????.h5")
     h5_files = sorted(glob.glob(h5_pattern))
     n_files = len(h5_files)
-
-    # load the bin configuration
-    conf = files.load_config(args.config)
-    _, _, cl_bins = _get_l_ranges(conf)
+    LOGGER.info(f"Found {n_files} files to merge")
 
     # determine the per cosmology shapes
     with h5py.File(h5_files[0], "r") as f:
-        cls_shape = f["cls"].shape
+        cls_shape = f["cls/binned"].shape
         i_example_shape = f["i_example"].shape
         i_noise_shape = f["i_noise"].shape
 
@@ -260,29 +287,29 @@ def merge(indices, args):
             i_sobol_shape = f["i_sobol"].shape
 
     # open the combined file
-    with h5py.File(os.path.join(args.dir_out, f"{args.simset}_cls.h5"), "w") as f_combined:
-        f_combined.create_dataset(name="cl_bins", data=cl_bins)
+    out_file = os.path.join(args.dir_out, f"{args.simset}_cls_from_maps.h5")
+    with h5py.File(out_file, "w") as f_combined:
+        LOGGER.info(f"Created the combined {args.simset} .h5 file")
 
         if args.simset == "grid":
             # define the combined output shapes
-            f_combined.create_dataset(name="cls", shape=(n_files,) + cls_shape)
+            f_combined.create_dataset(name="cls/binned", shape=(n_files,) + cls_shape)
             f_combined.create_dataset(name="i_example", shape=(n_files,) + i_example_shape)
             f_combined.create_dataset(name="i_noise", shape=(n_files,) + i_noise_shape)
             f_combined.create_dataset(name="cosmo", shape=(n_files,) + cosmo_shape)
             f_combined.create_dataset(name="i_sobol", shape=(n_files,) + i_sobol_shape)
 
             # loop over the per cosmology .h5 files
-            for i, h5_file in enumerate(h5_files):
+            for i, h5_file in LOGGER.progressbar(enumerate(h5_files), desc="loop over files", at_level="info"):
                 with h5py.File(h5_file, "r") as f:
-                    cls = f["cls"][:]
+                    cls_binned = f["cls/binned"][:]
                     cosmo = f["cosmo"][:]
                     i_sobol = f["i_sobol"][()]
                     i_example = f["i_example"][()]
                     i_noise = f["i_noise"][()]
-                os.remove(h5_file)
 
                 # write to the combined .h5 file
-                f_combined["cls"][i] = cls
+                f_combined["cls/binned"][i] = cls_binned
                 f_combined["i_example"][i] = i_example
                 f_combined["i_noise"][i] = i_noise
                 f_combined["i_sobol"][i] = i_sobol
@@ -290,47 +317,26 @@ def merge(indices, args):
 
         elif args.simset == "fiducial":
             # define the combined output shapes
-            f_combined.create_dataset(name="cls", shape=(n_files * cls_shape[0],) + cls_shape[1:])
+            f_combined.create_dataset(name="cls/binned", shape=(n_files * cls_shape[0],) + cls_shape[1:])
             f_combined.create_dataset(name="i_example", shape=(n_files * i_example_shape[0],) + i_example_shape[1:])
             f_combined.create_dataset(name="i_noise", shape=(n_files * i_noise_shape[0],) + i_noise_shape[1:])
 
             # loop over the per .tfrecord file .h5 files
-            for i, h5_file in enumerate(h5_files):
+            for i, h5_file in LOGGER.progressbar(enumerate(h5_files), desc="loop over files", at_level="info"):
                 with h5py.File(h5_file, "r") as f:
-                    cls = f["cls"][:]
+                    cls_binned = f["cls/binned"][:]
                     i_example = f["i_example"][()]
                     i_noise = f["i_noise"][()]
-                os.remove(h5_file)
 
                 # write to the combined .h5 file
-                f_combined["cls"][i * cls_shape[0] : (i + 1) * cls_shape[0]] = cls
+                f_combined["cls/binned"][i * cls_shape[0] : (i + 1) * cls_shape[0]] = cls_binned
                 f_combined["i_example"][i * i_example_shape[0] : (i + 1) * i_example_shape[0]] = i_example
                 f_combined["i_noise"][i * i_noise_shape[0] : (i + 1) * i_noise_shape[0]] = i_noise
 
         else:
             raise ValueError(f"Unknown simset {args.simset}")
 
+    for h5_file in h5_files:
+        os.remove(h5_file)
+
     LOGGER.info(f"Merged the per cosmology files into one and deleted them")
-
-
-def _get_l_ranges(conf):
-    """Helper function to get the l ranges for the power spectra from the configuration file to both main and merge"""
-
-    lensing_l_mins = conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
-    lensing_l_maxs = conf["analysis"]["scale_cuts"]["lensing"]["l_max"]
-
-    clustering_l_mins = conf["analysis"]["scale_cuts"]["clustering"]["l_min"]
-    clustering_l_maxs = conf["analysis"]["scale_cuts"]["clustering"]["l_max"]
-
-    l_mins = np.asarray(lensing_l_mins + clustering_l_mins, dtype=int)
-    l_maxs = np.asarray(lensing_l_maxs + clustering_l_maxs, dtype=int)
-    assert len(l_mins) == len(l_maxs)
-
-    # include smaller scales in the cls because of the Gaussian smoothing. TODO justify the factor of 1.5 numerically
-    n_side = conf["analysis"]["n_side"]
-    l_maxs = np.clip(l_maxs * 1.5, 0, 3 * n_side - 1).astype(int)
-
-    n_bins = conf["analysis"]["power_spectra"]["n_bins"]
-    cl_bins = power_spectra.get_cl_bins(l_mins, l_maxs, n_bins)
-
-    return l_mins, l_maxs, cl_bins

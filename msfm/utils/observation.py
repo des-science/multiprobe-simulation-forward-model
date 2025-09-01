@@ -7,7 +7,7 @@ Author: Arne Thomsen
 Utilities to forward model (mock) observations to be consistent with the CosmoGrid maps.
 """
 
-import os, h5py
+import os, h5py, pickle
 import numpy as np
 from msfm.utils import (
     files,
@@ -199,10 +199,15 @@ def forward_model_cosmogrid(
     map_dir,
     conf=None,
     noisy=False,
+    i_patch=0,
     # lensing
     with_lensing=True,
     tomo_Aia=None,
     bta=None,
+    tomo_bg_metacal=None,
+    i_sobol=None,
+    shear_biasing=False,
+    reduced_shear=False,
     # clustering
     with_clustering=True,
     tomo_bg=None,
@@ -234,13 +239,17 @@ def forward_model_cosmogrid(
     # constants
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
-    data_vec_pix, patches_pix_dict, _, _ = files.load_pixel_file(conf)
+    data_vec_pix, patches_pix_dict, _, gamma2_signs = files.load_pixel_file(conf)
     z0 = conf["analysis"]["modelling"]["z0"]
 
     map_file = filenames.get_filename_full_maps(map_dir, with_bary=conf["analysis"]["modelling"]["baryonified"])
+    LOGGER.info(f"Loading the full-sky map from {map_file}")
     with h5py.File(map_file, "r") as f:
         if with_lensing:
-            maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
+            LOGGER.info(f"Starting with the weak lensing map")
+            LOGGER.timer.start("weak_lensing")
+
+            metacal_mask = files.get_tomo_dv_masks(conf)["metacal"]
             kappa2gamma_fac, _, _ = lensing.get_kaiser_squires_factors(3 * n_side - 1)
             metacal_bins = conf["survey"]["metacal"]["z_bins"]
 
@@ -278,8 +287,7 @@ def forward_model_cosmogrid(
             if tomo_Aia is None:
                 Aia = conf["analysis"]["fiducial"]["Aia"]
                 n_Aia = conf["analysis"]["fiducial"]["n_Aia"]
-                tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
-                tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+                tomo_Aia = redshift.get_tomo_amplitudes_according_to_config(conf, Aia, n_Aia, "metacal")
                 LOGGER.info(f"Using tomo_Aia={tomo_Aia} from the config")
             else:
                 LOGGER.info(f"Using tomo_Aia={tomo_Aia} from the function call")
@@ -297,24 +305,39 @@ def forward_model_cosmogrid(
                 wl_kappa_map = kg + tomo_Aia * ia
                 LOGGER.info("Using standard NLA")
 
+            if shear_biasing:
+                m_bias_dist = lensing.get_m_bias_distribution(conf)
+                m_bias = m_bias_dist.sample()
+                wl_kappa_map *= 1.0 + m_bias
+
             if noisy:
-                tomo_bias = conf["survey"]["metacal"]["galaxy_bias"]
+                if tomo_bg_metacal is not None:
+                    LOGGER.info(f"Using tomo_bg_metacal={tomo_bg_metacal} from the function call")
+                elif i_sobol is not None:
+                    tomo_bg_metacal = files.read_metacal_bias(f"cosmo_{i_sobol:06}", conf=conf)
+                    LOGGER.info(f"Using tomo_bg_metacal={tomo_bg_metacal} from the Sobol index {i_sobol}")
+                else:
+                    raise ValueError("Either tomo_bg_metacal or i_sobol must be provided to generate the shape noise")
+
                 tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
                 dg = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
                 counts_map = clustering.galaxy_density_to_count(
-                    tomo_n_gal, dg, tomo_bias, systematics_map=None
+                    tomo_n_gal, dg, tomo_bg_metacal, systematics_map=None
                 ).astype(int)
 
                 tomo_gamma_cat, _ = files.load_noise_file(conf)
 
             gamma1 = []
             gamma2 = []
-            for i in range(wl_kappa_map.shape[-1]):
-                patch_pix = patches_pix_dict["metacal"][i][0]
+            for i_z in range(wl_kappa_map.shape[-1]):
+                patch_pix = patches_pix_dict["metacal"][i_z][0]
+                cutout_patch_pix = patches_pix_dict["metacal"][i_z][i_patch]
+
+                kappa_full = wl_kappa_map[:, i_z]
 
                 # kappa -> gamma (full sky)
                 kappa_alm = hp.map2alm(
-                    wl_kappa_map[:, i],
+                    kappa_full,
                     use_pixel_weights=True,
                     datapath=hp_datapath,
                 )
@@ -324,6 +347,10 @@ def forward_model_cosmogrid(
                     [np.zeros_like(gamma_alm), gamma_alm, np.zeros_like(gamma_alm)], nside=n_side
                 )
 
+                if reduced_shear:
+                    gamma1_full /= 1 - kappa_full
+                    gamma2_full /= 1 - kappa_full
+
                 if noisy:
                     import tensorflow as tf
                     import tensorflow_probability as tfp
@@ -331,11 +358,11 @@ def forward_model_cosmogrid(
                     tf.random.set_seed(noise_seed)
 
                     with tf.device("/CPU:0"):
-                        counts = counts_map[patch_pix, i]
+                        counts = counts_map[cutout_patch_pix, i_z]
 
                         # create joint distribution, as this is faster than random indexing
-                        gamma_abs = tf.math.abs(tomo_gamma_cat[i][:, 0] + 1j * tomo_gamma_cat[i][:, 1])
-                        w = tomo_gamma_cat[i][:, 2]
+                        gamma_abs = tf.math.abs(tomo_gamma_cat[i_z][:, 0] + 1j * tomo_gamma_cat[i_z][:, 1])
+                        w = tomo_gamma_cat[i_z][:, 2]
                         cat_dist = tfp.distributions.Empirical(
                             samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1
                         )
@@ -348,10 +375,12 @@ def forward_model_cosmogrid(
                     gamma2_noise = 0
 
                 gamma1_patch = np.zeros(n_pix, dtype=np.float32)
-                gamma1_patch[patch_pix] = gamma1_full[patch_pix] + gamma1_noise
+                gamma1_patch[patch_pix] = gamma1_full[cutout_patch_pix] + gamma1_noise
 
                 gamma2_patch = np.zeros(n_pix, dtype=np.float32)
-                gamma2_patch[patch_pix] = gamma2_full[patch_pix] + gamma2_noise
+                gamma2_patch[patch_pix] = gamma2_full[cutout_patch_pix] + gamma2_noise
+
+                gamma2_patch *= gamma2_signs[i_patch]
 
                 gamma1.append(gamma1_patch)
                 gamma2.append(gamma2_patch)
@@ -360,14 +389,21 @@ def forward_model_cosmogrid(
             gamma2 = np.stack(gamma2, axis=-1)
 
             wl_gamma_patch = np.stack([gamma1, gamma2], axis=-1)
+            LOGGER.info(f"Finished weak lensing after {LOGGER.timer.elapsed('weak_lensing')}")
         else:
             wl_gamma_patch = None
 
         if with_clustering:
+            LOGGER.info(f"Starting with the galaxy clustering map")
+            LOGGER.timer.start("galaxy_clustering")
+
             maglim_bins = conf["survey"]["maglim"]["z_bins"]
             tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
-            patch_pix = np.stack([patches_pix_dict["maglim"][i][0] for i in range(len(maglim_bins))], axis=-1)
+            patch_pix = np.stack([patches_pix_dict["maglim"][i_z][0] for i_z in range(len(maglim_bins))], axis=-1)
+            cutout_patch_pix = np.stack(
+                [patches_pix_dict["maglim"][i_z][i_patch] for i_z in range(len(maglim_bins))], axis=-1
+            )
             maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
 
             dg = []
@@ -377,7 +413,7 @@ def forward_model_cosmogrid(
 
             # cut out the footprint
             dg_patch = np.zeros_like(dg)
-            dg_patch[patch_pix] = dg[patch_pix]
+            dg_patch[patch_pix] = dg[cutout_patch_pix]
 
             # subtract and divide by mean (within the patch and tomographic bin)
             dg_patch[patch_pix] = (dg_patch[patch_pix] - np.mean(dg_patch[patch_pix], axis=0)) / np.mean(
@@ -392,8 +428,7 @@ def forward_model_cosmogrid(
                 if conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]:
                     bg = conf["analysis"]["fiducial"]["bg"]
                     n_bg = conf["analysis"]["fiducial"]["n_bg"]
-                    tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
-                    tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+                    tomo_bg = redshift.get_tomo_amplitudes_according_to_config(conf, bg, n_bg, "maglim")
                 elif conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]:
                     tomo_bg = np.array(
                         [conf["analysis"]["fiducial"][f"bg{i}"] for i in range(1, len(maglim_bins) + 1)]
@@ -407,8 +442,7 @@ def forward_model_cosmogrid(
                     if conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]:
                         bg = conf["analysis"]["fiducial"]["qbg"]
                         n_bg = conf["analysis"]["fiducial"]["n_qbg"]
-                        tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
-                        tomo_qbg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+                        tomo_qbg = redshift.get_tomo_amplitudes_according_to_config(conf, bg, n_bg, "maglim")
                     elif conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]:
                         tomo_qbg = np.array(
                             [conf["analysis"]["fiducial"][f"qbg{i}"] for i in range(1, len(maglim_bins) + 1)]
@@ -439,6 +473,8 @@ def forward_model_cosmogrid(
             gc_count_patch = np.zeros((n_pix, gc_count_dv.shape[-1]))
             gc_count_patch[data_vec_pix] = gc_count_dv
             gc_count_patch = maps.tomographic_reorder(gc_count_patch, n2r=True)
+
+            LOGGER.info(f"Finished galaxy clustering after {LOGGER.timer.elapsed('galaxy_clustering')}")
         else:
             gc_count_patch = None
 

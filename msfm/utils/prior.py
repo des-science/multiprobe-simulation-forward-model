@@ -135,3 +135,25 @@ def gaussian_prior(cosmos, conf=None, params=None, std_fac=0.01, params_unaffect
             log_prior += norm(loc=fiducials[i], scale=std_fac * prior_size[i]).logpdf(cosmos[:, i])
 
     return log_prior
+
+
+def generate_randoms(params=None, conf=None, n_draws=100_000, output_S8=False, invert=False):
+    params = ["s8" if p == "S8" else p for p in params]
+
+    rands = np.random.uniform(
+        low=[parameters.get_prior_intervals([param], conf)[0][0] for param in params],
+        high=[parameters.get_prior_intervals([param], conf)[0][1] for param in params],
+        size=(n_draws, len(params)),
+    )
+    prior_mask = in_grid_prior(rands, params=params, conf=conf)
+    if invert:
+        prior_mask = ~prior_mask
+    rands_in_prior = rands[prior_mask]
+    LOGGER.info(f"Generated {len(rands_in_prior)} randoms in prior")
+
+    if output_S8:
+        i_s8 = params.index("s8")
+        i_Om = params.index("Om")
+        rands_in_prior[:, i_s8] = rands_in_prior[:, i_s8] * np.sqrt(rands_in_prior[:, i_Om] / 0.3)
+
+    return rands_in_prior

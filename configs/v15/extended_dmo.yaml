@@ -16,12 +16,11 @@ dirs:
 files:
   # relative to the root of this repository
   pixels: data/DESY3_pixels_v11_fiducial_512.h5
-  # noise: data/DESY3_noise_v11.h5
-  noise: /pscratch/sd/a/athomsen/4Jozef/DESY3_noise_v11.h5
+  noise: data/DESY3_noise_v11.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
-  peak_binning: /pscratch/sd/j/jbucko/DESY3/v14/peaks/binning_peaks_des_footprint.h5
-  metacal_bias: data/metacal_biases_buzzard_0.pkl
+  peak_binning: data/peaks/binning/v11_extended.h5
+  metacal_bias: data/metacal_biases_buzzard_0.h5
 
 survey:
   name: DESy3
@@ -105,7 +104,7 @@ analysis:
       y_rad: -0.125
       z_rad: -1.22
   modelling:
-    baryonified: True
+    baryonified: False
     # pivot redshift from https://arxiv.org/pdf/2105.13543.pdf, https://arxiv.org/pdf/2105.13549.pdf (Y3)
     # and https://journals.aps.org/prd/pdf/10.1103/PhysRevD.98.043528 (Y1)
     z0: 0.62
@@ -114,6 +113,10 @@ analysis:
     lensing:
       # whether to include the TATT cross-term on top of NLA
       extended_nla: True
+      nla:
+        truncate_nz: True
+        z_min_quantile: 0.05
+        z_max_quantile: 0.95
     clustering:
       power_law_biasing: False
       per_bin_biasing: True
@@ -164,8 +167,6 @@ analysis:
     n_cosmos: 2500
     n_perms_per_cosmo: 20
     n_noise_per_example: 5
-    # n_perms_per_cosmo: 4
-    # n_noise_per_example: 2
     priors:
       # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
       Om: [0.1, 0.5]

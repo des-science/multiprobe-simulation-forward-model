@@ -81,6 +81,7 @@ def get_cross_bin_indices(
     if with_cross_probe:
         total_indices += combined_indices
 
+    total_indices = np.array(sorted(total_indices))
     names = np.array(names)[total_indices]
 
-    return sorted(total_indices), names
+    return total_indices, names

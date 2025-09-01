@@ -16,11 +16,10 @@ dirs:
 files:
   # relative to the root of this repository
   pixels: data/DESY3_pixels_v11_fiducial_512.h5
-  # noise: data/DESY3_noise_v11.h5
-  noise: /pscratch/sd/a/athomsen/4Jozef/DESY3_noise_v11.h5
+  noise: data/DESY3_noise_v11.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
-  peak_binning: /pscratch/sd/j/jbucko/DESY3/v14/peaks/binning_peaks_des_footprint.h5
+  peak_binning: data/peaks/binning/v11_extended.h5
   metacal_bias: data/metacal_biases_buzzard_0.pkl
 
 survey:
@@ -79,8 +78,7 @@ analysis:
       tatt: [bta]
     # galaxy biasing
     bg:
-      linear: [bg1, bg2, bg3, bg4]
-      quadratic: [bg1_q, bg2_q, bg3_q, bg4_q]
+      linear: [bg, n_bg]
       stochasticity: [rg]
   # see scale_cuts.ipynb. All angles are in arcmin.
   # The angle -> ell conversion is done in the "naive" way in 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
@@ -113,10 +111,10 @@ analysis:
     degrade_to_grf: False
     lensing:
       # whether to include the TATT cross-term on top of NLA
-      extended_nla: True
+      extended_nla: False
     clustering:
-      power_law_biasing: False
-      per_bin_biasing: True
+      power_law_biasing: True
+      per_bin_biasing: False
       # linear + quadratic galaxy biasing or just linear
       quadratic_biasing: False
       # whether to include a stochasticity i n the galaxy biasing. This scales the [-pi, pi] interval from which the
@@ -129,8 +127,8 @@ analysis:
     lensing: [0.0086, 0.0137, 0.0174, 0.0229]
     clustering: [1, 1, 1, 1]
   power_spectra:
-    l_min: 30
-    l_max: 1500
+    l_min: 0
+    l_max: 1535
     n_bins: 33
   peak_statistics:
     n_bins: 15
@@ -164,13 +162,10 @@ analysis:
     n_cosmos: 2500
     n_perms_per_cosmo: 20
     n_noise_per_example: 5
-    # n_perms_per_cosmo: 4
-    # n_noise_per_example: 2
     priors:
       # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
       Om: [0.1, 0.5]
       s8: [0.4, 1.4]
-      S8: [0.23094010767585035, 1.8073922282301278]
       H0: [64, 82]
       Ob: [0.03, 0.06]
       ns: [0.87, 1.07]
@@ -205,7 +200,6 @@ analysis:
     # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
     Om: 0.26
     s8: 0.84
-    S8: 0.7819974424510607
     H0: 67.36
     Ob: 0.0493
     ns: 0.9649
@@ -217,11 +211,9 @@ analysis:
     Aia: 0.5
     n_Aia: 1.5
     bta: 0.0
-    # galaxy clustering (corresponds to bg=1.5, n_bg=0.5)
-    bg1: 1.3433586
-    bg2: 1.4218498
-    bg3: 1.4996815
-    bg4: 1.5668583
+    # galaxy clustering
+    bg: 1.5
+    n_bg: 0.5
     rg: 0.8
     perturbations:
       Om: 0.01
@@ -234,7 +226,5 @@ analysis:
       bary_nu: 0.1
       Aia: 0.1
       n_Aia: 0.2
-      bg1: 0.1
-      bg2: 0.1
-      bg3: 0.1
-      bg4: 0.1
+      bg: 0.1
+      n_bg: 0.2

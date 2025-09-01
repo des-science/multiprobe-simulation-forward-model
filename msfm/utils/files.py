@@ -106,7 +106,7 @@ def load_pixel_file(conf=None):
             maglim_tomo_patches_pix.append(patches_pix)
             maglim_tomo_corresponding_pix.append(corresponding_pix)
 
-    LOGGER.info(f"Loaded the pixel file {pixel_file}")
+    LOGGER.debug(f"Loaded the pixel file {pixel_file}")
 
     # package into dictionaries
     patches_pix_dict = {}
@@ -300,3 +300,15 @@ def load_redshift_distributions(galaxy_sample, conf=None):
         tomo_nz.append(z_dist[:, 1])
 
     return tomo_z, tomo_nz
+
+
+def read_metacal_bias(key, conf=None):
+    conf = load_config(conf)
+
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    metacal_bias_file = os.path.join(repo_dir, conf["files"]["metacal_bias"])
+    with h5py.File(metacal_bias_file, "r") as f:
+        metacal_bias = f[key][:]
+
+    return np.array(metacal_bias)

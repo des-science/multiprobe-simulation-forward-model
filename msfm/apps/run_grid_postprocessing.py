@@ -4,14 +4,14 @@
 Created March 2024
 Author: Arne Thomsen
 
-Transform the full sky weak lensing signal and intrinsic alignment maps into multiple survey footprint cut-outs and 
+Transform the full sky weak lensing signal and intrinsic alignment maps into multiple survey footprint cut-outs and
 store them in .tfrecord files. The parallelization is done over the .tfrecord files, every jobarray element corresponds
 to one.
 
 For the grid, the main loop runs over the cosmologies.
 
-Meant for 
- - Euler (CPU nodes, local scratch) 
+Meant for
+ - Euler (CPU nodes, local scratch)
  - esub jobarrays
  - Read the CosmoGrid directly from the SAN
  - CosmoGridV1.1
@@ -19,7 +19,7 @@ Meant for
 
 import numpy as np
 import tensorflow as tf
-import os, argparse, warnings, time, yaml, h5py, pickle
+import os, argparse, warnings, time, yaml, h5py, pickle, glob
 
 from scipy.stats import qmc
 from sobol_seq import i4_sobol
@@ -59,9 +59,11 @@ def resources(args):
             "main_time": 8,
             "main_n_cores": 8,
             "main_memory": 1952,
+            "main_scratch": 0,
             "merge_time": 8,
             "merge_n_cores": 32,
             "merge_memory": 1952,
+            "merge_scratch": 0,
         }
     elif args.cluster == "euler":
         resources = {"main_time": 4, "main_memory": 4096, "main_n_cores": 4, "merge_memory": 4096, "merge_n_cores": 16}
@@ -356,15 +358,13 @@ def main(indices, args):
 
                     # clustering
                     if power_law_biasing:
-                        tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
-                        z0 = conf["analysis"]["modelling"]["z0"]
                         if quadratic_biasing:
                             bg, n_bg, qbg, n_qbg = astro_sample[-4:]
-                            tomo_qbg = redshift.get_tomo_amplitudes(qbg, n_qbg, tomo_z_maglim, tomo_nz_maglim, z0)
+                            tomo_qbg = redshift.get_tomo_amplitudes_according_to_config(conf, qbg, n_qbg, "maglim")
                         else:
                             bg, n_bg = astro_sample[-2:]
                             tomo_qbg = None
-                        tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+                        tomo_bg = redshift.get_tomo_amplitudes_according_to_config(conf, bg, n_bg, "maglim")
                     elif per_bin_biasing:
                         if quadratic_biasing:
                             bg1, bg2, bg3, bg4, qbg1, qbg2, qbg3, qbg4 = astro_sample[-8:]
@@ -449,7 +449,6 @@ def _data_vector_smoothing(dv, l_min, l_max, theta_fwhm, np_seed, conf, pixel_fi
 def _get_lensing_transform(conf, pixel_file):
     extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
 
-    z0 = conf["analysis"]["modelling"]["z0"]
     tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
     m_bias_dist = lensing.get_m_bias_distribution(conf)
     metacal_mask = files.get_tomo_dv_masks(conf)["metacal"]
@@ -470,7 +469,16 @@ def _get_lensing_transform(conf, pixel_file):
 
     def lensing_transform(kg, ia, ds, sn_samples, Aia, n_Aia, bta, np_seed=None):
         # intrinsic alignment
-        tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
+        tomo_Aia = redshift.get_tomo_amplitudes(
+            Aia,
+            n_Aia,
+            tomo_z_metacal,
+            tomo_nz_metacal,
+            z0=conf["analysis"]["modelling"]["z0"],
+            truncate_nz=conf["analysis"]["modelling"]["lensing"]["nla"]["truncate_nz"],
+            z_min_quantile=conf["analysis"]["modelling"]["lensing"]["nla"]["z_min_quantile"],
+            z_max_quantile=conf["analysis"]["modelling"]["lensing"]["nla"]["z_max_quantile"],
+        )
         LOGGER.debug(f"Per z bin Aia = {tomo_Aia}")
 
         if extended_nla:
@@ -675,8 +683,10 @@ def merge(indices, args):
         simset="grid",
         return_pattern=True,
     )
+    tfr_files = glob.glob(tfr_pattern)
+    tfr_files = sorted(tfr_files)
 
-    cls_dset = tf.data.Dataset.list_files(tfr_pattern)
+    cls_dset = tf.data.Dataset.list_files(tfr_files)
     # flat_map to not mix cosmologies
     cls_dset = cls_dset.flat_map(tf.data.TFRecordDataset)
     # the default arguments for parse_inverse_fiducial_cls are fine since we're not in graph mode
