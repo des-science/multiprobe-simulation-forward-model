@@ -20,7 +20,7 @@ files:
   noise: /pscratch/sd/a/athomsen/4Jozef/DESY3_noise_v11.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
-  peak_binning: data/peaks/binning/v11_extended.h5
+  peak_binning: /pscratch/sd/j/jbucko/DESY3/v14/peaks/binning_peaks_des_footprint.h5
   metacal_bias: data/metacal_biases_buzzard_0.pkl
 
 survey:
@@ -164,6 +164,8 @@ analysis:
     n_cosmos: 2500
     n_perms_per_cosmo: 20
     n_noise_per_example: 5
+    # n_perms_per_cosmo: 4
+    # n_noise_per_example: 2
     priors:
       # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
       Om: [0.1, 0.5]

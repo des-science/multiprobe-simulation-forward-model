@@ -12,6 +12,7 @@ Before running this, create the binning scheme with notebooks/peaks/binning.ipyn
 """
 
 import numpy as np
+import tensorflow as tf
 import os, argparse, warnings, h5py, glob, time
 
 from msfm import fiducial_pipeline, grid_pipeline
@@ -53,7 +54,12 @@ def resources(args):
         resource_dict = dict(main_memory=512, main_time=4, main_scratch=0, main_n_cores=8)
     elif args.simset == "grid":
         # when there's 2500 .tfrecords, such that each only contains a single cosmology, the 4h timeframe fits easily
-        resource_dict = dict(main_memory=512, main_time=4, main_scratch=0, main_n_cores=8)
+        # resource_dict = dict(main_memory=512, main_time=4, main_scratch=0, main_n_cores=8) # 3 smoothing scales
+        # resource_dict = dict(main_memory=512, main_time=4, main_scratch=0, main_n_cores=8) # for 5 smoothing scales OOM kill
+        # resource_dict = dict(main_memory=1024, main_time=4, main_scratch=0, main_n_cores=8) # 5 smoothing scales OOM kill
+        # resource_dict = dict(main_memory=1952, main_time=4, main_scratch=0, main_n_cores=8) # 5 smoothing scales works for 100/400
+        # resource_dict = dict(main_memory=1952, main_time=10, main_scratch=0, main_n_cores=8) # 5 smoothing scales works for 100/400
+        resource_dict = dict(main_memory=1952, main_time=4, main_scratch=0, main_n_cores=8) # 5 smoothing scales works, 1/5 noise realizations; for 80/400
 
     return resource_dict
 
@@ -141,7 +147,9 @@ def main(indices, args):
     # peaks
     n_bins = conf["analysis"]["peak_statistics"]["n_bins"]
     theta_fwhm = conf["analysis"]["peak_statistics"]["theta_fwhm"]
-    bins_centers, bins_edges, bins_fwhms = peak_statistics.get_peaks_bins(
+    # white_noise_sigma = conf["analysis"]["peak_statistics"]["white_noise_sigma"]
+    white_noise_sigma = None
+    bins_edges, bins_centers, bins_fwhms = peak_statistics.get_peaks_bins(
         binning_file, n_z_bins=n_z_bins, with_cross=True
     )
 
@@ -161,6 +169,7 @@ def main(indices, args):
             n_side=n_side,
             n_bins=n_bins,
             theta_fwhm=theta_fwhm,
+            white_noise_sigma = white_noise_sigma,
             with_cross=True,
             bins_centers=bins_centers,
             bins_edges=bins_edges,
@@ -169,6 +178,9 @@ def main(indices, args):
 
         return peaks
 
+    def take_every_n(index, element):
+        # print('index,element:',index,element)
+        return tf.equal(index % n_noise_per_example, 0)
     # index corresponds to a .tfrecord file ###########################################################################
     for index in indices:
         LOGGER.timer.start("index")
@@ -187,27 +199,64 @@ def main(indices, args):
                 n_readers=1,
                 n_prefetch=0,
             )
+            
+            # print('step1:',dset_tmp.element_spec)
+            # print('step2:',dset_tmp.enumerate().element_spec)
+            # print('step3:',dset_tmp.enumerate().filter(lambda i, x: i % n_noise_per_example == 0).element_spec)
+            # print('step4:',dset_tmp.element_spec)
+            # for i,d in dset_tmp:
+            #     print('i,d,:',i,d[0])
+            #     print(tf.equal(i % n_noise_per_example, 0))
+            # exit()
+            # dset = (
+            # dset_tmp
+            #     .enumerate()  # Adds (index, element)
+            #     .filter(lambda i, x: tf.equal(i % 5, 0))  # Keep every n-th
+            #     .map(lambda i, x: x)  # Remove the index, return original elements
+            # )
             dset = dset.as_numpy_iterator()
 
+
             # one cosmology each
-            for data_vectors, cosmos, (i_sobols, i_examples, i_noises) in dset:
+            
+            for data_vectors, cls, cosmos, (i_sobols, i_examples, i_noises) in dset:
+                # print('i_sobols, i_examples, i_noises:',i_sobols.shape, i_examples.shape, i_noises.shape,i_sobols, i_examples, i_noises)
                 assert n_examples_per_cosmo == data_vectors.shape[0] == cosmos.shape[0] == i_sobols.shape[0]
                 assert np.all(i_sobols == i_sobols[0]), f"All i_sobols should be the same, but are {i_sobols}"
-                assert np.all(cosmos == cosmos[0]), f"All cosmological parameters should be the same, but are {cosmos}"
-                cosmo = cosmos[0]
-                i_sobol = i_sobols[0]
-                LOGGER.info(f"Processing the cosmology with i_sobol = {i_sobol}")
-
+                # assert np.all(cosmos == cosmos[0]), f"All cosmological parameters should be the same, but are {cosmos}"
+                # cosmo = cosmos[i_iter]
+                # i_sobol = i_sobols[i_iter]
+                # LOGGER.info(f"Processing the cosmology with i_sobol = {i_sobol}")
+                
+                # manual downscaling of the peaks number along i_examples
+                # print('shapes before:',data_vectors.shape,cls.shape,cosmos.shape,i_sobols.shape,i_examples.shape,i_noises.shape)
+                data_vectors = data_vectors[::n_noise_per_example,...]
+                cls = cls[::n_noise_per_example,...]
+                cosmos = cosmos[::n_noise_per_example,...]
+                i_sobols = i_sobols[::n_noise_per_example]
+                i_examples = i_examples[::n_noise_per_example]
+                i_noises = i_noises[::n_noise_per_example]
+                # print('shapes after:',data_vectors.shape,cls.shape,cosmos.shape,i_sobols.shape,i_examples.shape,i_noises.shape)
+                # print('indices after:',i_sobols,i_examples,i_noises)
+                
                 # loop over the batch dimension
+                i_iter = 0
                 peaks = []
+                cosmo = []
+                i_sobol = i_sobols[0]
                 for data_vector in LOGGER.progressbar(
-                    data_vectors, total=n_examples_per_cosmo, desc="Loop over examples", at_level="info"
+                    data_vectors, total=n_examples_per_cosmo/n_noise_per_example, desc="Loop over examples", at_level="info"
                 ):
                     peaks.append(data_vector_to_peaks(data_vector, pipe.patch_pix))
+                    cosmo.append(cosmos[i_iter])
+                    # i_sobol.append(i_sobols[i_iter])
+                    i_iter += 1
 
                 # shape (n_examples_per_cosmo, n_scales, n_bins, n_z_cross)
                 peaks = np.stack(peaks, axis=0)
-
+                cosmo = np.stack(cosmo, axis=0)
+                # i_sobol = np.stack(i_sobol, axis=0)
+                # print(peaks.shape,cosmo.shape)
                 # save one .h5 file per cosmology, TODO could also save to local scratch instead
                 with h5py.File(os.path.join(args.dir_out, f"grid_peaks_{i_sobol:06}.h5"), "w") as f:
                     f.create_dataset(name="peaks", data=peaks)
@@ -215,6 +264,7 @@ def main(indices, args):
                     f.create_dataset(name="i_sobol", data=i_sobol)
                     f.create_dataset(name="i_example", data=i_examples)
                     f.create_dataset(name="i_noise", data=i_noises)
+                
 
         elif args.simset == "fiducial":
             pipe = fiducial_pipeline.FiducialPipeline(
