@@ -6,11 +6,12 @@ Contains functions that are specific to galaxy clustering. Since the healpy alm 
 or three maps (polarized case), these functions are not vectorized accross the example dimension.
 """
 
-import numpy as np
-import tensorflow as tf
 import os
+import numpy as np
 
-from msfm.utils import files, imports
+from sobol_seq import i4_sobol
+
+from msfm.utils import files, imports, parameters
 
 hp = imports.import_healpy()
 
@@ -21,17 +22,14 @@ def galaxy_density_to_count(
     dg,
     bg,
     # quadratic
-    dg2=None,
-    bg2=None,
+    qdg=None,
+    qbg=None,
     # modeling
-    conf=None,
     systematics_map=None,
-    stochasticity=None,
     # format
     nest=True,
     data_vec_pix=None,
     mask=None,
-    np_seed=None,
 ):
     """Transform a galaxy density to a galaxy count map, according to the constants defined in the config file.
     Negative values are clipped and the maps tranformed to conserve the total number of galaxies like in DeepLSS.
@@ -41,11 +39,8 @@ def galaxy_density_to_count(
         dg (Union[np.ndarray, tf.Tensor]): Galaxy density contrast map or datavector. Optionally per tomographic bin
             in the last array dimension.
         bg (np.ndarray): Effective linear galaxy biasing parameter (optionally per tomographic bin).
-        dg2 (np.ndarray, optional): Squared galaxy density contrast map (optionally per tomographic bin).
-        bg2 (np.ndarray, optional): Effective quadratic galaxy biasing parameter (optionally per tomographic bin).
-        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
-            passed through) or None (the default config is loaded). The relative paths are stored here. Defaults to
-            None.
+        qdg (np.ndarray, optional): Squared galaxy density contrast map (optionally per tomographic bin).
+        qbg (np.ndarray, optional): Effective quadratic galaxy biasing parameter (optionally per tomographic bin).
         systematics_map (bool): Whether to multiply with the maglim systematics map. Defaults to False.
         stochasticity (float, optional): Raises a NotImplementedError if not None. Defaults to None.
 
@@ -57,56 +52,16 @@ def galaxy_density_to_count(
         ng: Galaxy number count map.
     """
 
-    # decorrelate the galaxy density contrast from the galaxy number
-    if stochasticity is not None:
-        raise NotImplementedError("The current implementation of stochasticity is known to be wrong, don't use it")
-
-        assert isinstance(stochasticity, float), f"stochasticity must be a float, got {type(stochasticity)}"
-        assert 0 < stochasticity < 1, f"stochasticity must be between 0 and 1, got {stochasticity}"
-        assert isinstance(dg, np.ndarray), f"dg must be a numpy array, got {type(dg)}"
-        assert nest, f"The healpy maps must be in nest ordering to add the stochasticity, got ring instead"
-        assert data_vec_pix is not None, f"data_vec_pix must be passed if stochasticity is not None"
-
-        # healpy path
-        conf = files.load_config(conf)
-        file_dir = os.path.dirname(__file__)
-        repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
-        hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
-
-        # convert to full sky map
-        n_side = conf["analysis"]["n_side"]
-        n_pix = conf["analysis"]["n_pix"]
-
-        rng = np.random.default_rng(np_seed)
-
-        # tomographic bins
-        n_z = dg.shape[1]
-        for i_z in range(n_z):
-            dg_full = np.zeros(n_pix)
-            dg_full[data_vec_pix] = dg[:, i_z]
-
-            dg_full = hp.reorder(dg_full, n2r=True)
-            alm = hp.map2alm(dg_full, pol=False, use_pixel_weights=True, datapath=hp_datapath)
-
-            # draw random phases
-            random_phases = stochasticity * rng.uniform(-np.pi, np.pi, alm.shape[0])
-            scrambled_alm = np.exp(1j * random_phases) * alm
-
-            dg_full = hp.alm2map(scrambled_alm, nside=n_side, pol=False)
-            dg_full = hp.reorder(dg_full, r2n=True)
-
-            dg[:, i_z] = dg_full[data_vec_pix]
-
     # linear bias
-    if (bg2 is None) and (dg2 is None):
+    if (qbg is None) and (qdg is None):
         ng = ng_bar * (1 + bg * dg)
 
     # quadratic bias
-    elif (bg2 is not None) and (dg2 is not None):
-        ng = ng_bar * (1 + bg * dg + bg2 * dg2)
+    elif (qbg is not None) and (qdg is not None):
+        ng = ng_bar * (1 + bg * dg + qbg * qdg)
 
     else:
-        raise ValueError("Both or none of dg2 and bg2 must be passed")
+        raise ValueError("Both or none of qdg and qbg must be passed")
 
     # transform like in DeepLSS Appendix E and https://github.com/tomaszkacprzak/deep_lss/blob/3c145cf8fe04c4e5f952dca984c5ce7e163b8753/deep_lss/lss_astrophysics_model_batch.py#L609
     # this ensures that all of the values are positive, while the total number of galaxies is conserved
@@ -114,6 +69,8 @@ def galaxy_density_to_count(
         ng_clip = np.clip(ng, a_min=0, a_max=None, dtype=np.float32)
         ng = ng_clip * np.sum(ng) / np.sum(ng_clip)
     elif isinstance(dg, tf.Tensor):
+        import tensorflow as tf
+
         ng_clip = tf.clip_by_value(ng, clip_value_min=0, clip_value_max=1e5)
         ng = ng_clip * tf.reduce_sum(ng) / tf.reduce_sum(ng_clip)
     else:
@@ -150,13 +107,50 @@ def galaxy_count_to_noise(ng, n_noise, np_seed=None):
     if isinstance(ng, np.ndarray):
         rng = np.random.default_rng(np_seed)
 
-        # draw noise, poisson realizations along axis
-        noisy_ngs = rng.poisson(np.repeat(ng[np.newaxis, :], n_noise, axis=0), size=None).astype(np.float32)
+        try:
+            # draw noise, poisson realizations along axis
+            noisy_ngs = rng.poisson(np.repeat(ng[np.newaxis, :], n_noise, axis=0), size=None).astype(np.float32)
+        except ValueError:
+            out_dir = os.getcwd()
+            np.save(os.path.join(out_dir, f"ng_seed={np_seed}.npy"), ng)
+            print(f"Saved ng to {out_dir}")
+            print("nan count", np.sum(np.isnan(ng)))
+            print("neg count", np.sum(ng < 0))
 
         # shape (n_noise, n_pix) is broadcast along the first axis
         poisson_noise = noisy_ngs - ng
 
-    elif isinstance(ng, tf.Tensor):
-        raise NotImplementedError
+    # elif isinstance(ng, tf.Tensor):
+    #     raise NotImplementedError
 
     return poisson_noise
+
+
+def extend_sobol_sequence_by_stochasticity(conf, full_sky_map, simset, i_sobol, rng):
+    """decorrelate the galaxy density contrast from the galaxy number"""
+
+    if simset == "grid":
+        # extend the Sobol sequence
+        cosmo_params = conf["analysis"]["params"]["cosmo"].copy()
+        if conf["analysis"]["modelling"]["baryonified"]:
+            cosmo_params += conf["analysis"]["params"]["bary"]
+        sobol_params = cosmo_params + conf["analysis"]["params"]["bg"]["stochasticity"]
+
+        sobol_priors = parameters.get_prior_intervals(sobol_params, conf=conf)
+        sobol_point, _ = i4_sobol(sobol_priors.shape[0], i_sobol)
+        sobol_point = sobol_point * np.squeeze(np.diff(sobol_priors)) + sobol_priors[:, 0]
+        sobol_point = sobol_point.astype(np.float32)
+        rg = sobol_point[-1]
+    elif simset == "fiducial":
+        rg = parameters.get_fiducials(["rg"], conf=conf)[0]
+
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
+
+    alm = hp.map2alm(full_sky_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
+    # empirical formula from (12) in DeepLSS https://arxiv.org/abs/2203.09616
+    random_phases = (1 - rg) ** (2 / 3) * rng.uniform(-np.pi, np.pi, alm.shape[0])
+    stochastic_alm = np.exp(1j * random_phases) * alm
+
+    return hp.alm2map(stochastic_alm, nside=conf["analysis"]["n_side"], pol=False)

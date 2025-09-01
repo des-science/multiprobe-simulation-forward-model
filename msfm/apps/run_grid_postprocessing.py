@@ -19,8 +19,9 @@ Meant for
 
 import numpy as np
 import tensorflow as tf
-import os, argparse, warnings, time, yaml, h5py
+import os, argparse, warnings, time, yaml, h5py, pickle
 
+from scipy.stats import qmc
 from sobol_seq import i4_sobol
 
 from msfm.utils import (
@@ -38,6 +39,7 @@ from msfm.utils import (
     scales,
     redshift,
     parameters,
+    configuration,
 )
 
 hp = imports.import_healpy()
@@ -206,6 +208,27 @@ def main(indices, args):
         f"{n_patches} patches times {n_perms_per_cosmo} permutations times {n_noise_per_example} noise realizations"
     )
 
+    # modeling
+    configuration.print_and_check_modeling_in_config(conf)
+
+    baryonified = conf["analysis"]["modelling"]["baryonified"]
+
+    extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
+
+    power_law_biasing = conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]
+    per_bin_biasing = conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]
+    quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
+
+    astro_params = conf["analysis"]["params"]["ia"]["nla"]
+    if extended_nla:
+        astro_params += conf["analysis"]["params"]["ia"]["tatt"]
+    astro_params += conf["analysis"]["params"]["bg"]["linear"]
+    if quadratic_biasing:
+        astro_params += conf["analysis"]["params"]["bg"]["quadratic"]
+    LOGGER.info(f"Sampling the astrophysical parameters {astro_params} from a Latin hypercube")
+
+    astro_priors = parameters.get_prior_intervals(astro_params, conf=conf)
+
     # .tfrecords
     if n_cosmos % args.n_files == 0:
         n_cosmos_per_file = n_cosmos // args.n_files
@@ -240,12 +263,16 @@ def main(indices, args):
             san_dir_out = args.dir_out
             args.dir_out = os.environ["TMPDIR"]
 
+        if args.debug:
+            args.dir_out = os.path.join(args.dir_out, "debug")
+            os.makedirs(args.dir_out, exist_ok=True)
+
         tfr_file = filenames.get_filename_tfrecords(
             args.dir_out,
             tag=conf["survey"]["name"] + args.file_suffix,
             index=index,
             simset="grid",
-            with_bary=conf["analysis"]["modelling"]["baryonified"],
+            with_bary=baryonified,
         )
         LOGGER.info(f"Index {index} is writing to {tfr_file}")
 
@@ -264,37 +291,51 @@ def main(indices, args):
             ):
                 LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
 
-                # cut out the survey footprints, generate the shape noise, perform mode removal, ...
-                data_vec_container = postprocessing.postprocess_grid_permutations(
-                    args, conf, cosmo_dir_in, pixel_file, noise_file
-                )
+                state_file = os.path.join(args.dir_out, f"program_state{i_cosmo:06}" + args.file_suffix + ".pkl")
+                if args.debug and os.path.exists(state_file):
+                    with open(state_file, "rb") as f:
+                        state = pickle.load(f)
+                        data_vec_container = state["data_vec_container"]
+                    LOGGER.warning(f"Debug mode, reading the state from {state_file}")
+                else:
+                    # cut out the survey footprints, generate the shape noise, perform mode removal, ...
+                    data_vec_container = postprocessing.postprocess_grid_permutations(
+                        args, conf, cosmo_dir_in, pixel_file, noise_file
+                    )
+
+                    if args.debug:
+                        state = {"data_vec_container": data_vec_container}
+                        with open(state_file, "wb") as f:
+                            LOGGER.warning(f"Debug mode, writing the state to {state_file}")
+                            pickle.dump(state, f)
 
                 # (n_examples_per_cosmo, n_pix, n_z_bins)
                 kg_examples = data_vec_container["kg"]
                 ia_examples = data_vec_container["ia"]
+                ds_examples = data_vec_container["ds"] if extended_nla else [None] * n_examples_per_cosmo
+
                 dg_examples = data_vec_container["dg"]
-                if conf["analysis"]["modelling"]["quadratic_biasing"]:
-                    dg2_examples = data_vec_container["dg2"]
-                else:
-                    dg2_examples = [None] * n_examples_per_cosmo
+                # qdg_examples = data_vec_container["dg2"] if quadratic_biasing else [None] * n_examples_per_cosmo
+                # NOTE this is the naive quadratic bias map from DeepLSS
+                qdg_examples = (
+                    np.square(dg_examples) * np.sign(dg_examples)
+                    if quadratic_biasing
+                    else [None] * n_examples_per_cosmo
+                )
+
                 # (n_examples_per_cosmo, n_noise_per_examplen_pix, n_z_bins)
                 sn_examples = data_vec_container["sn"]
 
-                i_sobol, cosmo, Aia, n_Aia, bg, n_bg, bg2, n_bg2 = _extend_sobol_squence(
-                    conf, cosmo_params_info, i_cosmo
-                )
+                i_sobol, cosmo = _extend_sobol_squence(conf, cosmo_params_info, i_cosmo)
 
-                # redshift evolution, only calculate the integrals once here
-                current_lensing_transform = lambda kg, ia, sn_samples, np_seed: lensing_transform(
-                    kg, ia, sn_samples, Aia, n_Aia, np_seed
-                )
-                current_clustering_transform = lambda dg, dg2, np_seed: clustering_transform(
-                    dg, bg, n_bg, dg2, bg2, n_bg2, np_seed
-                )
+                latin_sampler = qmc.LatinHypercube(d=len(astro_params), seed=i_cosmo)
+                unscaled_samples = latin_sampler.random(n_examples_per_cosmo)
+                astro_samples = qmc.scale(unscaled_samples, l_bounds=astro_priors[:, 0], u_bounds=astro_priors[:, 1])
+                astro_samples = astro_samples.astype(np.float32)
 
                 # loop over the n_examples_per_cosmo
-                for i_example, (kg, ia, sn_samples, dg, dg2) in LOGGER.progressbar(
-                    enumerate(zip(kg_examples, ia_examples, sn_examples, dg_examples, dg2_examples)),
+                for i_example, (kg, ia, ds, sn_samples, dg, qdg) in LOGGER.progressbar(
+                    enumerate(zip(kg_examples, ia_examples, ds_examples, sn_examples, dg_examples, qdg_examples)),
                     at_level="info",
                     desc="Looping through the per cosmology examples",
                     total=n_examples_per_cosmo // n_noise_per_example,
@@ -303,23 +344,63 @@ def main(indices, args):
                         LOGGER.warning(f"Debug mode, only processing the first {n_patches} examples")
                         break
 
-                    # maps
-                    kg, sn_samples, alm_kg, alm_sn_samples = current_lensing_transform(
-                        kg, ia, sn_samples, np_seed=i_sobol + i_example
+                    astro_sample = astro_samples[i_example]
+                    cosmo_sample = np.concatenate([cosmo, astro_sample])
+
+                    # lensing
+                    if extended_nla:
+                        Aia, n_Aia, bta = astro_sample[:3]
+                    else:
+                        Aia, n_Aia = astro_sample[:2]
+                        bta = None
+
+                    # clustering
+                    if power_law_biasing:
+                        tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
+                        z0 = conf["analysis"]["modelling"]["z0"]
+                        if quadratic_biasing:
+                            bg, n_bg, qbg, n_qbg = astro_sample[-4:]
+                            tomo_qbg = redshift.get_tomo_amplitudes(qbg, n_qbg, tomo_z_maglim, tomo_nz_maglim, z0)
+                        else:
+                            bg, n_bg = astro_sample[-2:]
+                            tomo_qbg = None
+                        tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
+                    elif per_bin_biasing:
+                        if quadratic_biasing:
+                            bg1, bg2, bg3, bg4, qbg1, qbg2, qbg3, qbg4 = astro_sample[-8:]
+                            tomo_qbg = np.array([qbg1, qbg2, qbg3, qbg4])
+                        else:
+                            bg1, bg2, bg3, bg4 = astro_sample[-4:]
+                            tomo_qbg = None
+                        tomo_bg = np.array([bg1, bg2, bg3, bg4])
+                    else:
+                        raise ValueError(f"Unsupported configuration of clustering bias")
+
+                    kg, sn_samples, alm_kg, alm_sn_samples = lensing_transform(
+                        kg, ia, ds, sn_samples, Aia, n_Aia, bta, np_seed=i_sobol + i_example
                     )
-                    dg, pn_samples, alm_dg, alm_pn_samples = current_clustering_transform(
-                        dg, dg2, np_seed=i_sobol + i_example
+                    dg, pn_samples, alm_dg, alm_pn_samples = clustering_transform(
+                        dg, tomo_bg, qdg, tomo_qbg, np_seed=i_sobol + i_example
                     )
 
                     # power spectra
                     cls = power_spectra.run_tfrecords_alm_to_cl(alm_kg, alm_sn_samples, alm_dg, alm_pn_samples)
 
                     serialized = tfrecords.parse_forward_grid(
-                        kg, sn_samples, dg, pn_samples, cls, cosmo, i_sobol, i_example
+                        kg, sn_samples, dg, pn_samples, cls, cosmo_sample, i_sobol, i_example
                     ).SerializeToString()
 
                     _verify_tfrecord(
-                        serialized, n_noise_per_example, kg, sn_samples, dg, pn_samples, cosmo, i_sobol, i_example, cls
+                        serialized,
+                        n_noise_per_example,
+                        kg,
+                        sn_samples,
+                        dg,
+                        pn_samples,
+                        cosmo_sample,
+                        i_sobol,
+                        i_example,
+                        cls,
                     )
 
                     file_writer.write(serialized)
@@ -331,7 +412,7 @@ def main(indices, args):
         yield index
 
 
-def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mask):
+def _data_vector_smoothing(dv, l_min, l_max, theta_fwhm, np_seed, conf, pixel_file, mask):
     # Gaussian Random Field
     if conf["analysis"]["modelling"]["degrade_to_grf"]:
         dv, alm = scales.data_vector_to_grf_data_vector(
@@ -340,9 +421,12 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mas
             data_vec_pix=pixel_file[0],
             n_side=conf["analysis"]["n_side"],
             l_min=l_min,
+            l_max=l_max,
             theta_fwhm=theta_fwhm,
             arcmin=True,
             mask=mask,
+            conf=conf,
+            hard_cut=conf["analysis"]["scale_cuts"]["hard_cut"],
         )
     # standard smoothing with a Gaussian kernel
     else:
@@ -351,15 +435,20 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mas
             data_vec_pix=pixel_file[0],
             n_side=conf["analysis"]["n_side"],
             l_min=l_min,
+            l_max=l_max,
             theta_fwhm=theta_fwhm,
             arcmin=True,
             mask=mask,
+            conf=conf,
+            hard_cut=conf["analysis"]["scale_cuts"]["hard_cut"],
         )
 
     return dv, alm
 
 
 def _get_lensing_transform(conf, pixel_file):
+    extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
+
     z0 = conf["analysis"]["modelling"]["z0"]
     tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
     m_bias_dist = lensing.get_m_bias_distribution(conf)
@@ -369,6 +458,7 @@ def _get_lensing_transform(conf, pixel_file):
         kg, alm = _data_vector_smoothing(
             kg,
             conf["analysis"]["scale_cuts"]["lensing"]["l_min"],
+            conf["analysis"]["scale_cuts"]["lensing"]["l_max"],
             conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"],
             np_seed,
             conf,
@@ -378,12 +468,18 @@ def _get_lensing_transform(conf, pixel_file):
 
         return kg, alm
 
-    def lensing_transform(kg, ia, sn_samples, Aia, n_Aia, np_seed=None):
+    def lensing_transform(kg, ia, ds, sn_samples, Aia, n_Aia, bta, np_seed=None):
         # intrinsic alignment
         tomo_Aia = redshift.get_tomo_amplitudes(Aia, n_Aia, tomo_z_metacal, tomo_nz_metacal, z0)
         LOGGER.debug(f"Per z bin Aia = {tomo_Aia}")
 
-        kg = kg + tomo_Aia * ia
+        if extended_nla:
+            # first two TATT terms like in eq. (19) in https://arxiv.org/pdf/2105.13544
+            # NOTE ds already contains the ia map (in postprocessing.py)
+            kg = kg + tomo_Aia * (ia + bta * ds)
+        else:
+            # standard NLA
+            kg = kg + tomo_Aia * ia
 
         # fixing this in the .tfrecords simplifies reproducibility
         m_bias = m_bias_dist.sample()
@@ -412,18 +508,15 @@ def _get_lensing_transform(conf, pixel_file):
 def _get_clustering_transform(conf, pixel_file):
     n_side = conf["analysis"]["n_side"]
     n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
-    z0 = conf["analysis"]["modelling"]["z0"]
 
     # modeling
-    quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
-    stochasticity = conf["analysis"]["modelling"]["galaxy_stochasticity"]
+    quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
 
     maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
-    tomo_z_maglim, tomo_nz_maglim = files.load_redshift_distributions("maglim", conf)
     tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
     # survey systematics
-    if conf["analysis"]["modelling"]["maglim_survey_systematics_map"]:
+    if conf["analysis"]["modelling"]["clustering"]["maglim_survey_systematics_map"]:
         tomo_maglim_sys_dv = files.get_clustering_systematics(conf, pixel_type="data_vector")
     else:
         tomo_maglim_sys_dv = None
@@ -432,6 +525,7 @@ def _get_clustering_transform(conf, pixel_file):
         dg, alm = _data_vector_smoothing(
             dg,
             conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+            conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
             conf["analysis"]["scale_cuts"]["clustering"]["theta_fwhm"],
             np_seed,
             conf,
@@ -444,57 +538,35 @@ def _get_clustering_transform(conf, pixel_file):
     def clustering_transform(
         # linear
         dg,
-        bg,
-        n_bg,
+        tomo_bg,
         # quadratic
-        dg2=None,
-        bg2=None,
-        n_bg2=None,
+        qdg=None,
+        tomo_qdg=None,
         # noise
         np_seed=None,
     ):
-        assert (not quadratic_biasing and (bg2 is None) and (n_bg2 is None)) or (
-            quadratic_biasing and (bg2 is not None) and (n_bg2 is not None)
+        assert (not quadratic_biasing and ((qdg is None) or (tomo_qdg is None))) or (
+            quadratic_biasing and (qdg is not None) and (tomo_qdg is not None)
         ), f"The galaxy biasing setup must be consistent"
-
-        # the linear galaxy bias is needed in both cases
-        tomo_bg = redshift.get_tomo_amplitudes(bg, n_bg, tomo_z_maglim, tomo_nz_maglim, z0)
-        LOGGER.debug(f"Per z bin linear bg = {tomo_bg}")
+        LOGGER.debug(f"Per z bin linear bias = {tomo_bg}")
 
         if quadratic_biasing:
-            tomo_bg2 = redshift.get_tomo_amplitudes(bg2, n_bg2, tomo_z_maglim, tomo_nz_maglim, z0)
-            LOGGER.debug(f"Per z bin quadratic bg2 = {tomo_bg2}")
+            LOGGER.debug(f"Per z bin quadratic bias = {tomo_qdg}")
 
-            dg = clustering.galaxy_density_to_count(
-                tomo_n_gal_maglim,
-                # linear
-                dg,
-                tomo_bg,
-                # quadratic
-                dg2,
-                tomo_bg2,
-                # misc
-                conf=conf,
-                stochasticity=stochasticity,
-                data_vec_pix=pixel_file[0],
-                systematics_map=tomo_maglim_sys_dv,
-                mask=maglim_mask,
-                np_seed=np_seed + 1,
-            )
-        else:
-            dg = clustering.galaxy_density_to_count(
-                tomo_n_gal_maglim,
-                # linear
-                dg,
-                tomo_bg,
-                # misc
-                conf=conf,
-                stochasticity=stochasticity,
-                data_vec_pix=pixel_file[0],
-                systematics_map=tomo_maglim_sys_dv,
-                mask=maglim_mask,
-                np_seed=np_seed,
-            )
+        # the distinction between linear and quadratic biasing is done in main with conditional None values
+        dg = clustering.galaxy_density_to_count(
+            tomo_n_gal_maglim,
+            # linear
+            dg,
+            tomo_bg,
+            # quadratic
+            qdg,
+            tomo_qdg,
+            # misc
+            data_vec_pix=pixel_file[0],
+            systematics_map=tomo_maglim_sys_dv,
+            mask=maglim_mask,
+        )
 
         # draw noise, mask, smooth
         pn_samples = clustering.galaxy_count_to_noise(dg, n_noise_per_example, np_seed=np_seed)
@@ -515,59 +587,53 @@ def _get_clustering_transform(conf, pixel_file):
         dg, alm_dg = clustering_smoothing(dg, np_seed)
 
         # shapes (n_pix, n_z_maglim), (n_noise_per_example, n_pix, n_z_maglim)
-        # (n_noise_per_example, )
         return dg, pn_samples, alm_dg, alm_pn_samples
 
     return clustering_transform
 
 
 def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
-    with_bary = conf["analysis"]["modelling"]["baryonified"]
-    quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
+    """Extend the Sobol sequence by the stochasticity parameter if needed and verify that the Sobol sequences are
+    identical (computed here vs. stored in the CosmoGrid)"""
 
-    all_params = parameters.get_parameters(conf=conf)
+    baryonified = conf["analysis"]["modelling"]["baryonified"]
+    stochasticity = conf["analysis"]["modelling"]["clustering"]["stochasticity"]
 
-    cosmogrid_params = conf["analysis"]["params"]["cosmo"].copy()
-    if with_bary:
-        cosmogrid_params += conf["analysis"]["params"]["bary"]
-
-    cosmo = [cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in cosmogrid_params]
+    cosmo_params = conf["analysis"]["params"]["cosmo"].copy()
+    if baryonified:
+        cosmo_params += conf["analysis"]["params"]["bary"]
+    cosmo = [cosmo_params_info[cosmo_param][i_cosmo] for cosmo_param in cosmo_params]
     cosmo = np.array(cosmo, dtype=np.float32)
 
-    sobol_priors = parameters.get_prior_intervals(all_params, conf=conf)
+    sobol_params = cosmo_params.copy()
+    if stochasticity:
+        sobol_params += conf["analysis"]["params"]["bg"]["stochasticity"]
+
+    sobol_priors = parameters.get_prior_intervals(sobol_params, conf=conf)
     # extend the Sobol sequence by astrophysical parameters
     i_sobol = cosmo_params_info["sobol_index"][i_cosmo]
     sobol_point, _ = i4_sobol(sobol_priors.shape[0], i_sobol)
-    sobol_params = sobol_point * np.squeeze(np.diff(sobol_priors)) + sobol_priors[:, 0]
-    sobol_params = sobol_params.astype(np.float32)
+    sobol_point = sobol_point * np.squeeze(np.diff(sobol_priors)) + sobol_priors[:, 0]
+    sobol_point = sobol_point.astype(np.float32)
 
-    # add these to the label, the parameters are ordered as in sobol_priors
-    Aia = sobol_params[6 + 2 * with_bary]
-    n_Aia = sobol_params[7 + 2 * with_bary]
-    bg = sobol_params[8 + 2 * with_bary]
-    n_bg = sobol_params[9 + 2 * with_bary]
-    cosmo = np.concatenate((cosmo, np.array([Aia, n_Aia, bg, n_bg])))
-    if quadratic_biasing:
-        bg2 = sobol_params[10 + 2 * with_bary]
-        n_bg2 = sobol_params[11 + 2 * with_bary]
-        cosmo = np.concatenate((cosmo, np.array([bg2, n_bg2])))
-    else:
-        bg2 = None
-        n_bg2 = None
+    if stochasticity:
+        # like in msfm.utils.clustering.extend_sobol_sequence_by_stochasticity
+        rg = sobol_point[-1]
+        cosmo = np.concatenate((cosmo, np.array([rg])))
 
     # verify that the Sobol sequences (stored and newly generated) are identical for the cosmo params
-    assert np.allclose(sobol_params[0], cosmo[0], rtol=1e-3, atol=1e-5)  # Om
-    assert np.allclose(sobol_params[1], cosmo[1], rtol=1e-3, atol=1e-5)  # s8
-    assert np.allclose(sobol_params[2], cosmo[2], rtol=1e-3, atol=1e-3)  # Ob
-    assert np.allclose(sobol_params[3], cosmo[3], rtol=1e-3, atol=1e-5)  # H0
-    assert np.allclose(sobol_params[4], cosmo[4], rtol=1e-3, atol=1e-5)  # ns
-    assert np.allclose(sobol_params[5], cosmo[5], rtol=1e-3, atol=1e-5)  # w0
-    if with_bary:
-        assert np.allclose(sobol_params[6], np.log10(cosmo[6]), rtol=1e-3, atol=1e-5)  # bary_Mc
-        assert np.allclose(sobol_params[7], cosmo[7], rtol=1e-3, atol=1e-5)  # bary_nu
+    assert np.allclose(sobol_point[0], cosmo[0], rtol=1e-3, atol=1e-5)  # Om
+    assert np.allclose(sobol_point[1], cosmo[1], rtol=1e-3, atol=1e-5)  # s8
+    assert np.allclose(sobol_point[2], cosmo[2], rtol=1e-3, atol=1e-3)  # Ob
+    assert np.allclose(sobol_point[3], cosmo[3], rtol=1e-3, atol=1e-5)  # H0
+    assert np.allclose(sobol_point[4], cosmo[4], rtol=1e-3, atol=1e-5)  # ns
+    assert np.allclose(sobol_point[5], cosmo[5], rtol=1e-3, atol=1e-5)  # w0
+    if baryonified:
+        assert np.allclose(sobol_point[6], np.log10(cosmo[6]), rtol=1e-3, atol=1e-5)  # bary_Mc
+        assert np.allclose(sobol_point[7], cosmo[7], rtol=1e-3, atol=1e-5)  # bary_nu
     LOGGER.debug("The parameters derived from the sobol sequence are identical to the stored ones")
 
-    return i_sobol, cosmo, Aia, n_Aia, bg, n_bg, bg2, n_bg2
+    return i_sobol, cosmo
 
 
 def _verify_tfrecord(serialized, n_noise_per_example, kg, sn_samples, dg, pn_samples, cosmo, i_sobol, i_example, cls):

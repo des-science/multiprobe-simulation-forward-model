@@ -133,7 +133,7 @@ analysis:
   grid:
     # CosmoGrid
     n_cosmos: 2500
-    n_perms_per_cosmo: 20
+    n_perms_per_cosmo: 4
     n_noise_per_example: 3
     priors:
       # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf

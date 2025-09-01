@@ -34,6 +34,7 @@ from msfm.utils import (
     power_spectra,
     scales,
     parameters,
+    configuration,
 )
 
 hp = imports.import_healpy()
@@ -184,8 +185,20 @@ def main(indices, args):
             yaml.dump(conf, f)
 
     # modeling
+    configuration.print_and_check_modeling_in_config(conf)
+
     baryonified = conf["analysis"]["modelling"]["baryonified"]
-    quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
+
+    extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
+    assert not extended_nla, "The extension to NLA has not been implemented yet"
+
+    power_law_biasing = conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]
+    per_bin_biasing = conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]
+    quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
+    stochasticity = conf["analysis"]["modelling"]["clustering"]["stochasticity"]
+    assert not quadratic_biasing, "The quadratic biasing has not been implemented yet"
+    assert not stochasticity, "The stochasticity has not been implemented yet"
+    assert not per_bin_biasing, "Per bin biasing has not been implemented yet"
 
     # directories
     file_dir = os.path.dirname(__file__)
@@ -228,7 +241,7 @@ def main(indices, args):
     LOGGER.info(f"There's {len(cosmo_pert_labels)} cosmological labels = {cosmo_pert_labels}")
 
     # separate label lists for astrophysics perturbations
-    ia_pert_labels = parameters.get_fiducial_perturbation_labels(conf["analysis"]["params"]["ia"])[1:]
+    ia_pert_labels = parameters.get_fiducial_perturbation_labels(conf["analysis"]["params"]["ia"]["nla"])[1:]
     LOGGER.info(f"There's {len(ia_pert_labels)} intrinsic alignment labels = {ia_pert_labels}")
 
     bg_params = conf["analysis"]["params"]["bg"]["linear"]
@@ -257,6 +270,10 @@ def main(indices, args):
             LOGGER.info("Writing the .tfrecord to local scratch to be later copied to the SAN")
             san_dir_out = args.dir_out
             args.dir_out = os.environ["TMPDIR"]
+
+        if args.debug:
+            args.dir_out = os.path.join(args.dir_out, "debug")
+            os.makedirs(args.dir_out, exist_ok=True)
 
         tfr_file = filenames.get_filename_tfrecords(
             args.dir_out,
@@ -545,7 +562,7 @@ def main(indices, args):
         yield index
 
 
-def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mask):
+def _data_vector_smoothing(dv, l_min, l_max, theta_fwhm, np_seed, conf, pixel_file, mask):
     # Gaussian Random Field
     if conf["analysis"]["modelling"]["degrade_to_grf"]:
         dv, alm = scales.data_vector_to_grf_data_vector(
@@ -554,9 +571,12 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mas
             data_vec_pix=pixel_file[0],
             n_side=conf["analysis"]["n_side"],
             l_min=l_min,
+            l_max=l_max,
             theta_fwhm=theta_fwhm,
             arcmin=True,
             mask=mask,
+            conf=conf,
+            hard_cut=conf["analysis"]["scale_cuts"]["hard_cut"],
         )
 
     # standard smoothing with a Gaussian kernel
@@ -566,9 +586,12 @@ def _data_vector_smoothing(dv, l_min, theta_fwhm, np_seed, conf, pixel_file, mas
             data_vec_pix=pixel_file[0],
             n_side=conf["analysis"]["n_side"],
             l_min=l_min,
+            l_max=l_max,
             theta_fwhm=theta_fwhm,
             arcmin=True,
             mask=mask,
+            conf=conf,
+            hard_cut=conf["analysis"]["scale_cuts"]["hard_cut"],
         )
 
     return dv, alm
@@ -582,6 +605,7 @@ def _get_lensing_transform(conf, pixel_file):
         kg, alm = _data_vector_smoothing(
             kg,
             conf["analysis"]["scale_cuts"]["lensing"]["l_min"],
+            conf["analysis"]["scale_cuts"]["lensing"]["l_max"],
             conf["analysis"]["scale_cuts"]["lensing"]["theta_fwhm"],
             np_seed,
             conf,
@@ -629,7 +653,7 @@ def _get_lensing_transform(conf, pixel_file):
 def _get_clustering_transform(conf, pixel_file):
     n_side = conf["analysis"]["n_side"]
     n_noise_per_example = conf["analysis"]["fiducial"]["n_noise_per_example"]
-    quadratic_biasing = conf["analysis"]["modelling"]["quadratic_biasing"]
+    quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
 
     maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
     tomo_n_gal_maglim = tf.constant(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
@@ -640,7 +664,7 @@ def _get_clustering_transform(conf, pixel_file):
         tomo_bg2_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg2", conf)
 
     # survey systematics
-    if conf["analysis"]["modelling"]["maglim_survey_systematics_map"]:
+    if conf["analysis"]["modelling"]["clustering"]["maglim_survey_systematics_map"]:
         tomo_maglim_sys_dv = files.get_clustering_systematics(conf, pixel_type="data_vector")
     else:
         tomo_maglim_sys_dv = None
@@ -649,6 +673,7 @@ def _get_clustering_transform(conf, pixel_file):
         dg, alm = _data_vector_smoothing(
             dg,
             conf["analysis"]["scale_cuts"]["clustering"]["l_min"],
+            conf["analysis"]["scale_cuts"]["clustering"]["l_max"],
             conf["analysis"]["scale_cuts"]["clustering"]["theta_fwhm"],
             np_seed,
             conf,
@@ -670,12 +695,9 @@ def _get_clustering_transform(conf, pixel_file):
             dg2,
             bg2_tomo,
             # rest
-            conf=conf,
             systematics_map=tomo_maglim_sys_dv,
-            stochasticity=conf["analysis"]["modelling"]["galaxy_stochasticity"],
             data_vec_pix=pixel_file[0],
             mask=maglim_mask,
-            np_seed=None,
         )
 
         return galaxy_counts

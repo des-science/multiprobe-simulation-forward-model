@@ -28,15 +28,21 @@ def get_parameters(params=None, conf=None):
     if params is None:
         conf = files.load_config(conf)
 
+        # sobol
         params = conf["analysis"]["params"]["cosmo"].copy()
-
         if conf["analysis"]["modelling"]["baryonified"]:
             params += conf["analysis"]["params"]["bary"]
 
-        params += conf["analysis"]["params"]["ia"]
-        params += conf["analysis"]["params"]["bg"]["linear"]
+        if conf["analysis"]["modelling"]["clustering"]["stochasticity"]:
+            params += conf["analysis"]["params"]["stochasticity"]
 
-        if conf["analysis"]["modelling"]["quadratic_biasing"]:
+        # latin hypercube
+        params += conf["analysis"]["params"]["ia"]["nla"]
+        if conf["analysis"]["modelling"]["lensing"]["extended_nla"]:
+            params += conf["analysis"]["params"]["ia"]["tatt"]
+
+        params += conf["analysis"]["params"]["bg"]["linear"]
+        if conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]:
             params += conf["analysis"]["params"]["bg"]["quadratic"]
 
     return params

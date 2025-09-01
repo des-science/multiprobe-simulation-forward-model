@@ -55,6 +55,7 @@ def get_peaks(
     n_bins=15,
     theta_fwhm=[0.0],
     with_cross=True,
+    white_noise_sigma = None,
     binning_file=None,
     bins_edges=None,
     bins_centers=None,
@@ -71,6 +72,7 @@ def get_peaks(
         theta_fwhm (list, optional): A list or list of lits (tomographic case) of smoothing scales as the FWHM of a
             Gaussian in arcmin. Note that smoothing is done on the fly, so the input maps are ideally not presmoothed
             and all smoothing is done here. Defaults to [0.0], so no smoothing at all.
+        white_noise_sigma (list, optional): A list or list of lits (tomographic case) of while noise scales. Defaults to None -> no noise
         with_cross (bool, optional): Whether to calculate the cross spectra or auto only. Defaults to True.
         binning_file (str, optional): Absolute path to the file where the binning scheme is stored. Defaults to None,
             then the binning scheme is not stored.
@@ -99,26 +101,35 @@ def get_peaks(
     for i in range(n_z_bins):
         for j in range(n_z_bins):
             if (i == j) or (i < j and with_cross):
+                print('[jbucko] get_peaks i,j: %d,%d'%(i,j))
                 if per_tomo_bin_scales:
                     # always be conservative and take the maximum smoothing scale for cross bins
                     current_theta_fwhm = [max(theta) for theta in zip(theta_fwhm[i], theta_fwhm[j])]
+                    if white_noise_sigma is not None:
+                        current_noise = [white_noise_sigma[i],white_noise_sigma[j]]
+                    else:
+                        current_noise = None
                 elif isinstance(theta_fwhm, list):
                     current_theta_fwhm = theta_fwhm
+                    if white_noise_sigma is not None:
+                        current_noise = white_noise_sigma
+                    else:
+                        current_noise = None
                 else:
                     raise ValueError("Smoothing scales must be a list of lists or a list of floats.")
-
+                
                 # get the estat cross map object
                 cross_map = estats_map(
                     polarizations="E",
                     kappa_E=[maps[:, i], maps[:, j]],
                     scales=current_theta_fwhm,
                     NSIDE=n_side,
-                    verbosity=1,
+                    verbosity=3,
                 )
 
                 # compute cross peaks
                 cross_stats = cross_map.calc_summary_stats(
-                    statistics=["CrossPeaks"], scales=current_theta_fwhm, trimming=False
+                    statistics=["CrossPeaks"], scales=current_theta_fwhm, noise=current_noise, trimming=False
                 )
 
                 # select 'E-modes'

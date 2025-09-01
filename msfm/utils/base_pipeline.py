@@ -112,7 +112,7 @@ class MSFMpipeline:
         else:
             self.m_bias_dist = None
         self.normalize_lensing = lambda lensing_dv: lensing_dv / tf.constant(
-            self.conf["analysis"]["normalization"]["lensing"]
+            self.conf["analysis"]["normalization"]["lensing"], dtype=tf.float32
         )
 
         # clustering
@@ -121,7 +121,7 @@ class MSFMpipeline:
             self.conf["analysis"]["n_side"], degrees=True
         )
         self.normalize_clustering = lambda clustering_dv: clustering_dv / tf.constant(
-            self.conf["analysis"]["normalization"]["clustering"]
+            self.conf["analysis"]["normalization"]["clustering"], dtype=tf.float32
         )
 
         # power spectra
