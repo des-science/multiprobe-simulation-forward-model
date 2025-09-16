@@ -78,7 +78,8 @@ analysis:
       tatt: [bta]
     # galaxy biasing
     bg:
-      linear: [bg, n_bg]
+      linear: [bg1, bg2, bg3, bg4]
+      quadratic: [bg1_q, bg2_q, bg3_q, bg4_q]
       stochasticity: [rg]
   # see scale_cuts.ipynb. All angles are in arcmin.
   # The angle -> ell conversion is done in the "naive" way in 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
@@ -103,7 +104,7 @@ analysis:
       y_rad: -0.125
       z_rad: -1.22
   modelling:
-    baryonified: True
+    baryonified: False
     # pivot redshift from https://arxiv.org/pdf/2105.13543.pdf, https://arxiv.org/pdf/2105.13549.pdf (Y3)
     # and https://journals.aps.org/prd/pdf/10.1103/PhysRevD.98.043528 (Y1)
     z0: 0.62
@@ -111,14 +112,10 @@ analysis:
     degrade_to_grf: False
     lensing:
       # whether to include the TATT cross-term on top of NLA
-      extended_nla: False
-      nla:
-        truncate_nz: True
-        z_min_quantile: 0.05
-        z_max_quantile: 0.95
+      extended_nla: True
     clustering:
-      power_law_biasing: True
-      per_bin_biasing: False
+      power_law_biasing: False
+      per_bin_biasing: True
       # linear + quadratic galaxy biasing or just linear
       quadratic_biasing: False
       # whether to include a stochasticity i n the galaxy biasing. This scales the [-pi, pi] interval from which the
@@ -170,6 +167,7 @@ analysis:
       # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
       Om: [0.1, 0.5]
       s8: [0.4, 1.4]
+      S8: [0.23094010767585035, 1.8073922282301278]
       H0: [64, 82]
       Ob: [0.03, 0.06]
       ns: [0.87, 1.07]
@@ -204,6 +202,7 @@ analysis:
     # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
     Om: 0.26
     s8: 0.84
+    S8: 0.7819974424510607
     H0: 67.36
     Ob: 0.0493
     ns: 0.9649
@@ -215,9 +214,11 @@ analysis:
     Aia: 0.5
     n_Aia: 1.5
     bta: 0.0
-    # galaxy clustering
-    bg: 1.5
-    n_bg: 0.5
+    # galaxy clustering (corresponds to bg=1.5, n_bg=0.5)
+    bg1: 1.3433586
+    bg2: 1.4218498
+    bg3: 1.4996815
+    bg4: 1.5668583
     rg: 0.8
     perturbations:
       Om: 0.01
@@ -230,5 +231,7 @@ analysis:
       bary_nu: 0.1
       Aia: 0.1
       n_Aia: 0.2
-      bg: 0.1
-      n_bg: 0.2
+      bg1: 0.1
+      bg2: 0.1
+      bg3: 0.1
+      bg4: 0.1

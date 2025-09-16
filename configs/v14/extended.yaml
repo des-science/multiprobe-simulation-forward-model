@@ -113,6 +113,10 @@ analysis:
     lensing:
       # whether to include the TATT cross-term on top of NLA
       extended_nla: True
+      nla:
+        truncate_nz: False
+        z_min_quantile: 0.0
+        z_max_quantile: 1.0
     clustering:
       power_law_biasing: False
       per_bin_biasing: True
