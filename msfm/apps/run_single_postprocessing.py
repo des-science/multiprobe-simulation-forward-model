@@ -93,7 +93,12 @@ def setup(args):
     parser.add_argument(
         "--noiseless",
         action="store_true",
-        help="whether to include shape and Poisson noise",
+        help="whether to include shape and Poisson noise on top of the signal",
+    )
+    parser.add_argument(
+        "--noise_only",
+        action="store_true",
+        help="whether to only include shape and Poisson noise",
     )
     parser.add_argument(
         "--with_lensing",
@@ -223,6 +228,7 @@ def main(indices, args):
                 perm_dir,
                 conf=msfm_conf,
                 noisy=not args.noiseless,
+                noise_only=args.noise_only,
                 i_patch=i_patch,
                 # lensing
                 with_lensing=args.with_lensing,
@@ -257,6 +263,7 @@ def main(indices, args):
         with h5py.File(out_file, "w") as f:
             f.create_dataset(name="obs/maps", data=obs_maps)
             f.create_dataset(name="obs/cls_raw", data=obs_cls_raw)
+        LOGGER.info(f"Saved results to {out_file}")
 
         yield index
 

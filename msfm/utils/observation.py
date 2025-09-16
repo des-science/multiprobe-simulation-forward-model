@@ -198,7 +198,8 @@ def forward_model_observation_map(
 def forward_model_cosmogrid(
     map_dir,
     conf=None,
-    noisy=False,
+    noisy=True,
+    noise_only=False,
     i_patch=0,
     # lensing
     with_lensing=True,
@@ -235,12 +236,13 @@ def forward_model_cosmogrid(
     """
 
     conf = files.load_config(conf)
+    if noise_only:
+        assert noisy, "If noise_only is true, noisy must also be true."
 
     # constants
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
     data_vec_pix, patches_pix_dict, _, gamma2_signs = files.load_pixel_file(conf)
-    z0 = conf["analysis"]["modelling"]["z0"]
 
     map_file = filenames.get_filename_full_maps(map_dir, with_bary=conf["analysis"]["modelling"]["baryonified"])
     LOGGER.info(f"Loading the full-sky map from {map_file}")
@@ -375,10 +377,14 @@ def forward_model_cosmogrid(
                     gamma2_noise = 0
 
                 gamma1_patch = np.zeros(n_pix, dtype=np.float32)
-                gamma1_patch[patch_pix] = gamma1_full[cutout_patch_pix] + gamma1_noise
-
                 gamma2_patch = np.zeros(n_pix, dtype=np.float32)
-                gamma2_patch[patch_pix] = gamma2_full[cutout_patch_pix] + gamma2_noise
+
+                if noise_only:
+                    gamma1_patch[patch_pix] = gamma1_noise
+                    gamma2_patch[patch_pix] = gamma2_noise
+                else:
+                    gamma1_patch[patch_pix] = gamma1_full[cutout_patch_pix] + gamma1_noise
+                    gamma2_patch[patch_pix] = gamma2_full[cutout_patch_pix] + gamma2_noise
 
                 gamma2_patch *= gamma2_signs[i_patch]
 
@@ -468,7 +474,11 @@ def forward_model_cosmogrid(
             )
 
             if noisy:
-                gc_count_dv += clustering.galaxy_count_to_noise(gc_count_dv, n_noise=1, np_seed=noise_seed)[0]
+                gc_noise_dv = clustering.galaxy_count_to_noise(gc_count_dv, n_noise=1, np_seed=noise_seed)[0]
+                if noise_only:
+                    gc_count_dv = gc_noise_dv
+                else:
+                    gc_count_dv += gc_noise_dv
 
             gc_count_patch = np.zeros((n_pix, gc_count_dv.shape[-1]))
             gc_count_patch[data_vec_pix] = gc_count_dv
