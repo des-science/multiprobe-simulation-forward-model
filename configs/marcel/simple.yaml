@@ -15,8 +15,8 @@ dirs:
 
 files:
   # relative to the root of this repository
-  pixels: data/DESY3_pixels_v11_fiducial_512.h5
-  noise: data/DESY3_noise_v11.h5
+  pixels: data/nside256/DESY3_pixels_256.h5
+  noise: data/nside256/DESY3_noise.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
   peak_binning: data/peaks/binning/v11_extended.h5
@@ -49,16 +49,16 @@ survey:
     # from Table 1 in https://arxiv.org/pdf/2105.13540.pdf, in units of galaxies/deg^2
     n_gal: [540.0, 385.2, 392.4, 525.6] # , 381.6, 360.0]
     # from Table 2 in https://arxiv.org/pdf/2011.03411.pdf
-    z_lims: [[0.2, 0.4], [0.4, 0.55], [0.55, 0.70], [0.70, 0.85]] # , [0.85, 0.95], [0.95, 1.05]]
-    z_bins: [maglim1, maglim2, maglim3, maglim4] # , "desy3maglim5", "desy3maglim6"]
+    z_lims: [[0.2, 0.4], [0.4, 0.55], [0.55, 0.70], [0.70, 0.85]]
+    z_bins: [maglim1, maglim2, maglim3, maglim4]
     # from Table 2 in https://arxiv.org/pdf/2105.13546.pdf, normal distribution parameters
     z_errors:
       shift:
-        mu: [-0.009, -0.035, -0.005, -0.007] # , 0.002, 0.002]
-        sigma: [0.007, 0.011, 0.006, 0.006] # , 0.007, 0.008]
+        mu: [-0.009, -0.035, -0.005, -0.007]
+        sigma: [0.007, 0.011, 0.006, 0.006]
       scale:
-        mu: [0.975, 1.306, 0.870, 0.918] # , 1.08, 0.845]
-        sigma: [0.062, 0.093, 0.053, 0.051] # , 0.067, 0.073]
+        mu: [0.975, 1.306, 0.870, 0.918]
+        sigma: [0.062, 0.093, 0.053, 0.051]
 
 analysis:
   n_side: 256
@@ -128,39 +128,12 @@ analysis:
       maglim_survey_systematics_map: False
   normalization:
     # approximate per tomo bin standard deviation of the kg + ia + sn maps at the fiducial cosmology
-    lensing: [0.0086, 0.0137, 0.0174, 0.0229]
+    lensing: [1, 1, 1, 1]
     clustering: [1, 1, 1, 1]
   power_spectra:
     l_min: 30
     l_max: 767
     n_bins: 33
-  peak_statistics:
-    n_bins: 15
-    # FWHM of a Gaussian in arcmin (calculated in scale_cuts.ipynb)
-    theta_fwhm: [
-        # metacal 4, 6, 8, 10, 12 Mpc/h
-        [14.8, 22.1, 29.5, 36.9, 44.3],
-        [10.1, 15.1, 20.1, 25.2, 30.2],
-        [7.5, 11.2, 15.0, 18.7, 22.5],
-        [6.3, 9.4, 12.6, 15.7, 18.9],
-        # maglim 16, 20, 24, 28, 32 Mpc/h
-        [65.1, 81.4, 97.7, 113.9, 130.2],
-        [44.5, 55.6, 66.7, 77.8, 88.9],
-        [34.1, 42.6, 51.1, 59.6, 68.1],
-        [28.5, 35.7, 42.8, 49.9, 57.0],
-      ]
-    white_noise_sigma: [
-        # metacal 1%
-        [1.5321e-04, 2.3547e-04, 3.0844e-04, 3.6210e-04, 4.1484e-04],
-        [3.8765e-04, 3.0870e-04, 4.0448e-04, 4.9425e-04, 5.7168e-04],
-        [1.4363e-03, 4.0628e-04, 4.9119e-04, 6.0131e-04, 7.1251e-04],
-        [2.3846e-03, 9.8033e-04, 5.1751e-04, 6.2413e-04, 7.2757e-04],
-        # maglim 1%
-        [5.2194e-01, 6.2109e-01, 6.6951e-01, 7.8552e-01, 8.5135e-01],
-        [2.0741e-01, 2.4471e-01, 2.7530e-01, 3.1468e-01, 3.4375e-01],
-        [1.4889e-01, 1.7763e-01, 2.0603e-01, 2.3279e-01, 2.5989e-01],
-        [1.3419e-01, 1.6161e-01, 1.8954e-01, 2.1328e-01, 2.4127e-01],
-      ]
   grid:
     # CosmoGrid
     n_cosmos: 2500
