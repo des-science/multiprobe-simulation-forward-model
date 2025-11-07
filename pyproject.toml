@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "msfm"
+version = "0.1.0"
+description = "Multiprobe Simulation Forward Model"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Arne Thomsen", email = "athomsen@phys.ethz.ch"}
+]
+keywords = ["cosmology", "simulation", "forward-model", "weak-lensing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+dependencies = [
+    "numpy",
+    "scipy",
+    "healpy",
+    "h5py",
+    "pyyaml",
+    "tqdm",
+    "numba",
+    "icecream",
+    "sobol_seq",
+    "copy_guardian",
+    "estats",
+]
+
+[project.optional-dependencies]
+# Only for environments where TensorFlow is not pre-installed
+tf = [
+    "tensorflow>=2.0",
+    "tensorflow-probability",
+]
+
+# Development tools
+dev = [
+    "pytest",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "ipython",
+    "jupyter",
+]
+
+[project.urls]
+Repository = "https://github.com/des-science/multiprobe-simulation-forward-model"  # Update
+
+[tool.setuptools]
+packages = ["msfm"]
+
+[tool.setuptools.package-data]
+msfm = ["*.yaml", "*.yml"]
+
+[tool.black]
+line-length = 119
+target-version = ['py38', 'py39', 'py310', 'py311']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
