@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [
     {name = "Arne Thomsen", email = "athomsen@phys.ethz.ch"}
 ]
-keywords = ["cosmology", "simulation", "forward-model", "weak-lensing"]
+keywords = ["cosmology", "simulation", "forward-model", "weak-lensing", "galaxy clustering]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -28,14 +28,15 @@ dependencies = [
     "numpy",
     "scipy",
     "healpy",
+    "numba",
     "h5py",
     "pyyaml",
     "tqdm",
-    "numba",
     "icecream",
     "sobol_seq",
-    "copy_guardian",
     "estats",
+    "esub-epipe",
+    "copy_guardian",
 ]
 
 [project.optional-dependencies]
@@ -56,7 +57,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/des-science/multiprobe-simulation-forward-model"  # Update
+Repository = "https://github.com/des-science/multiprobe-simulation-forward-model"
 
 [tool.setuptools]
 packages = ["msfm"]
