@@ -1,8 +1,5 @@
-from setuptools import setup, find_packages
+from setuptools import setup
 
-setup(
-    name="msfm",
-    version="0.1",
-    packages=find_packages(include=["msfm.*"])
-)
-
+# Configuration is now in pyproject.toml
+# This file is kept for backwards compatibility
+setup()

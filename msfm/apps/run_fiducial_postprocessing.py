@@ -53,7 +53,7 @@ def resources(args):
         # the 8 cores don't speed things up much, but are included to increase the memory
         resources = {
             "main_time": 1,
-            "main_n_cores": 8,
+            "main_n_cores": 16,
             "main_memory": 1952,
             "main_scratch": 0,
             "merge_time": 2,

@@ -12,8 +12,7 @@
 !data/**/*.npz
 !data/**/*.h5
 !data/**/*.hdf5
-!documentation/*.png
-!documentation/*.jpg
+!data/**/*.png
 data/DESY3_noise_v11.h5
 data/DESY3_noise.h5
 
