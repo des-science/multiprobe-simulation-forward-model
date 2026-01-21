@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [
     {name = "Arne Thomsen", email = "athomsen@phys.ethz.ch"}
 ]
-keywords = ["cosmology", "simulation", "forward-model", "weak-lensing", "galaxy clustering]
+keywords = ["cosmology", "simulation", "forward-model", "weak-lensing", "galaxy clustering"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",

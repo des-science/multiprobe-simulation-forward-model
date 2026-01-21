@@ -30,6 +30,7 @@ class MSFMpipeline:
         params: list = None,
         with_lensing: bool = True,
         with_clustering: bool = True,
+        with_cross: bool = False,
         # format
         apply_norm: bool = True,
         with_padding: bool = True,
@@ -49,6 +50,8 @@ class MSFMpipeline:
             params (list): List of the cosmological parameters of interest. Fiducial: perturbations, grid: labels.
             with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
             with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
+            with_cross (bool, optional): Whether to include the cross-correlation between lensing and clustering. 
+                Defaults to False.
             apply_norm (bool, optional): Whether to rescale the maps to approximate unit range. Defaults to True.
             with_padding (bool, optional): Whether to include the padding of the data vectors (the healpy DeepSphere \
                 networks) need this. Defaults to True.
@@ -56,7 +59,7 @@ class MSFMpipeline:
                 mainly meant for testing purposes and is inefficient, since all redshift bins are loaded from the
                 .tfrecords nonetheless. Defaults to None, then all redshift bins are kept.
             return_maps (bool, optional): Whether to return the maps. Defaults to True.
-            return_maps (bool, optional): Whether to return the cls. Defaults to True.
+            return_cls (bool, optional): Whether to return the cls. Defaults to True.
             apply_m_bias (bool, optional): Whether to include the multiplicative shear bias. Defaults to True.
             shape_noise_scale (float, optional): Factor by which to multiply the shape noise. This could also be a
                 tf.Variable to change it according to a schedule during training. Set to None to not include any shape
@@ -123,6 +126,12 @@ class MSFMpipeline:
         self.normalize_clustering = lambda clustering_dv: clustering_dv / tf.constant(
             self.conf["analysis"]["normalization"]["clustering"], dtype=tf.float32
         )
+
+        self.with_cross = with_cross
+        if self.with_cross:
+            assert not (
+                self.with_lensing or self.with_clustering
+            ), "with_cross can only be True if both with_lensing and with_clustering are False"
 
         # power spectra
         self.n_cls = 3 * self.conf["analysis"]["n_side"]

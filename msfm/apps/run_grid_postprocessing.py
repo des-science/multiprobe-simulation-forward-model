@@ -214,6 +214,7 @@ def main(indices, args):
     configuration.print_and_check_modeling_in_config(conf)
 
     baryonified = conf["analysis"]["modelling"]["baryonified"]
+    store_cross_maps = conf["analysis"]["modelling"]["store_cross_maps"]
 
     extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
 
@@ -383,11 +384,40 @@ def main(indices, args):
                         dg, tomo_bg, qdg, tomo_qbg, np_seed=i_sobol + i_example
                     )
 
+                    # cross-probe maps
+                    xg = None
+                    xn_samples = None
+                    if store_cross_maps:
+                        data_vec_pix = pixel_file[0]
+                        n_side = conf["analysis"]["n_side"]
+
+                        n_z_metacal = alm_kg.shape[1]
+                        n_z_maglim = alm_dg.shape[1]
+                        n_z_cross = n_z_metacal * n_z_maglim
+
+                        xg = np.zeros((kg.shape[0], n_z_cross), dtype=np.float32)
+                        xn_samples = np.zeros((n_noise_per_example, kg.shape[0], n_z_cross), dtype=np.float32)
+                        ix = 0
+                        for i in LOGGER.progressbar(
+                            range(n_z_metacal), desc="cross bins", total=n_z_metacal, at_level="debug"
+                        ):
+                            for j in range(n_z_maglim):
+                                alm_cross = np.sqrt(alm_kg[:, i] * alm_dg[:, j])
+                                map_cross = hp.alm2map(alm_cross, nside=n_side, pol=False)
+                                xg[:, ix] = hp.reorder(map_cross, r2n=True)[data_vec_pix]
+
+                                for k in range(n_noise_per_example):
+                                    alm_cross_noise = np.sqrt(alm_sn_samples[k][:, i] * alm_pn_samples[k][:, j])
+                                    map_cross_noise = hp.alm2map(alm_cross_noise, nside=n_side, pol=False)
+                                    xn_samples[k, :, ix] = hp.reorder(map_cross_noise, r2n=True)[data_vec_pix]
+
+                                ix += 1
+
                     # power spectra
                     cls = power_spectra.run_tfrecords_alm_to_cl(alm_kg, alm_sn_samples, alm_dg, alm_pn_samples)
 
                     serialized = tfrecords.parse_forward_grid(
-                        kg, sn_samples, dg, pn_samples, cls, cosmo_sample, i_sobol, i_example
+                        kg, sn_samples, dg, pn_samples, cls, cosmo_sample, i_sobol, i_example, xg, xn_samples
                     ).SerializeToString()
 
                     _verify_tfrecord(
@@ -401,6 +431,8 @@ def main(indices, args):
                         i_sobol,
                         i_example,
                         cls,
+                        xg,
+                        xn_samples,
                     )
 
                     file_writer.write(serialized)
@@ -644,13 +676,30 @@ def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
     return i_sobol, cosmo
 
 
-def _verify_tfrecord(serialized, n_noise_per_example, kg, sn_samples, dg, pn_samples, cosmo, i_sobol, i_example, cls):
-    inv_tfr = tfrecords.parse_inverse_grid(serialized, range(n_noise_per_example))
+def _verify_tfrecord(
+    serialized,
+    n_noise_per_example,
+    kg,
+    sn_samples,
+    dg,
+    pn_samples,
+    cosmo,
+    i_sobol,
+    i_example,
+    cls,
+    xg=None,
+    xn_samples=None,
+):
+    with_cross_probe = xg is not None and xn_samples is not None
+
+    inv_tfr = tfrecords.parse_inverse_grid(serialized, range(n_noise_per_example), with_cross=with_cross_probe)
 
     for i_noise in range(n_noise_per_example):
         assert np.allclose(inv_tfr[f"kg_{i_noise}"], kg + sn_samples[i_noise])
         assert np.allclose(inv_tfr[f"dg_{i_noise}"], dg + pn_samples[i_noise])
         assert np.allclose(inv_tfr[f"cl_{i_noise}"], cls[i_noise])
+        if with_cross_probe:
+            assert np.allclose(inv_tfr[f"xg_{i_noise}"], xg + xn_samples[i_noise])
     assert np.allclose(inv_tfr["cosmo"], cosmo)
     assert np.allclose(inv_tfr["i_sobol"], i_sobol)
     assert np.allclose(inv_tfr["i_example"], i_example)

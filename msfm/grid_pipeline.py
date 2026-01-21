@@ -4,7 +4,7 @@
 Created February 2023
 Author: Arne Thomsen
 
-This file is loosely based off 
+This file is loosely based off
 https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/input_pipeline.py
 by Janis Fluri
 """
@@ -34,12 +34,13 @@ class GridPipeline(MSFMpipeline):
         params: list = None,
         with_lensing: bool = True,
         with_clustering: bool = True,
+        with_cross: bool = False,
         # format
         apply_norm: bool = True,
         with_padding: bool = True,
         z_bin_inds: list = None,
         return_maps: bool = True,
-        return_cls: bool = True,
+        return_cls: bool = False,
     ):
         """Set up the physics parameters of the pipeline.
 
@@ -49,6 +50,8 @@ class GridPipeline(MSFMpipeline):
             params (list): List of the cosmological parameters of interest. Fiducial: perturbations, grid: labels.
             with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
             with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
+            with_cross (bool, optional): Whether to include the cross-correlation between lensing and clustering. 
+                Defaults to False.
             apply_norm (bool, optional): Whether to rescale the maps to approximate unit range. Defaults to True.
             with_padding (bool, optional): Whether to include the padding of the data vectors (the healpy DeepSphere \
                 networks) need this. Defaults to True.
@@ -56,13 +59,15 @@ class GridPipeline(MSFMpipeline):
                 mainly meant for testing purposes and is inefficient, since all redshift bins are loaded from the
                 .tfrecords nonetheless. Defaults to None, then all redshift bins are kept.
             return_maps (bool, optional): Whether to return the maps. Defaults to True.
-            return_maps (bool, optional): Whether to return the cls. Defaults to True.
+            return_cls (bool, optional): Whether to return the cls. Defaults to True.
+            return_only_cross_maps (bool, optional): Whether to return only the cross maps. Defaults to False.
         """
         super().__init__(
             conf=conf,
             params=params,
             with_lensing=with_lensing,
             with_clustering=with_clustering,
+            with_cross=with_cross,
             apply_norm=apply_norm,
             with_padding=with_padding,
             z_bin_inds=z_bin_inds,
@@ -222,16 +227,18 @@ class GridPipeline(MSFMpipeline):
                 serialized_example,
                 noise_indices,
                 # dimensions
-                self.n_dv_pix,
-                self.n_z_metacal,
-                self.n_z_maglim,
-                self.n_all_params,
-                self.n_noise,
-                self.n_cls,
-                self.n_z_cross,
+                n_pix=self.n_dv_pix,
+                n_z_metacal=self.n_z_metacal,
+                n_z_maglim=self.n_z_maglim,
+                n_z_cross=self.n_z_cross,
+                n_params=self.n_all_params,
+                n_noise=self.n_noise,
+                n_cls=self.n_cls,
                 # map types
                 with_lensing=self.with_lensing,
                 with_clustering=self.with_clustering,
+                with_cross=self.with_cross,
+                # outputs
                 return_maps=self.return_maps,
                 return_cls=self.return_cls,
             ),
@@ -297,6 +304,11 @@ class GridPipeline(MSFMpipeline):
                 for i in noise_indices:
                     dg.append(data_vectors.pop(f"dg_{i}"))
 
+            if self.with_cross:
+                xg = []
+                for i in noise_indices:
+                    xg.append(data_vectors.pop(f"xg_{i}"))
+
         if self.return_cls:
             cl = []
             for i in noise_indices:
@@ -314,11 +326,11 @@ class GridPipeline(MSFMpipeline):
                 data_vectors["kg"] = kg
             if self.with_clustering:
                 data_vectors["dg"] = dg
+            if self.with_cross:
+                data_vectors["xg"] = xg
 
         if self.return_cls:
             data_vectors["cl"] = cl
-
-        print(data_vectors.keys())
 
         data_vectors["i_noise"] = list(noise_indices)
 
@@ -379,6 +391,18 @@ class GridPipeline(MSFMpipeline):
                     data_vectors["dg"] *= self.masks_maglim
 
                     map_tensor = data_vectors["dg"]
+
+                if self.with_cross:
+                    # NOTE no normalization
+
+                    # masking NOTE this assumes a single mask per tomographic bin
+                    mask = tf.math.reduce_prod(self.masks_metacal, axis=-1) * tf.math.reduce_prod(
+                        self.masks_maglim, axis=-1
+                    )
+                    mask = tf.expand_dims(mask, axis=-1)
+                    data_vectors["xg"] *= mask
+
+                    map_tensor = data_vectors["xg"]
 
                 if self.with_lensing and self.with_clustering:
                     # concatenate along the tomography axis

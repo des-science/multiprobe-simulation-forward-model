@@ -1,11 +1,11 @@
 # Copyright (C) 2022 ETH Zurich, Institute for Particle Physics and Astrophysics
 
-""" 
+"""
 Created February 2023
 Author: Arne Thomsen
 
-This file is based off 
-https://github.com/tomaszkacprzak/CosmoPointNet/blob/main/CosmoPointNet/utils_tfrecords.py 
+This file is based off
+https://github.com/tomaszkacprzak/CosmoPointNet/blob/main/CosmoPointNet/utils_tfrecords.py
 by Tomasz Kacprzak and
 https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/data.py
 by Janis Fluri and see
@@ -24,7 +24,7 @@ warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
 
-def parse_forward_grid(kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_example):
+def parse_forward_grid(kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_example, xg=None, xn_realz=None):
     """The grid cosmologies contain all of the maps and labels.
 
     Args:
@@ -37,6 +37,9 @@ def parse_forward_grid(kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_exampl
             The shape is (n_noise, n_cls, n_z_cross).
         i_sobol (int): Seed within the Sobol sequence.
         i_example (int): Example index, which is determined by the simulation run and the patch.
+        xg (np.ndarray, optional): shape(n_pix, n_z_cross), cross-maps between kg and dg. Defaults to None.
+        xn_realz (np.ndarray, optional): shape(n_noise, n_pix, n_z_cross), noise realizations for the cross-maps.
+            Defaults to None.
 
     Returns:
         tf.train.Example: Example containing all of these tensors.
@@ -73,6 +76,13 @@ def parse_forward_grid(kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_exampl
     for i, pn in enumerate(pn_realz):
         features[f"dg_{i}"] = _bytes_feature(tf.io.serialize_tensor(dg + pn))
 
+    # cross-maps
+    if (xg is not None) and (xn_realz is not None):
+        features["n_z_cross_map"] = _int64_feature(xg.shape[1])
+
+        for i, xn in enumerate(xn_realz):
+            features[f"xg_{i}"] = _bytes_feature(tf.io.serialize_tensor(xg + xn))
+
     # create an Example, wrapping the single features
     example = tf.train.Example(features=tf.train.Features(feature=features))
     return example
@@ -85,13 +95,15 @@ def parse_inverse_grid(
     n_pix=None,
     n_z_metacal=None,
     n_z_maglim=None,
+    n_z_cross_map=None,
+    n_z_cross=None,
     n_params=None,
     n_noise=None,
     n_cls=None,
-    n_z_cross=None,
     # probes
     with_lensing=True,
     with_clustering=True,
+    with_cross=False,
     return_maps=True,
     return_cls=True,
 ):
@@ -108,7 +120,8 @@ def parse_inverse_grid(
         n_params (int, optional): Fixes the size of the tensors. Defaults to None.
         with_lensing (bool, optional): Whether to return the weak lensing maps. Defaults to True.
         with_clustering (bool, optional): Whether to return the galaxy clustering maps. Defaults to True.
-
+        with_cross_only (bool, optional): Whether to return only the cross maps. Defaults to False.
+        return_cls (bool, optional): Whether to return the cls. Defaults to True.
     Returns:
         dict: Dictionary containing the tensors for the different fields, the cosmological parameters and indices
         i_sobol and i_example.
@@ -141,19 +154,15 @@ def parse_inverse_grid(
             for i in noise_indices:
                 features[f"dg_{i}"] = tf.io.FixedLenFeature([], tf.string)
 
+        if with_cross:
+            features["n_z_cross_map"] = tf.io.FixedLenFeature([], tf.int64)
+            for i in noise_indices:
+                features[f"xg_{i}"] = tf.io.FixedLenFeature([], tf.string)
+
     serialized_data = tf.io.parse_single_example(serialized_example, features)
 
     # output container
     output_data = {}
-
-    bin_indices, _ = cross_statistics.get_cross_bin_indices(
-        _parse_none_value(serialized_data, "n_z_metacal", n_z_metacal),
-        _parse_none_value(serialized_data, "n_z_maglim", n_z_maglim),
-        with_lensing,
-        with_clustering,
-        with_cross_z=True,
-        with_cross_probe=(with_lensing and with_clustering),
-    )
 
     cosmo = tf.io.parse_tensor(serialized_data["cosmo"], out_type=tf.float32)
     if n_params is None:
@@ -174,7 +183,21 @@ def parse_inverse_grid(
                     output_data, serialized_data, f"dg_{i}", f"dg_{i}", n_pix, n_z_maglim, "n_z_maglim"
                 )
 
+            if with_cross:
+                output_data = _parse_and_reshape_data_vector(
+                    output_data, serialized_data, f"xg_{i}", f"xg_{i}", n_pix, n_z_cross_map, "n_z_cross_map"
+                )
+
         if return_cls:
+            bin_indices, _ = cross_statistics.get_cross_bin_indices(
+                _parse_none_value(serialized_data, "n_z_metacal", n_z_metacal),
+                _parse_none_value(serialized_data, "n_z_maglim", n_z_maglim),
+                with_lensing,
+                with_clustering,
+                with_cross_z=True,
+                with_cross_probe=(with_lensing and with_clustering),
+            )
+
             _parse_and_reshape_cls(
                 output_data,
                 serialized_data,
