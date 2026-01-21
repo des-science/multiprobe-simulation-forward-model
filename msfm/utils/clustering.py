@@ -24,6 +24,9 @@ def galaxy_density_to_count(
     # quadratic
     qdg=None,
     qbg=None,
+    # magnification
+    mg=None,
+    cg=None,
     # modeling
     systematics_map=None,
     # format
@@ -53,15 +56,17 @@ def galaxy_density_to_count(
     """
 
     # linear bias
-    if (qbg is None) and (qdg is None):
-        ng = ng_bar * (1 + bg * dg)
+    ng = 1 + bg * dg
 
     # quadratic bias
-    elif (qbg is not None) and (qdg is not None):
-        ng = ng_bar * (1 + bg * dg + qbg * qdg)
+    if (qbg is not None) and (qdg is not None):
+        ng += qbg * qdg
 
-    else:
-        raise ValueError("Both or none of qdg and qbg must be passed")
+    # magnification bias
+    if (mg is not None) and (cg is not None):
+        ng += cg * mg
+    
+    ng *= ng_bar
 
     # transform like in DeepLSS Appendix E and https://github.com/tomaszkacprzak/deep_lss/blob/3c145cf8fe04c4e5f952dca984c5ce7e163b8753/deep_lss/lss_astrophysics_model_batch.py#L609
     # this ensures that all of the values are positive, while the total number of galaxies is conserved

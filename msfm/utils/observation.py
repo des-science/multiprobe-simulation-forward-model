@@ -213,6 +213,8 @@ def forward_model_cosmogrid(
     with_clustering=True,
     tomo_bg=None,
     tomo_qbg=None,
+    tomo_cg=None,
+    survey_sys=False,
     noise_seed=12,
 ):
     """Take a full-sky CosmoGrid maps as they are projected with UFalcon and transform them into fiducial probe maps
@@ -463,12 +465,35 @@ def forward_model_cosmogrid(
                 LOGGER.info(f"Using tomo_qbg={tomo_qbg} from the function call")
                 qdg_dv = dg_dv**2 * np.sign(dg_dv)
 
+            # TODO
+            if tomo_cg is not None:
+                LOGGER.warning(f"!!!EXPERIMENTAL!!! Using tomo_cg={tomo_cg} from the function call")
+
+                mg_file = "/pscratch/sd/a/athomsen/laura/magnification_bias_map_maglim_bin_0.npy"
+                mg = np.load(mg_file)
+
+                mg_patch = np.zeros_like(mg)
+                mg_patch[patch_pix] = mg[cutout_patch_pix]
+                mg_patch = maps.tomographic_reorder(mg_patch, r2n=True)
+                mg_dv = mg_patch[data_vec_pix]
+
+            else:
+                mg_dv = None
+                tomo_cg = None
+
+            if survey_sys:
+                LOGGER.info("Including the maglim survey systematics map in the forward model")
+                systematics_map = files.get_clustering_systematics(conf, pixel_type="data_vector")
+
             gc_count_dv = clustering.galaxy_density_to_count(
                 tomo_n_gal_maglim,
                 dg_dv,
                 tomo_bg,
                 qdg_dv,
                 tomo_qbg,
+                mg_dv,
+                tomo_cg,
+                systematics_map=systematics_map if survey_sys else None,
                 mask=maglim_mask,
                 nest=True,
             )

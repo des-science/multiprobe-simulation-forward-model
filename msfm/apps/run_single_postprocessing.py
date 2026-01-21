@@ -144,6 +144,17 @@ def setup(args):
         nargs="+",
         default=None,
     )
+    parser.add_argument(
+        "--tomo_cg",
+        type=float,
+        nargs="+",
+        default=None,
+    )
+    parser.add_argument(
+        "--contaminate_survey_systematics",
+        action="store_true",
+        help="whether to include the maglim survey systematics map in the forward model",
+    )
 
     # run
     parser.add_argument(
@@ -239,6 +250,8 @@ def main(indices, args):
                 # clustering
                 with_clustering=args.with_clustering,
                 tomo_bg=args.tomo_bg,
+                tomo_cg=args.tomo_cg,
+                survey_sys=args.contaminate_survey_systematics,
                 noise_seed=args.np_seed,
             )
 
