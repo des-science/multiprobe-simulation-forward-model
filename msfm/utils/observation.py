@@ -36,6 +36,7 @@ def forward_model_observation_map(
     apply_norm: bool = True,
     with_padding: bool = True,
     nest_in: bool = True,
+    apply_maglim_sys_map: bool = False,
 ):
     """Take a (mock) observation and apply the same transformations to it as within the CosmoGrid pipeline, such that
     everything (masking, mode removal, normalization, ...) is consistent.
@@ -50,7 +51,7 @@ def forward_model_observation_map(
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). Defaults to None.
         apply_norm (bool, optional): Whether to rescale the maps to approximate unit range. Defaults to True.
-        with_padding (bool, optional): Whether to include the padding of the data vectors (the healpy DeepSphere \
+        with_padding (bool, optional): Whether to include the padding of the data vectors (the healpy DeepSphere
             networks) need this. Defaults to True.
         nest (bool, optional): Whether the full sky input maps wl_gamma and gc_count are in nested (or ring if false)
             ordering. Defaults to True.
@@ -150,8 +151,12 @@ def forward_model_observation_map(
                 cutout_pix=patches_pix_dict["maglim"][i][0],
             )
 
+        if apply_maglim_sys_map:
+            LOGGER.warning("Applying maglim systematics map")
+            gc_count_dv *= files.get_clustering_systematics(conf, pixel_type="data_vector")
+
         if apply_norm:
-            print("No normalization applied to the galaxy clustering maps")
+            LOGGER.info("No normalization applied to the galaxy clustering maps")
 
         gc_count_dv *= dv_masks_maglim
         gc_count_dv, gc_alms = scales.data_vector_to_smoothed_data_vector(
@@ -469,8 +474,13 @@ def forward_model_cosmogrid(
             if tomo_cg is not None:
                 LOGGER.warning(f"!!!EXPERIMENTAL!!! Using tomo_cg={tomo_cg} from the function call")
 
-                mg_file = "/pscratch/sd/a/athomsen/laura/magnification_bias_map_maglim_bin_0.npy"
-                mg = np.load(mg_file)
+                perm_index = int(map_dir[-4:])
+
+                mg = []
+                for i, z_bin in enumerate(maglim_bins):
+                    mg_file = f"/pscratch/sd/a/athomsen/laura/DES_maps_260128/mag_map_bin_{i+1}_run_{perm_index}.npy"
+                    mg.append(np.load(mg_file))
+                mg = np.stack(mg, axis=-1)
 
                 mg_patch = np.zeros_like(mg)
                 mg_patch[patch_pix] = mg[cutout_patch_pix]

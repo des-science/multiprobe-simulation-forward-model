@@ -62,11 +62,11 @@ def galaxy_density_to_count(
     if (qbg is not None) and (qdg is not None):
         ng += qbg * qdg
 
-    # magnification bias
-    if (mg is not None) and (cg is not None):
-        ng += cg * mg
-    
     ng *= ng_bar
+
+    # map-level magnification bias as derived by Laura
+    if (mg is not None) and (cg is not None):
+        ng *= 1 + cg * mg
 
     # transform like in DeepLSS Appendix E and https://github.com/tomaszkacprzak/deep_lss/blob/3c145cf8fe04c4e5f952dca984c5ce7e163b8753/deep_lss/lss_astrophysics_model_batch.py#L609
     # this ensures that all of the values are positive, while the total number of galaxies is conserved
