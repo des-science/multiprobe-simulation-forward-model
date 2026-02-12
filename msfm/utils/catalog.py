@@ -52,7 +52,12 @@ def build_metacal_map_from_cat(conf, debug=True):
 
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
+
     n_z = len(conf["survey"]["metacal"]["z_bins"])
+    Aeff = conf["survey"]["Aeff"]
+    R_gamma = conf["survey"]["metacal"]["R_gamma"]
+    R_s = conf["survey"]["metacal"]["R_s"]
+
     cat_dir = conf["dirs"]["catalog"]
 
     index = h5py.File(f"{cat_dir}/DESY3_indexcat.h5", "r")
@@ -75,44 +80,61 @@ def build_metacal_map_from_cat(conf, debug=True):
         # properties
         e1 = metacal["/catalog/unsheared/e_1"][:][metacal_bin]
         e2 = metacal["/catalog/unsheared/e_2"][:][metacal_bin]
-        weight = metacal["/catalog/unsheared/weight"][:][metacal_bin]
+        w = metacal["/catalog/unsheared/weight"][:][metacal_bin]
 
-        # weighted maps
-        w_map = np.bincount(pix, weights=weight, minlength=n_pix)
-        e1_map = np.bincount(pix, weights=e1 * weight, minlength=n_pix)
-        e2_map = np.bincount(pix, weights=e2 * weight, minlength=n_pix)
+        # following eq. (10) in https://arxiv.org/pdf/2403.02314
+        gamma1_map = np.bincount(pix, weights=e1 * w, minlength=n_pix)
+        gamma2_map = np.bincount(pix, weights=e2 * w, minlength=n_pix)
+        w_map = np.bincount(pix, weights=w, minlength=n_pix)
 
-        # normalize
         mask = w_map > 0
-        e1_map[mask] /= w_map[mask]
-        e2_map[mask] /= w_map[mask]
+        # using eq. (4) in https://arxiv.org/pdf/2105.13543 for the total shear response
+        gamma1_map[mask] /= w_map[mask] * (R_gamma[i] + R_s[i])
+        gamma2_map[mask] /= w_map[mask] * (R_gamma[i] + R_s[i])
 
-        wl_gamma_map[:, i, 0] = e1_map
-        wl_gamma_map[:, i, 1] = e2_map
+        wl_gamma_map[:, i, 0] = gamma1_map
+        wl_gamma_map[:, i, 1] = gamma2_map
         wl_count_map[:, i] = count_map
 
-        # compare with Table 1 of https://arxiv.org/pdf/2105.13543
         if debug:
+            if i == 0:
+                LOGGER.warning("Compare with Table 1 in https://arxiv.org/pdf/2105.13543")
             LOGGER.info(f"Metacalibration bin {i+1}")
 
             def w_mean(x):
-                return np.sum(weight * x) / np.sum(weight)
+                return np.sum(w * x) / np.sum(w)
 
             # eq. (12) in https://arxiv.org/pdf/2011.03408
-            neff_deg = np.sum(weight) ** 2 / np.sum(weight**2) / conf["survey"]["Aeff"]
+            neff_deg = np.sum(w) ** 2 / np.sum(w**2) / Aeff
             neff_arcmin = neff_deg / 60**2
             LOGGER.info(f"N_gal = {len(metacal_bin)}, n_eff = {neff_arcmin:.3f} [arcmin^-2]")
 
-            # eq. (13) in https://arxiv.org/pdf/2011.03408
-            sigma_e_H12 = np.sqrt(0.5 * (np.sum((e1 * weight) ** 2) + np.sum((e2 * weight) ** 2)) / np.sum(weight**2))
-            # approximately (missing sigma_m) eq. (10) in https://arxiv.org/pdf/2011.03408
-            sigma_e_C13 = np.sqrt(0.5 * np.sum(weight**2 * (e1**2 + e2**2)) / np.sum(weight**2))
-            LOGGER.info(f"sigma_e (H12) = {sigma_e_H12:.3f}, sigma_e (C13) = {sigma_e_C13:.3f}")
-
             LOGGER.info(f"mean(e1) = {w_mean(e1):.2e}, mean(e2) = {w_mean(e2):.2e}")
 
-            z_mc = dnf["/catalog/unsheared/zmc_sof"][:][metacal_bin]
-            LOGGER.info(f"z_mean = {w_mean(z_mc):.4f}")
+            # eq. (13) in https://arxiv.org/pdf/2011.03408
+            # adapted from https://github.com/des-science/multiprobe-simulation-inference/blob/main/dev/notebooks/des_y3/marco_metacal_snippet.ipynb
+            sigma_e_H12 = np.sqrt(
+                0.5
+                * (np.sum((e1 * w) ** 2) + np.sum((e2 * w) ** 2))
+                # the R_gamma factor here seems to be missing from the paper?
+                / np.sum(w * R_gamma[i]) ** 2
+                * (np.sum(w) ** 2 / np.sum(w**2))
+            )
+            # eq. (10) in https://arxiv.org/pdf/2011.03408 (approximately, since sigma_m is missing)
+            sigma_e_C13 = np.sqrt(0.5 * np.sum(w**2 * (e1**2 + e2**2)) / np.sum(w**2))
+            LOGGER.info(f"sigma_e (H12) = {sigma_e_H12:.3f}, sigma_e (C13) = {sigma_e_C13:.3f}")
+
+            # compare the mean shear response from Table 1 in https://arxiv.org/pdf/2105.13543 with the catalog
+            R11 = metacal["/catalog/unsheared/R11"][:][metacal_bin]
+            R22 = metacal["/catalog/unsheared/R22"][:][metacal_bin]
+            R_gamma_cat = w_mean((R11 + R22) / 2)
+            assert np.isclose(
+                R_gamma[i], R_gamma_cat, atol=1e-5, rtol=1e-3
+            ), f"R_gamma from config ({R_gamma[i]}) does not match mean(R_gamma) from catalog ({R_gamma_cat})"
+            LOGGER.info(f"mean(R_gamma) = {R_gamma_cat:.4f}")
+
+            z_dnf = dnf["/catalog/unsheared/zmc_sof"][:][metacal_bin]
+            LOGGER.info(f"z_mean (DNF) = {w_mean(z_dnf):.4f}")
 
     index.close()
     gold.close()
@@ -127,7 +149,11 @@ def build_maglim_map_from_cat(conf, debug=True):
 
     n_side = conf["analysis"]["n_side"]
     n_pix = conf["analysis"]["n_pix"]
+
     n_z = len(conf["survey"]["maglim"]["z_bins"])
+    z_lims = conf["survey"]["maglim"]["z_lims"]
+    Aeff = conf["survey"]["Aeff"]
+
     cat_dir = conf["dirs"]["catalog"]
 
     index = h5py.File(f"{cat_dir}/DESY3_indexcat.h5", "r")
@@ -141,7 +167,7 @@ def build_maglim_map_from_cat(conf, debug=True):
 
     gc_count_map = np.zeros((n_pix, n_z))
     for i in range(n_z):
-        z_mask = (conf["survey"]["maglim"]["z_lims"][i][0] < z) & (z < conf["survey"]["maglim"]["z_lims"][i][1])
+        z_mask = (z_lims[i][0] < z) & (z < z_lims[i][1])
 
         # positions
         dec_bin = dec[z_mask]
@@ -150,12 +176,14 @@ def build_maglim_map_from_cat(conf, debug=True):
 
         gc_count_map[:, i] = np.bincount(pix, minlength=n_pix)
 
-        # compare with Table 1 of https://arxiv.org/pdf/2105.13546
         if debug:
+            if i == 0:
+                LOGGER.warning("Compare with Table 1 in https://arxiv.org/pdf/2105.13546")
+
             LOGGER.info(f"Maglim bin {i+1}")
 
             N_gal = np.sum(z_mask)
-            neff_deg = N_gal / conf["survey"]["Aeff"]
+            neff_deg = N_gal / Aeff
             neff_arcmin = neff_deg / 60**2
             LOGGER.info(f"N_gal = {N_gal}, n_eff = {neff_arcmin:.3f} [arcmin^-2]")
 
@@ -169,25 +197,32 @@ def build_maglim_map_from_cat(conf, debug=True):
 def get_shapes_from_cat(conf):
     conf = files.load_config(conf)
 
+    R_gamma = conf["survey"]["metacal"]["R_gamma"]
+    R_s = conf["survey"]["metacal"]["R_s"]
+
     cat_dir = conf["dirs"]["catalog"]
 
     metacal = h5py.File(f"{cat_dir}/DESY3_metacal_v03-004.h5", "r")
     index = h5py.File(f"{cat_dir}/DESY3_indexcat.h5", "r")
 
     n_z = len(conf["survey"]["metacal"]["z_bins"])
-    e_1 = []
-    e_2 = []
-    w = []
+    gamma_1 = []
+    gamma_2 = []
+    weight = []
     for i in range(n_z):
         metacal_bin = index[f"/index/select_bin{i+1}"][:]
         LOGGER.info(f"Metacalibration bin {i+1}: N_gal = {len(metacal_bin)}")
 
         # properties
-        e_1.append(metacal["/catalog/unsheared/e_1"][:][metacal_bin])
-        e_2.append(metacal["/catalog/unsheared/e_2"][:][metacal_bin])
-        w.append(metacal["/catalog/unsheared/weight"][:][metacal_bin])
+        e1 = metacal["/catalog/unsheared/e_1"][:][metacal_bin]
+        e2 = metacal["/catalog/unsheared/e_2"][:][metacal_bin]
+        w = metacal["/catalog/unsheared/weight"][:][metacal_bin]
+
+        gamma_1.append(e1 / (R_gamma[i] + R_s[i]))
+        gamma_2.append(e2 / (R_gamma[i] + R_s[i]))
+        weight.append(w)
 
     metacal.close()
     index.close()
 
-    return e_1, e_2, w
+    return gamma_1, gamma_2, weight

@@ -21,15 +21,19 @@ survey:
       input: [kg, ia, dg, dg]
       output: [kg, ia, sn, ds]
     z_bins: [metacal1, metacal2, metacal3, metacal4]
-    # from Table 1 in https://arxiv.org/pdf/2105.13543.pdf (in galaxies/deg^2, total galaxy counts and not n_eff)
+    # from Table 1 in https://arxiv.org/pdf/2105.13543 (in galaxies/deg^2, total galaxy counts and not n_eff)
     n_gal: [6019.90, 6101.96, 6008.17, 6056.31]
-    # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf
+    # from Table 1 in https://arxiv.org/pdf/2105.13544
     shear_bias:
       multiplicative:
         mu: [-0.0063, -0.0198, -0.0241, -0.0369]
         sigma: [0.0091, 0.0078, 0.0076, 0.0076]
     # pivot redshift from https://arxiv.org/pdf/2105.13543
     z0: 0.62
+    # used to build the observation like eq. (10) in https://arxiv.org/pdf/2403.02314
+    # from Table 1 in https://arxiv.org/pdf/2105.13543
+    R_gamma: [0.7636, 0.7182, 0.6887, 0.6154]
+    R_s: [0.0046, 0.0083, 0.0126, 0.0145]
   maglim:
     map_types:
       input: [dg]
@@ -39,6 +43,8 @@ survey:
     n_gal: [540.0, 385.2, 392.4, 525.6]
     # used to build the observation, from Table 1 in https://arxiv.org/pdf/2105.13546
     z_lims: [[0.2, 0.4], [0.4, 0.55], [0.55, 0.70], [0.70, 0.85]]
+  # from Table 1 in https://arxiv.org/pdf/2105.13543
+  Aeff: 4143
 
 analysis:
   n_side: 512
@@ -71,13 +77,13 @@ analysis:
   scale_cuts:
     hard_cut: True
     lensing:
-      # from 6.1 in https://arxiv.org/pdf/2110.10135.pdf
+      # from 6.1 in https://arxiv.org/pdf/2110.10135
       l_min: [30, 30, 30, 30]
       # healpy default of 3 * n_side - 1, since smoothing is done on the fly
       l_max: Null
       theta_fwhm: Null
     clustering:
-      # from 6.1 in https://arxiv.org/pdf/2110.10135.pdf
+      # from 6.1 in https://arxiv.org/pdf/2110.10135
       l_min: [30, 30, 30, 30]
       # healpy default of 3 * n_side - 1, since smoothing is done on the fly
       l_max: Null
@@ -102,7 +108,7 @@ analysis:
       # whether to include a stochasticity in the galaxy biasing. This scales the [-pi, pi] interval from which the
       # random phases with which the alm coefficients are multiplied are drawn. Set to Null to discard.
       stochasticity: False
-      # whether to include the survey systematics maps from https://arxiv.org/pdf/2105.13540.pdf in the forward model.
+      # whether to include the survey systematics maps from https://arxiv.org/pdf/2105.13540 in the forward model.
       maglim_survey_systematics_map: False
   normalization:
     # approximate per tomo bin standard deviation of the kg + ia + sn maps at the fiducial cosmology
@@ -118,7 +124,7 @@ analysis:
     n_perms_per_cosmo: 20
     n_noise_per_example: 5
     priors:
-      # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
+      # from Table 1 in https://arxiv.org/pdf/2201.07771
       Om: [0.1, 0.5]
       s8: [0.4, 1.4]
       S8: [0.23094010767585035, 1.8073922282301278]
@@ -153,7 +159,7 @@ analysis:
     n_cosmos: 17 # 1 + 2 * n_perts
     n_perms_per_cosmo: 1000
     n_noise_per_example: 10
-    # from Table 1 in https://arxiv.org/pdf/2201.07771.pdf
+    # from Table 1 in https://arxiv.org/pdf/2201.07771
     Om: 0.26
     s8: 0.84
     S8: 0.7819974424510607
