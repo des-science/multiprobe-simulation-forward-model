@@ -245,7 +245,6 @@ def load_noise_file(conf=None):
 
     Returns:
         tomo_gamma_cat: list for the tomographic bins containing all of the gamma values for the galaxies in the survey
-        tomo_n_bar: tomographic list of the mean number of galaxies per pixel
     """
     conf = load_config(conf)
 
@@ -255,17 +254,14 @@ def load_noise_file(conf=None):
 
     with h5py.File(noise_file, "r") as f:
         tomo_gamma_cat = []
-        tomo_n_bar = []
         for z_bin in conf["survey"]["metacal"]["z_bins"]:
             # shape (n_gal, 3) with e1, e2, w
             gamma_cat = f[f"{z_bin}/cat"][:]
-            n_bar = f[f"{z_bin}/n_bar"][()]
 
             tomo_gamma_cat.append(gamma_cat)
-            tomo_n_bar.append(n_bar)
     LOGGER.info(f"Loaded the noise file")
 
-    return tomo_gamma_cat, tomo_n_bar
+    return tomo_gamma_cat
 
 
 def load_redshift_distributions(galaxy_sample, conf=None):

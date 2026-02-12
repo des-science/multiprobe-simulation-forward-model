@@ -318,7 +318,7 @@ def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file
     base_patch_pix = patches_pix[0]
 
     # noise file
-    tomo_gamma_cat, _ = noise_file
+    tomo_gamma_cat = noise_file
     gamma_cat = tomo_gamma_cat[i_z]
 
     # metacal clustering
