@@ -47,7 +47,7 @@ def survey_angles_to_pix(conf, ra, dec, n_side):
     return pix
 
 
-def build_metacal_map_from_cat(conf, debug=False):
+def build_metacal_map_from_cat(conf, debug=True):
     conf = files.load_config(conf)
 
     n_side = conf["analysis"]["n_side"]
@@ -92,15 +92,27 @@ def build_metacal_map_from_cat(conf, debug=False):
         wl_count_map[:, i] = count_map
 
         # compare with Table 1 of https://arxiv.org/pdf/2105.13543
-        LOGGER.info(f"Metacalibration bin {i+1}")
-        LOGGER.info(f"ngal = {len(metacal_bin)}, mean(e1) = {np.mean(e1):2e}, mean(e2) = {np.mean(e2):2e}")
         if debug:
+            LOGGER.info(f"Metacalibration bin {i+1}")
+
+            def w_mean(x):
+                return np.sum(weight * x) / np.sum(weight)
+
+            # eq. (12) in https://arxiv.org/pdf/2011.03408
+            neff_deg = np.sum(weight) ** 2 / np.sum(weight**2) / conf["survey"]["Aeff"]
+            neff_arcmin = neff_deg / 60**2
+            LOGGER.info(f"N_gal = {len(metacal_bin)}, n_eff = {neff_arcmin:.3f} [arcmin^-2]")
+
+            # eq. (13) in https://arxiv.org/pdf/2011.03408
+            sigma_e_H12 = np.sqrt(0.5 * (np.sum((e1 * weight) ** 2) + np.sum((e2 * weight) ** 2)) / np.sum(weight**2))
+            # approximately (missing sigma_m) eq. (10) in https://arxiv.org/pdf/2011.03408
+            sigma_e_C13 = np.sqrt(0.5 * np.sum(weight**2 * (e1**2 + e2**2)) / np.sum(weight**2))
+            LOGGER.info(f"sigma_e (H12) = {sigma_e_H12:.3f}, sigma_e (C13) = {sigma_e_C13:.3f}")
+
+            LOGGER.info(f"mean(e1) = {w_mean(e1):.2e}, mean(e2) = {w_mean(e2):.2e}")
+
             z_mc = dnf["/catalog/unsheared/zmc_sof"][:][metacal_bin]
-            R11 = metacal["/catalog/unsheared/R11"][:][metacal_bin]
-            R22 = metacal["/catalog/unsheared/R22"][:][metacal_bin]
-            LOGGER.info(
-                f"mean(z) = {np.mean(z_mc):.4f}, mean(R11) = {np.mean(R11):.4f}, mean(R22) = {np.mean(R22):.4f}"
-            )
+            LOGGER.info(f"z_mean = {w_mean(z_mc):.4f}")
 
     index.close()
     gold.close()
@@ -110,7 +122,7 @@ def build_metacal_map_from_cat(conf, debug=False):
     return wl_gamma_map, wl_count_map
 
 
-def build_maglim_map_from_cat(conf):
+def build_maglim_map_from_cat(conf, debug=True):
     conf = files.load_config(conf)
 
     n_side = conf["analysis"]["n_side"]
@@ -128,7 +140,7 @@ def build_maglim_map_from_cat(conf):
     z = dnf["catalog/unsheared/zmean_sof"][:][maglim_index]
 
     gc_count_map = np.zeros((n_pix, n_z))
-    for i in LOGGER.progressbar(range(n_z)):
+    for i in range(n_z):
         z_mask = (conf["survey"]["maglim"]["z_lims"][i][0] < z) & (z < conf["survey"]["maglim"]["z_lims"][i][1])
 
         # positions
@@ -137,6 +149,15 @@ def build_maglim_map_from_cat(conf):
         pix = survey_angles_to_pix(conf, ra_bin, dec_bin, n_side)
 
         gc_count_map[:, i] = np.bincount(pix, minlength=n_pix)
+
+        # compare with Table 1 of https://arxiv.org/pdf/2105.13546
+        if debug:
+            LOGGER.info(f"Maglim bin {i+1}")
+
+            N_gal = np.sum(z_mask)
+            neff_deg = N_gal / conf["survey"]["Aeff"]
+            neff_arcmin = neff_deg / 60**2
+            LOGGER.info(f"N_gal = {N_gal}, n_eff = {neff_arcmin:.3f} [arcmin^-2]")
 
     index.close()
     dnf.close()
@@ -157,10 +178,11 @@ def get_shapes_from_cat(conf):
     e_1 = []
     e_2 = []
     w = []
-    for i in LOGGER.progressbar(range(n_z)):
+    for i in range(n_z):
         metacal_bin = index[f"/index/select_bin{i+1}"][:]
-        LOGGER.info(f"#gals in metacal bin {i+1}: {len(metacal_bin)}")
+        LOGGER.info(f"Metacalibration bin {i+1}: N_gal = {len(metacal_bin)}")
 
+        # properties
         e_1.append(metacal["/catalog/unsheared/e_1"][:][metacal_bin])
         e_2.append(metacal["/catalog/unsheared/e_2"][:][metacal_bin])
         w.append(metacal["/catalog/unsheared/weight"][:][metacal_bin])
