@@ -52,7 +52,7 @@ def get_tomo_amplitudes_according_to_config(conf, amplitude, exponent, sample="m
         exponent,
         tomo_z,
         tomo_nz,
-        z0=conf["analysis"]["modelling"]["z0"],
+        z0=conf["survey"][sample]["z0"],
         truncate_nz=conf["analysis"]["modelling"]["lensing"]["nla"]["truncate_nz"],
         z_min_quantile=conf["analysis"]["modelling"]["lensing"]["nla"]["z_min_quantile"],
         z_max_quantile=conf["analysis"]["modelling"]["lensing"]["nla"]["z_max_quantile"],
@@ -154,7 +154,7 @@ def get_tomo_amplitudes_according_to_config_vectorized(
     z_max_quantile: float = 0.95,
 ):
     tomo_z, tomo_nz = files.load_redshift_distributions(sample, conf)
-    z0 = conf["analysis"]["modelling"]["z0"]
+    z0 = conf["survey"][sample]["z0"]
     return get_tomo_amplitudes_vectorized(
         amplitude,
         exponent,

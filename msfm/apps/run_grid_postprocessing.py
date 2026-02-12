@@ -506,7 +506,7 @@ def _get_lensing_transform(conf, pixel_file):
             n_Aia,
             tomo_z_metacal,
             tomo_nz_metacal,
-            z0=conf["analysis"]["modelling"]["z0"],
+            z0=conf["survey"]["metacal"]["z0"],
             truncate_nz=conf["analysis"]["modelling"]["lensing"]["nla"]["truncate_nz"],
             z_min_quantile=conf["analysis"]["modelling"]["lensing"]["nla"]["z_min_quantile"],
             z_max_quantile=conf["analysis"]["modelling"]["lensing"]["nla"]["z_max_quantile"],

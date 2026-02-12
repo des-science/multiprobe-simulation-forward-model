@@ -1,18 +1,9 @@
 # contains the configuration parameters of the forward model pipeline
 dirs:
+  # absolute on Perlmutter
   catalog: /pscratch/sd/a/athomsen/y3/cats
-  # absolute path on the SAN
-  SANCosmoGrid: /home/ipa/refreg/data/data_products/CosmoGrid/processed/CosmoGrid/v11desy3
   # relative to the root of this repository
   redshift_distributions: data/redshift_distributions
-  connections:
-    san:
-      host: "login.phys.ethz.ch"
-      user: "athomsen"
-      private_key: "/cluster/home/athomsen/.ssh/id_ed25519_san"
-      port: 22
-      max_connections: 20
-      timeout: 1200
 
 files:
   # relative to the root of this repository
@@ -29,37 +20,25 @@ survey:
     map_types:
       input: [kg, ia, dg, dg]
       output: [kg, ia, sn, ds]
-    # from Table 1 in https://arxiv.org/pdf/2105.13543.pdf, in units of galaxies/deg^2 (total galaxy counts, not n_eff)
-    n_gal: [6019.90, 6101.96, 6008.17, 6056.31]
-    # from Table 2 in https://arxiv.org/pdf/2012.08566.pdf
-    z_lims: [[0.0, 0.358], [0.358, 0.631], [0.631, 0.872], [0.872, 2.0]]
     z_bins: [metacal1, metacal2, metacal3, metacal4]
-    # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf, normal distribution parameters
-    z_errors:
-      mu: [0.0, 0.0, 0.0, 0.0]
-      sigma: [0.018, 0.015, 0.011, 0.017]
-    # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf, TODO check sqrt(2) kappa -> gamma conversion
+    # from Table 1 in https://arxiv.org/pdf/2105.13543.pdf (in galaxies/deg^2, total galaxy counts and not n_eff)
+    n_gal: [6019.90, 6101.96, 6008.17, 6056.31]
+    # from Table 1 in https://arxiv.org/pdf/2105.13544.pdf
     shear_bias:
       multiplicative:
         mu: [-0.0063, -0.0198, -0.0241, -0.0369]
         sigma: [0.0091, 0.0078, 0.0076, 0.0076]
+    # pivot redshift from https://arxiv.org/pdf/2105.13543
+    z0: 0.62
   maglim:
     map_types:
       input: [dg]
       output: [dg]
-    # from Table 1 in https://arxiv.org/pdf/2105.13540.pdf, in units of galaxies/deg^2
-    n_gal: [540.0, 385.2, 392.4, 525.6] # , 381.6, 360.0]
-    # from Table 2 in https://arxiv.org/pdf/2011.03411.pdf
-    z_lims: [[0.2, 0.4], [0.4, 0.55], [0.55, 0.70], [0.70, 0.85]] # , [0.85, 0.95], [0.95, 1.05]]
-    z_bins: [maglim1, maglim2, maglim3, maglim4] # , "desy3maglim5", "desy3maglim6"]
-    # from Table 2 in https://arxiv.org/pdf/2105.13546.pdf, normal distribution parameters
-    z_errors:
-      shift:
-        mu: [-0.009, -0.035, -0.005, -0.007] # , 0.002, 0.002]
-        sigma: [0.007, 0.011, 0.006, 0.006] # , 0.007, 0.008]
-      scale:
-        mu: [0.975, 1.306, 0.870, 0.918] # , 1.08, 0.845]
-        sigma: [0.062, 0.093, 0.053, 0.051] # , 0.067, 0.073]
+    z_bins: [maglim1, maglim2, maglim3, maglim4]
+    # used in the forward model, from Table 1 in https://arxiv.org/pdf/2105.13546 (in galaxies/deg^2)
+    n_gal: [540.0, 385.2, 392.4, 525.6]
+    # used to build the observation, from Table 1 in https://arxiv.org/pdf/2105.13546
+    z_lims: [[0.2, 0.4], [0.4, 0.55], [0.55, 0.70], [0.70, 0.85]]
 
 analysis:
   n_side: 512
@@ -82,36 +61,32 @@ analysis:
       linear: [bg1, bg2, bg3, bg4]
       quadratic: [bg1_q, bg2_q, bg3_q, bg4_q]
       stochasticity: [rg]
-  # see scale_cuts.ipynb. All angles are in arcmin.
+  footprint:
+    # the original DES footprint is first rotated around the y- and then the z-axis to enable the cut-outs
+    rotation:
+      y_rad: -0.125
+      z_rad: -1.22
+  # see scale_cuts.ipynb. All angles are in arcmin. These are the scale cuts that are baked into the .tfrecords.
   # The angle -> ell conversion is done in the "naive" way in 6.2 of https://academic.oup.com/mnras/article/505/4/5714/6296446
   scale_cuts:
     hard_cut: True
     lensing:
       # from 6.1 in https://arxiv.org/pdf/2110.10135.pdf
       l_min: [30, 30, 30, 30]
-      # healpy default of 3 * n_side - 1, smoothing is done on the fly
+      # healpy default of 3 * n_side - 1, since smoothing is done on the fly
       l_max: Null
       theta_fwhm: Null
-    # first four redshift bins only
     clustering:
       # from 6.1 in https://arxiv.org/pdf/2110.10135.pdf
       l_min: [30, 30, 30, 30]
-      # healpy default of 3 * n_side - 1, smoothing is done on the fly
+      # healpy default of 3 * n_side - 1, since smoothing is done on the fly
       l_max: Null
       theta_fwhm: Null
-  footprint:
-    # the original DES footprint is first rotated around the y- and then the z-axis to enable the cut-outs
-    rotation:
-      y_rad: -0.125
-      z_rad: -1.22
   modelling:
     baryonified: True
-    # pivot redshift from https://arxiv.org/pdf/2105.13543.pdf, https://arxiv.org/pdf/2105.13549.pdf (Y3)
-    # and https://journals.aps.org/prd/pdf/10.1103/PhysRevD.98.043528 (Y1)
-    z0: 0.62
+    store_cross_maps: True
     # degrade the maps to Gaussian Random Fields for testing and comparison to the power spectra
     degrade_to_grf: False
-    cross_maps: True
     lensing:
       # whether to include the TATT cross-term on top of NLA
       extended_nla: True
@@ -122,12 +97,12 @@ analysis:
     clustering:
       power_law_biasing: False
       per_bin_biasing: True
-      # linear + quadratic galaxy biasing or just linear
+      # in addition to linear biasing
       quadratic_biasing: False
-      # whether to include a stochasticity i n the galaxy biasing. This scales the [-pi, pi] interval from which the
+      # whether to include a stochasticity in the galaxy biasing. This scales the [-pi, pi] interval from which the
       # random phases with which the alm coefficients are multiplied are drawn. Set to Null to discard.
       stochasticity: False
-      # whether to include the survey systematics maps from https://arxiv.org/pdf/2105.13540.pdf
+      # whether to include the survey systematics maps from https://arxiv.org/pdf/2105.13540.pdf in the forward model.
       maglim_survey_systematics_map: False
   normalization:
     # approximate per tomo bin standard deviation of the kg + ia + sn maps at the fiducial cosmology
@@ -137,33 +112,6 @@ analysis:
     l_min: 30
     l_max: 1500
     n_bins: 33
-  peak_statistics:
-    n_bins: 15
-    # FWHM of a Gaussian in arcmin (calculated in scale_cuts.ipynb)
-    theta_fwhm: [
-        # metacal 4, 6, 8, 10, 12 Mpc/h
-        [14.8, 22.1, 29.5, 36.9, 44.3],
-        [10.1, 15.1, 20.1, 25.2, 30.2],
-        [7.5, 11.2, 15.0, 18.7, 22.5],
-        [6.3, 9.4, 12.6, 15.7, 18.9],
-        # maglim 16, 20, 24, 28, 32 Mpc/h
-        [65.1, 81.4, 97.7, 113.9, 130.2],
-        [44.5, 55.6, 66.7, 77.8, 88.9],
-        [34.1, 42.6, 51.1, 59.6, 68.1],
-        [28.5, 35.7, 42.8, 49.9, 57.0],
-      ]
-    white_noise_sigma: [
-        # metacal 1%
-        [1.5321e-04, 2.3547e-04, 3.0844e-04, 3.6210e-04, 4.1484e-04],
-        [3.8765e-04, 3.0870e-04, 4.0448e-04, 4.9425e-04, 5.7168e-04],
-        [1.4363e-03, 4.0628e-04, 4.9119e-04, 6.0131e-04, 7.1251e-04],
-        [2.3846e-03, 9.8033e-04, 5.1751e-04, 6.2413e-04, 7.2757e-04],
-        # maglim 1%
-        [5.2194e-01, 6.2109e-01, 6.6951e-01, 7.8552e-01, 8.5135e-01],
-        [2.0741e-01, 2.4471e-01, 2.7530e-01, 3.1468e-01, 3.4375e-01],
-        [1.4889e-01, 1.7763e-01, 2.0603e-01, 2.3279e-01, 2.5989e-01],
-        [1.3419e-01, 1.6161e-01, 1.8954e-01, 2.1328e-01, 2.4127e-01],
-      ]
   grid:
     # CosmoGrid
     n_cosmos: 2500

@@ -148,7 +148,7 @@ def get_tomo_amplitude_perturbations_dict(param, conf=None):
     conf = files.load_config(conf)
 
     # redshift
-    z0 = conf["analysis"]["modelling"]["z0"]
+    z0 = conf["survey"]["metacal"]["z0"]
     if param == "Aia":
         tomo_z, tomo_nz = files.load_redshift_distributions("metacal", conf)
     elif param == "bg" or param == "bg2":
