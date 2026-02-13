@@ -11,18 +11,19 @@ This repository provides a pipeline to forward model Dark Energy Survey Year 3 (
 
 ## Installation
 
-### Requirements
-- Python >= 3.8
-- Pre-existing installation of [`TensorFlow`](https://www.tensorflow.org/install) and [`TensorFlow-Probability`](https://www.tensorflow.org/probability) in the python environment (to ensure proper GPU support on HPC clusters)
-- Python environment with pre-existing installations of [`TensorFlow`](https://www.tensorflow.org/install), and [`TensorFlow-Probability`](https://www.tensorflow.org/probability) (to ensure proper GPU support on HPC clusters)
-- All additional dependencies are automatically installed from `pyproject.toml`
+Requires Python >= 3.8, TensorFlow >= 2.0, and TensorFlow-Probability.
 
-### Installation Steps
-
-1. **Install this package in editable mode:**
+**On HPC clusters with pre-installed TensorFlow** (recommended):
 ```bash
 pip install -e .
 ```
+
+**On systems without TensorFlow**:
+```bash
+pip install -e .[tf]
+```
+
+Use the first option when TensorFlow is available via system modules (e.g., `module load tensorflow`) to preserve optimized GPU/MPI configurations.
 
 ## Repository Structure
 
