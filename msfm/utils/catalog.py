@@ -218,6 +218,8 @@ def get_shapes_from_cat(conf):
         e2 = metacal["/catalog/unsheared/e_2"][:][metacal_bin]
         w = metacal["/catalog/unsheared/weight"][:][metacal_bin]
 
+        # we include the shear response factor from eq. (4) in https://arxiv.org/pdf/2105.13543 here for simplicity
+        # since this is a per-bin (not per-object) quantity
         gamma_1.append(e1 / (R_gamma[i] + R_s[i]))
         gamma_2.append(e2 / (R_gamma[i] + R_s[i]))
         weight.append(w)

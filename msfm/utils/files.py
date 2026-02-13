@@ -213,6 +213,17 @@ def get_tomo_dv_masks(conf=None):
     return masks_dict
 
 
+def get_dv_mask(conf=None):
+    masks_dict = get_tomo_dv_masks(conf)
+
+    assert np.all(masks_dict["metacal"] == masks_dict["maglim"]), "The masks for metacal and maglim should be the same"
+    assert np.all(
+        masks_dict["metacal"] == masks_dict["metacal"][:, 0][:, None]
+    ), "The mask should be the same for all tomographic bins"
+
+    return masks_dict["metacal"][:, 0].astype(bool)
+
+
 def get_tomo_masks(conf=None, nest_out=True):
     conf = load_config(conf)
 
@@ -232,6 +243,17 @@ def get_tomo_masks(conf=None, nest_out=True):
         masks_dict[sample] = masks
 
     return masks_dict
+
+
+def get_mask(conf=None, nest_out=True):
+    masks_dict = get_tomo_masks(conf, nest_out)
+
+    assert np.all(masks_dict["metacal"] == masks_dict["maglim"]), "The masks for metacal and maglim should be the same"
+    assert np.all(
+        masks_dict["metacal"] == masks_dict["metacal"][:, 0][:, None]
+    ), "The mask should be the same for all tomographic bins"
+
+    return masks_dict["metacal"][:, 0].astype(bool)
 
 
 def load_noise_file(conf=None):

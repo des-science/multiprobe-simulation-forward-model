@@ -39,8 +39,8 @@ survey:
       input: [dg]
       output: [dg]
     z_bins: [maglim1, maglim2, maglim3, maglim4]
-    # used in the forward model, from Table 1 in https://arxiv.org/pdf/2105.13546 (in galaxies/deg^2)
-    n_gal: [540.0, 385.2, 392.4, 525.6]
+    # used in the forward model (in galaxies/deg^2, computed in notebooks/config.ipynb to respect masking)
+    n_gal: [492.807, 351.951, 358.012, 477.993]
     # used to build the observation, from Table 1 in https://arxiv.org/pdf/2105.13546
     z_lims: [[0.2, 0.4], [0.4, 0.55], [0.55, 0.70], [0.70, 0.85]]
   # from Table 1 in https://arxiv.org/pdf/2105.13543
