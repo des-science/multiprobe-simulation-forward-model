@@ -111,9 +111,6 @@ def forward_model_observation_map(
                 remove_mean=True,
             )
 
-        if apply_norm:
-            wl_kappa_dv = wl_kappa_dv / conf["analysis"]["normalization"]["lensing"]
-
         wl_kappa_dv *= dv_masks_metacal
         wl_kappa_dv, wl_alms = scales.data_vector_to_smoothed_data_vector(
             wl_kappa_dv,
@@ -128,6 +125,9 @@ def forward_model_observation_map(
             conf=conf,
         )
         wl_kappa_dv *= dv_masks_metacal
+
+        if apply_norm:
+            wl_kappa_dv = wl_kappa_dv / conf["analysis"]["normalization"]["lensing"]
 
     if gc_count_map is not None:
         assert gc_count_map.shape == (
@@ -155,9 +155,6 @@ def forward_model_observation_map(
             LOGGER.warning("Applying maglim systematics map")
             gc_count_dv *= files.get_clustering_systematics(conf, pixel_type="data_vector")
 
-        if apply_norm:
-            LOGGER.info("No normalization applied to the galaxy clustering maps")
-
         gc_count_dv *= dv_masks_maglim
         gc_count_dv, gc_alms = scales.data_vector_to_smoothed_data_vector(
             gc_count_dv,
@@ -172,6 +169,9 @@ def forward_model_observation_map(
             conf=conf,
         )
         gc_count_dv *= dv_masks_maglim
+
+        if apply_norm:
+            gc_count_dv = gc_count_dv / conf["analysis"]["normalization"]["clustering"]
 
     if wl_gamma_map is not None and gc_count_map is not None:
         observation = np.concatenate([wl_kappa_dv, gc_count_dv], axis=-1)
@@ -334,7 +334,7 @@ def forward_model_cosmogrid(
                     tomo_n_gal, dg, tomo_bg_metacal, systematics_map=None
                 ).astype(int)
 
-                tomo_gamma_cat, _ = files.load_noise_file(conf)
+                tomo_gamma_cat = files.load_noise_file(conf)
 
             gamma1 = []
             gamma2 = []
@@ -536,7 +536,7 @@ def make_shape_noise_map(wl_counts_map, conf, noise_seed=12):
     n_pix = conf["analysis"]["n_pix"]
     _, patches_pix_dict, _, _ = files.load_pixel_file(conf)
 
-    tomo_gamma_cat, _ = files.load_noise_file(conf)
+    tomo_gamma_cat = files.load_noise_file(conf)
 
     gamma1 = []
     gamma2 = []
