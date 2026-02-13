@@ -13,12 +13,14 @@ This repository provides a pipeline to forward model Dark Energy Survey Year 3 (
 
 Requires Python >= 3.8, TensorFlow >= 2.0, and TensorFlow-Probability.
 
-**On HPC clusters with pre-installed TensorFlow** (recommended):
+**Step 1: Install this package**
+
+*On HPC clusters with pre-installed TensorFlow* (recommended):
 ```bash
 pip install -e .
 ```
 
-**On systems without TensorFlow**:
+*On systems without TensorFlow*:
 ```bash
 pip install -e .[tf]
 ```
@@ -28,21 +30,21 @@ Use the first option when TensorFlow is available via system modules (e.g., `mod
 ## Repository Structure
 
 ### `msfm`
-- `msfm/apps` production scripts meant to be submitted using [`esub-epipe`](https://cosmo-gitlab.phys.ethz.ch/cosmo_public/esub-epipe). These are parallelized over the fiducial (plus finite-difference derivates) or grid cosmologies of the CosmoGridV1 to generate `.tfrecord` files of mock maps
-- `msfm/utils` various helper functions 
-- `msfm/fiducial_pipeline.py` and `msfm/grid_pipeline.py` contain the generators to efficiently read the `.tfrecord` files for neural network training
+- `msfm/apps` - Production scripts for parallel mock generation using [`esub-epipe`](https://cosmo-gitlab.phys.ethz.ch/cosmo_public/esub-epipe) for submission
+- `msfm/utils` - Helper functions
+- `msfm/fiducial_pipeline.py` and `msfm/grid_pipeline.py` - Data generators for neural network training
 
 ### `configs`
-Configuration files specifying the constants used throughout the pipeline. These include information on the cosmological parameters like the priors, the definition of the redshift bins, relative paths, and analysis specific choices like the healpix resolution or linear bias parametrization.
+Configuration files for cosmological and astrophysical paremeter priors, fixed survey properties, forward-modeling choices, and other analysis settings.
 
 ### `data`
-Data like CosmoGridV1 settings, the survey masks, and catalog ellipticities. These files are a prerequisite to running the pipeline. Note that `DESY3_noise_512.h5` is not stored on GitHub due to its filesize and has to be generated from the source galaxy catalog by running `notebooks/noise_file.ipynb`.
+CosmoGridV1 properties, survey masks, and catalog ellipticities used in the shape noise generation. Note: `DESY3_noise_v11.h5` exceeds the repo's file size limit and must be generated from the source galaxy catalog via `notebooks/noise_file.ipynb`.
 
 ### `notebooks`
-These notebooks are used to generate the contents of the `data` directory. 
+Notebooks for generating contents of the `data` directory.
 
 ### `pipelines`
-Submission commands for [`esub-epipe`](https://cosmo-gitlab.phys.ethz.ch/cosmo_public/esub-epipe) to execute the scripts in `msfm/apps` in a distributed fashion on HPC CPU clusters.
+Submission commands for distributed HPC execution via [`esub-epipe`](https://cosmo-gitlab.phys.ethz.ch/cosmo_public/esub-epipe).
 
 ## Companion Repositories
 - Informative map-level neural summary statistics: [`y3-deep-lss`](https://github.com/des-science/y3-deep-lss)
