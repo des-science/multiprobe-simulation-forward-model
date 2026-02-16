@@ -19,7 +19,7 @@ files:
   noise: data/DESY3_noise_v11.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
-  peak_binning: data/peaks/binning/v11_extended.h5
+  peak_binning: /pscratch/sd/j/jbucko/DESY3/v15/run_peaks/binning_peaks_des_footprint.h5
   metacal_bias: data/metacal_biases_buzzard_0.h5
 
 survey:
