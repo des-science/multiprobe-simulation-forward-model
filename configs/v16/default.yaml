@@ -21,8 +21,8 @@ survey:
       input: [kg, ia, dg, dg]
       output: [kg, ia, sn, ds]
     z_bins: [metacal1, metacal2, metacal3, metacal4]
-    # from Table 1 in https://arxiv.org/pdf/2105.13543 (in galaxies/deg^2, total galaxy counts and not n_eff)
-    n_gal: [6019.90, 6101.96, 6008.17, 6056.31]
+    # used in the forward model (in galaxies/deg^2, computed in notebooks/config.ipynb to respect masking)
+    n_gal: [5505.792, 5585.636, 5498.44, 5578.685]
     # from Table 1 in https://arxiv.org/pdf/2105.13544
     shear_bias:
       multiplicative:
@@ -30,7 +30,7 @@ survey:
         sigma: [0.0091, 0.0078, 0.0076, 0.0076]
     # pivot redshift from https://arxiv.org/pdf/2105.13543
     z0: 0.62
-    # used to build the observation like eq. (10) in https://arxiv.org/pdf/2403.02314
+    # used to build the observation like eq. (10) in https://arxiv.org/pdf/2403.02314 and shape noise file
     # from Table 1 in https://arxiv.org/pdf/2105.13543
     R_gamma: [0.7636, 0.7182, 0.6887, 0.6154]
     R_s: [0.0046, 0.0083, 0.0126, 0.0145]
