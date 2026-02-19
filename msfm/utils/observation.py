@@ -413,12 +413,13 @@ def forward_model_cosmogrid(
             maglim_bins = conf["survey"]["maglim"]["z_bins"]
             tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
-            patch_pix = np.stack([patches_pix_dict["maglim"][i_z][0] for i_z in range(len(maglim_bins))], axis=-1)
-            cutout_patch_pix = np.stack(
-                [patches_pix_dict["maglim"][i_z][i_patch] for i_z in range(len(maglim_bins))], axis=-1
-            )
+            # NOTE this assumes that the patches are the same for all tomographic bins, which is currently the case 
+            i_z_pix = 0
+            patch_pix = patches_pix_dict["maglim"][i_z_pix][0]
+            cutout_patch_pix = patches_pix_dict["maglim"][i_z_pix][i_patch]
             maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
 
+            # full sky map
             dg = []
             for z_bin in maglim_bins:
                 dg.append(hp.ud_grade(f[f"map/dg/{z_bin}"], n_side))
@@ -429,9 +430,8 @@ def forward_model_cosmogrid(
             dg_patch[patch_pix] = dg[cutout_patch_pix]
 
             # subtract and divide by mean (within the patch and tomographic bin)
-            dg_patch[patch_pix] = (dg_patch[patch_pix] - np.mean(dg_patch[patch_pix], axis=0)) / np.mean(
-                dg_patch[patch_pix], axis=0
-            )
+            dg_mean = np.mean(dg_patch[patch_pix], axis=0)
+            dg_patch[patch_pix] = (dg_patch[patch_pix] - dg_mean) / dg_mean
 
             dg_patch = maps.tomographic_reorder(dg_patch, r2n=True)
             dg_dv = dg_patch[data_vec_pix]
@@ -505,7 +505,6 @@ def forward_model_cosmogrid(
                 tomo_cg,
                 systematics_map=systematics_map if survey_sys else None,
                 mask=maglim_mask,
-                nest=True,
             )
 
             if noisy:
@@ -552,6 +551,8 @@ def make_shape_noise_map(wl_counts_map, conf, noise_seed=12):
             cat_dist = tfp.distributions.Empirical(samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1)
 
             gamma1_noise, gamma2_noise = lensing.noise_gen(counts, cat_dist, n_noise_per_example=1)
+            
+            # only take the first noise realization
             gamma1_noise = gamma1_noise[:, 0]
             gamma2_noise = gamma2_noise[:, 0]
 

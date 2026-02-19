@@ -159,7 +159,7 @@ def noise_gen(counts, cat_dist, n_noise_per_example):
     # shape (n_gals_patch, n_noise_per_example, 3)
     weighted_gamma_samples = tf.stack([g1_samples * w_samples, g2_samples * w_samples, w_samples], axis=-1)
 
-    # len(base_patch_pix), unless the final pixelels of the patch don't contain galaxies. Then, it's smaller
+    # len(base_patch_pix), unless the final pixels of the patch don't contain galaxies. Then, it's smaller
     sum_per_pix = tf.math.segment_sum(weighted_gamma_samples, seg_ids)
 
     # normalize with weights, set 0/0 equal to 0 instead of nan

@@ -1,5 +1,6 @@
 # contains the configuration parameters of the forward model pipeline
 dirs:
+  catalog: /pscratch/sd/a/athomsen/y3/cats
   # absolute path on the SAN
   SANCosmoGrid: /home/ipa/refreg/data/data_products/CosmoGrid/processed/CosmoGrid/v11desy3
   # relative to the root of this repository
@@ -42,6 +43,8 @@ survey:
       multiplicative:
         mu: [-0.0063, -0.0198, -0.0241, -0.0369]
         sigma: [0.0091, 0.0078, 0.0076, 0.0076]
+    # pivot redshift from https://arxiv.org/pdf/2105.13543
+    z0: 0.62
   maglim:
     map_types:
       input: [dg]

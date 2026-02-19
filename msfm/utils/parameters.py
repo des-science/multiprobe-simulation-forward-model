@@ -148,11 +148,10 @@ def get_tomo_amplitude_perturbations_dict(param, conf=None):
     conf = files.load_config(conf)
 
     # redshift
-    z0 = conf["survey"]["metacal"]["z0"]
     if param == "Aia":
-        tomo_z, tomo_nz = files.load_redshift_distributions("metacal", conf)
+        sample = "metacal"
     elif param == "bg" or param == "bg2":
-        tomo_z, tomo_nz = files.load_redshift_distributions("maglim", conf)
+        sample = "maglim"
     else:
         raise ValueError(f"param {param} needs to be either 'Aia', 'bg' or 'bg2'")
 
@@ -165,11 +164,11 @@ def get_tomo_amplitude_perturbations_dict(param, conf=None):
     delta_exponent = conf["analysis"]["fiducial"]["perturbations"][f"n_{param}"]
 
     tomo_amplitude_perturbations_dict = {
-        "fiducial": redshift.get_tomo_amplitudes(amplitude, exponent, tomo_z, tomo_nz, z0),
-        f"delta_{param}_m": redshift.get_tomo_amplitudes(amplitude - delta_amplitude, exponent, tomo_z, tomo_nz, z0),
-        f"delta_{param}_p": redshift.get_tomo_amplitudes(amplitude + delta_amplitude, exponent, tomo_z, tomo_nz, z0),
-        f"delta_n_{param}_m": redshift.get_tomo_amplitudes(amplitude, exponent - delta_exponent, tomo_z, tomo_nz, z0),
-        f"delta_n_{param}_p": redshift.get_tomo_amplitudes(amplitude, exponent + delta_exponent, tomo_z, tomo_nz, z0),
+        "fiducial": redshift.get_tomo_amplitudes_according_to_config(conf, amplitude, exponent, sample),
+        f"delta_{param}_m": redshift.get_tomo_amplitudes_according_to_config(conf, amplitude - delta_amplitude, exponent, sample),
+        f"delta_{param}_p": redshift.get_tomo_amplitudes_according_to_config(conf, amplitude + delta_amplitude, exponent, sample),
+        f"delta_n_{param}_m": redshift.get_tomo_amplitudes_according_to_config(conf, amplitude, exponent - delta_exponent, sample),
+        f"delta_n_{param}_p": redshift.get_tomo_amplitudes_according_to_config(conf, amplitude, exponent + delta_exponent, sample),
     }
 
     return tomo_amplitude_perturbations_dict

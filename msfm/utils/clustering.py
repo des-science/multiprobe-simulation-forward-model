@@ -30,8 +30,6 @@ def galaxy_density_to_count(
     # modeling
     systematics_map=None,
     # format
-    nest=True,
-    data_vec_pix=None,
     mask=None,
 ):
     """Transform a galaxy density to a galaxy count map, according to the constants defined in the config file.
