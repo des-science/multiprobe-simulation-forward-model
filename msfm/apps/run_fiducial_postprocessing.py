@@ -634,7 +634,6 @@ def _get_clustering_transform(conf, pixel_file):
             bg2_tomo,
             # rest
             systematics_map=tomo_maglim_sys_dv,
-            data_vec_pix=pixel_file[0],
             mask=maglim_mask,
         )
 
