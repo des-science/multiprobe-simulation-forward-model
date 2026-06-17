@@ -106,6 +106,92 @@ def log_posterior(cosmos, log_probs, conf=None, params=None, gaussian_kwargs=Non
     return log_post
 
 
+def get_torch_prior_data(params=None, conf=None, device="cpu", floatx=None):
+    """Precompute, once, the tensors needed to evaluate the hard top-hat analysis prior on a torch device.
+
+    This is the on-device counterpart of ``in_grid_prior``: building the scipy ``ConvexHull`` and reading
+    the config every MCMC step would re-introduce the per-step host overhead that GPU-batched sampling is
+    meant to remove. Build this once and pass it to ``in_grid_prior_torch`` inside the sampling loop.
+
+    ``torch`` is imported lazily so that ``msfm`` stays importable in environments without torch.
+
+    Args:
+        params (list, optional): Parameter names in the same order as the ``cosmos`` last axis. Defaults to
+            None, then all parameters in the config are used.
+        conf (str, dict, optional): Config (path, dict, or None for the repo default).
+        device (str, optional): Torch device the returned tensors live on. Defaults to "cpu".
+        floatx (torch.dtype, optional): Float dtype for the tensors. Defaults to None -> torch.float32.
+
+    Returns:
+        dict: Precomputed tensors/indices consumed by ``in_grid_prior_torch``.
+    """
+    import torch
+
+    if floatx is None:
+        floatx = torch.float32
+
+    conf = files.load_config(conf)
+    params = parameters.get_parameters(params, conf)
+    intervals = parameters.get_prior_intervals(params, conf)  # (n_params, 2)
+
+    data = {
+        "params": params,
+        "lower": torch.tensor(intervals[:, 0], dtype=floatx, device=device),
+        "upper": torch.tensor(intervals[:, 1], dtype=floatx, device=device),
+    }
+
+    if "Om" in params:
+        data["i_Om"] = params.index("Om")
+
+    # convex hull in the Om-s8 plane. ConvexHull.equations gives half-planes a*x + b*y + c <= 0 that hold
+    # for interior points, which is exactly the region tested by Delaunay.find_simplex(...) >= 0 in
+    # in_grid_prior (the Delaunay triangulation covers the convex hull of the border points).
+    if "Om" in params and "s8" in params:
+        border = np.asarray(conf["analysis"]["grid"]["priors"]["Om_s8_border_points"])
+        hull = ConvexHull(border)
+        data["i_s8"] = params.index("s8")
+        data["hull_A"] = torch.tensor(hull.equations[:, :2], dtype=floatx, device=device)  # (n_facets, 2)
+        data["hull_b"] = torch.tensor(hull.equations[:, 2], dtype=floatx, device=device)  # (n_facets,)
+
+    if "Om" in params and "w0" in params:
+        data["i_w0"] = params.index("w0")
+
+    return data
+
+
+def in_grid_prior_torch(cosmos, prior_data, hull_tol=1e-10):
+    """Torch/GPU port of ``in_grid_prior``.
+
+    Args:
+        cosmos (torch.Tensor): Cosmological parameters of shape (..., n_params) on the same device as
+            ``prior_data``. Any number of leading (batch) dimensions is supported.
+        prior_data (dict): Output of ``get_torch_prior_data`` (must use the same ``params`` ordering).
+        hull_tol (float, optional): Tolerance for the convex-hull half-plane test, so points exactly on the
+            boundary are counted as inside (matching find_simplex's inclusive boundary). Defaults to 1e-10.
+
+    Returns:
+        torch.Tensor: Boolean mask of shape (...,) that is True where ``cosmos`` lies inside the prior.
+    """
+    import torch
+
+    # box intervals
+    in_prior = torch.all((prior_data["lower"] <= cosmos) & (cosmos <= prior_data["upper"]), dim=-1)
+
+    # convex Om-s8 hull
+    if "hull_A" in prior_data:
+        pts = torch.stack([cosmos[..., prior_data["i_Om"]], cosmos[..., prior_data["i_s8"]]], dim=-1)
+        vals = pts @ prior_data["hull_A"].T + prior_data["hull_b"]  # (..., n_facets)
+        in_prior = in_prior & torch.all(vals <= hull_tol, dim=-1)
+
+    # w0 threshold (same as get_min_w0 with margin = 0.01)
+    if "i_w0" in prior_data:
+        Om = cosmos[..., prior_data["i_Om"]]
+        w0 = cosmos[..., prior_data["i_w0"]]
+        in_prior = in_prior & (1.0 / (Om - 1.0) + 0.01 <= w0)
+
+    return in_prior
+
+
 def get_min_w0(Om, margin=0.01):
     """Calculates the minimum possible w0 value given an Om value. The minimum w0 value is calculated with a formula
     from the concept creator and ensures that the "w0 phantom crossing" occurs after z = 0.
