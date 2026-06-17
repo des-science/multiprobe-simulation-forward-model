@@ -25,35 +25,100 @@ def _get_rot_z(ang):
     ).T  # Inverse because of healpy
 
 
-def survey_angles_to_pix(conf, ra, dec, n_side):
-    """Rotate to the position in Fig. 4 of https://arxiv.org/pdf/2511.04681"""
+def _local_frame_vectors(theta, phi):
+    """Unit vectors of the local (north, east) tangent frame at each (theta, phi)."""
+    e_theta = np.array([np.cos(theta) * np.cos(phi), np.cos(theta) * np.sin(phi), -np.sin(theta)])
+    e_phi = np.array([-np.sin(phi), np.cos(phi), np.zeros_like(phi)])
+    return e_theta, e_phi
 
-    conf = files.load_config(conf)
 
+def _get_footprint_rotation_matrix(conf):
+    # rotate footprint to allow for cut-outs
+    # https://github.com/des-science/multiprobe-simulation-forward-model/blob/main/notebooks/pixel_file_catalog_level.ipynb
+    y_rot = _get_rot_y(conf["analysis"]["footprint"]["rotation"]["y_rad"])
+    z_rot = _get_rot_z(conf["analysis"]["footprint"]["rotation"]["z_rad"])
+    return np.dot(z_rot, y_rot)
+
+
+def _rotate_positions(conf, ra, dec):
     # healpy convention in radian
     theta = -np.deg2rad(dec) + np.pi / 2
     phi = np.deg2rad(ra)
     vec = hp.ang2vec(theta=theta, phi=phi)
 
-    # rotate footprint to allow for cut-outs
-    # https://github.com/des-science/multiprobe-simulation-forward-model/blob/main/notebooks/pixel_file_catalog_level.ipynb
-    y_rot = _get_rot_y(conf["analysis"]["footprint"]["rotation"]["y_rad"])
-    z_rot = _get_rot_z(conf["analysis"]["footprint"]["rotation"]["z_rad"])
-    vec = np.dot(np.dot(z_rot, y_rot), vec.T)
+    rot = _get_footprint_rotation_matrix(conf)
+    vec_rot = np.dot(rot, vec.T)
+
+    return theta, phi, rot, vec_rot
+
+
+def survey_angles_to_pix(conf, ra, dec, n_side):
+    """Rotate to the position in Fig. 4 of https://arxiv.org/pdf/2511.04681"""
+
+    conf = files.load_config(conf)
+
+    _, _, _, vec_rot = _rotate_positions(conf, ra, dec)
 
     # per-object pixel index
-    pix = hp.vec2pix(n_side, vec[0], vec[1], vec[2])
+    pix = hp.vec2pix(n_side, vec_rot[0], vec_rot[1], vec_rot[2])
 
     return pix
 
 
-def build_metacal_map_from_cat(conf, debug=True, force_recompute=False, sign_e1=1, sign_e2=-1):
+def survey_angles_to_pix_and_shear_rotation(conf, ra, dec, n_side):
+    """Like survey_angles_to_pix, but also returns the per-object spin-2 rotation
+    angle psi needed to re-express the shear in the local frame of the rotated
+    position (see rotate_shear).
+
+    psi is given in the celestial (Dec/RA, north-up) frame of the catalog
+    ellipticities, so rotate_shear(e1, e2, psi) applies directly to the raw
+    catalog components, before any healpy-convention sign flip of e2."""
+
+    conf = files.load_config(conf)
+
+    theta, phi, rot, vec_rot = _rotate_positions(conf, ra, dec)
+
+    # per-object pixel index
+    pix = hp.vec2pix(n_side, vec_rot[0], vec_rot[1], vec_rot[2])
+
+    # local (north, east) frame at the original position, transported by the rotation
+    e_theta, e_phi = _local_frame_vectors(theta, phi)
+    e_theta_rot = np.dot(rot, e_theta)
+
+    # local (north, east) frame at the rotated position
+    theta_new, phi_new = hp.vec2ang(vec_rot.T)
+    e_theta_new, e_phi_new = _local_frame_vectors(theta_new, phi_new)
+
+    # angle between the transported and the new local frame, in the healpy
+    # (theta, phi) frame; the celestial (Dec/RA) frame of the catalog ellipticities
+    # is reflected w.r.t. it (e_dec = -e_theta), so the angle flips sign there
+    psi = -np.arctan2(
+        np.sum(e_theta_rot * e_phi_new, axis=0),
+        np.sum(e_theta_rot * e_theta_new, axis=0),
+    )
+
+    return pix, psi
+
+
+def rotate_shear(e1, e2, psi):
+    """Rotate spin-2 shear components (e1, e2) by the local frame rotation angle psi."""
+    cos2psi = np.cos(2 * psi)
+    sin2psi = np.sin(2 * psi)
+    e1_rot = e1 * cos2psi - e2 * sin2psi
+    e2_rot = e1 * sin2psi + e2 * cos2psi
+    return e1_rot, e2_rot
+
+
+def build_metacal_map_from_cat(
+    conf, debug=True, force_recompute=False, sign_e1=1, sign_e2=-1, apply_shear_rotation=True
+):
     conf = files.load_config(conf)
 
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    rot_suffix = "" if apply_shear_rotation else "_no_psi_rot"
     sign_suffix = f"_e1{'m' if sign_e1 < 0 else 'p'}_e2{'m' if sign_e2 < 0 else 'p'}"
-    gamma_cache_dir = f"{repo_dir}/data/metacal_wl_gamma_map{sign_suffix}.npy"
+    gamma_cache_dir = f"{repo_dir}/data/metacal_wl_gamma_map{rot_suffix}{sign_suffix}.npy"
     count_cache_dir = f"{repo_dir}/data/metacal_wl_count_map.npy"
 
     # load from cache if available and not forcing recompute
@@ -90,7 +155,7 @@ def build_metacal_map_from_cat(conf, debug=True, force_recompute=False, sign_e1=
         dec = gold["/catalog/gold/dec"][:][metacal_bin]
         ra = gold["/catalog/gold/ra"][:][metacal_bin]
 
-        pix = survey_angles_to_pix(conf, ra, dec, n_side)
+        pix, psi = survey_angles_to_pix_and_shear_rotation(conf, ra, dec, n_side)
         count_map = np.bincount(pix, minlength=n_pix)
 
         # properties
@@ -98,9 +163,12 @@ def build_metacal_map_from_cat(conf, debug=True, force_recompute=False, sign_e1=
         e2 = metacal["/catalog/unsheared/e_2"][:][metacal_bin]
         w = metacal["/catalog/unsheared/weight"][:][metacal_bin]
 
+        # rotate shear into the local frame of the rotated footprint position (spin-2)
+        e1_rot, e2_rot = rotate_shear(e1, e2, psi) if apply_shear_rotation else (e1, e2)
+
         # following eq. (10) in https://arxiv.org/pdf/2403.02314
-        gamma1_map = np.bincount(pix, weights=sign_e1 * e1 * w, minlength=n_pix)
-        gamma2_map = np.bincount(pix, weights=sign_e2 * e2 * w, minlength=n_pix)
+        gamma1_map = np.bincount(pix, weights=sign_e1 * e1_rot * w, minlength=n_pix)
+        gamma2_map = np.bincount(pix, weights=sign_e2 * e2_rot * w, minlength=n_pix)
         w_map = np.bincount(pix, weights=w, minlength=n_pix)
 
         mask = w_map > 0
@@ -164,16 +232,19 @@ def build_metacal_map_from_cat(conf, debug=True, force_recompute=False, sign_e1=
     return wl_gamma_map, wl_count_map
 
 
-def build_full_metacal_map_from_cat(conf, debug=True, force_recompute=False, sign_e1=1, sign_e2=1):
+def build_full_metacal_map_from_cat(
+    conf, debug=True, force_recompute=False, sign_e1=1, sign_e2=1, apply_shear_rotation=True
+):
     """Build a full (non-tomographic) metacal shear map by combining all tomographic bins."""
     conf = files.load_config(conf)
 
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    rot_suffix = "" if apply_shear_rotation else "_no_psi_rot"
     sign_suffix = (
         "" if (sign_e1 == 1 and sign_e2 == 1) else f"_e1{'m' if sign_e1 < 0 else 'p'}_e2{'m' if sign_e2 < 0 else 'p'}"
     )
-    gamma_cache_dir = f"{repo_dir}/data/metacal_wl_gamma_map_full{sign_suffix}.npy"
+    gamma_cache_dir = f"{repo_dir}/data/metacal_wl_gamma_map_full{rot_suffix}{sign_suffix}.npy"
     count_cache_dir = f"{repo_dir}/data/metacal_wl_count_map_full.npy"
 
     if not force_recompute:
@@ -208,11 +279,15 @@ def build_full_metacal_map_from_cat(conf, debug=True, force_recompute=False, sig
 
         dec = gold["/catalog/gold/dec"][:][metacal_bin]
         ra = gold["/catalog/gold/ra"][:][metacal_bin]
-        pix = survey_angles_to_pix(conf, ra, dec, n_side)
+        pix, psi = survey_angles_to_pix_and_shear_rotation(conf, ra, dec, n_side)
 
         e1 = metacal["/catalog/unsheared/e_1"][:][metacal_bin]
         e2 = metacal["/catalog/unsheared/e_2"][:][metacal_bin]
         w = metacal["/catalog/unsheared/weight"][:][metacal_bin]
+
+        # rotate shear into the local frame of the rotated footprint position (spin-2)
+        if apply_shear_rotation:
+            e1, e2 = rotate_shear(e1, e2, psi)
 
         # Apply per-bin shear response correction before accumulating across bins
         R_tot = R_gamma[i] + R_s[i]
@@ -308,7 +383,7 @@ def build_maglim_map_from_cat(conf, debug=True, force_recompute=False):
     return gc_count_map
 
 
-def get_shapes_from_cat(conf):
+def get_shapes_from_cat(conf, apply_shear_rotation=True):
     conf = files.load_config(conf)
 
     n_side = conf["analysis"]["n_side"]
@@ -334,12 +409,16 @@ def get_shapes_from_cat(conf):
         dec = gold["/catalog/gold/dec"][:][metacal_bin]
         ra = gold["/catalog/gold/ra"][:][metacal_bin]
 
-        pix = survey_angles_to_pix(conf, ra, dec, n_side)
+        pix, psi = survey_angles_to_pix_and_shear_rotation(conf, ra, dec, n_side)
 
         # properties
         e1 = metacal["/catalog/unsheared/e_1"][:][metacal_bin]
         e2 = metacal["/catalog/unsheared/e_2"][:][metacal_bin]
         w = metacal["/catalog/unsheared/weight"][:][metacal_bin]
+
+        # rotate shear into the local frame of the rotated footprint position (spin-2)
+        if apply_shear_rotation:
+            e1, e2 = rotate_shear(e1, e2, psi)
 
         # we include the shear response factor from eq. (4) in https://arxiv.org/pdf/2105.13543 here for simplicity
         # since this is a per-bin (not per-object) quantity
