@@ -157,6 +157,10 @@ def forward_model_observation_map(
 
         if apply_maglim_sys_map:
             LOGGER.warning("Applying maglim systematics map")
+            # the systematics map is the DES Y3 weight map w = 1/F (F = SP contamination, see
+            # https://arxiv.org/pdf/2105.13540), so multiplying debiases the observed counts
+            # (N_corr = N_obs * w). This is the inverse of the contaminating ng /= w applied to
+            # the clean sims in clustering.galaxy_density_to_count when survey_sys=True.
             gc_count_dv *= files.get_clustering_systematics(conf, pixel_type="data_vector")
 
         gc_count_dv *= dv_masks_maglim

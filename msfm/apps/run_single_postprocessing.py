@@ -80,7 +80,9 @@ def setup(args):
         "--suffix_out",
         type=str,
         default="",
-        help="suffix to append to the output files",
+        help="suffix inserted into the output filename before the '_obs_maps' token, i.e. "
+        "{cosmo_name}{suffix_out}_obs_maps.h5 (so the file still ends in '_obs_maps.h5' and is "
+        "picked up by the mock auto-discovery in run_evaluation.py / run_cls_training+evaluation.py)",
     )
     parser.add_argument(
         "--msfm_config",
@@ -293,7 +295,7 @@ def main(indices, args):
 
         # save the results
         cosmo_name = os.path.basename(args.dir_in)
-        out_file = os.path.join(args.dir_out, f"{cosmo_name}_obs_maps{args.suffix_out}_{index:04}.h5")
+        out_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps_{index:04}.h5")
         with h5py.File(out_file, "w") as f:
             f.create_dataset(name="obs/maps", data=obs_maps)
             f.create_dataset(name="obs/cls_raw", data=obs_cls_raw)
@@ -308,11 +310,11 @@ def merge(indices, args):
     n_patches = msfm_conf["analysis"]["n_patches"]
 
     cosmo_name = os.path.basename(args.dir_in)
-    out_file = os.path.join(args.dir_out, f"{cosmo_name}_obs_maps{args.suffix_out}.h5")
+    out_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps.h5")
 
     with h5py.File(out_file, "w") as f_merged:
         for index in LOGGER.progressbar(indices, desc="merging files", at_level="info"):
-            in_file = os.path.join(args.dir_out, f"{cosmo_name}_obs_maps{args.suffix_out}_{index:04}.h5")
+            in_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps_{index:04}.h5")
             with h5py.File(in_file, "r") as f_in:
                 obs_maps = f_in["obs/maps"][:]
                 obs_cls_raw = f_in["obs/cls_raw"][:]
@@ -334,6 +336,6 @@ def merge(indices, args):
 
     # only remove the files after the above loop has terminated successfully
     for index in indices:
-        in_file = os.path.join(args.dir_out, f"{cosmo_name}_obs_maps{args.suffix_out}_{index:04}.h5")
+        in_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps_{index:04}.h5")
         os.remove(in_file)
     LOGGER.info(f"Removed temporary files")
