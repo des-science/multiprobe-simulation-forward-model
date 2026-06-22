@@ -11,9 +11,10 @@ import numpy as np
 
 from sobol_seq import i4_sobol
 
-from msfm.utils import files, imports, parameters
+from msfm.utils import files, imports, logger, parameters
 
 hp = imports.import_healpy()
+LOGGER = logger.get_logger(__file__)
 
 
 def galaxy_density_to_count(
@@ -69,11 +70,20 @@ def galaxy_density_to_count(
     # transform like in DeepLSS Appendix E and https://github.com/tomaszkacprzak/deep_lss/blob/3c145cf8fe04c4e5f952dca984c5ce7e163b8753/deep_lss/lss_astrophysics_model_batch.py#L609
     # this ensures that all of the values are positive, while the total number of galaxies is conserved
     if isinstance(dg, np.ndarray):
+        n_truncated = int(np.sum(ng < 0))
+        LOGGER.debug(
+            f"Truncating {n_truncated} negative pixels ({100.0 * n_truncated / ng.size:.4f}%) to zero in galaxy count (for a total of {ng.size} pixels)"
+        )
         ng_clip = np.clip(ng, a_min=0, a_max=None, dtype=np.float32)
         ng = ng_clip * np.sum(ng) / np.sum(ng_clip)
     elif isinstance(dg, tf.Tensor):
         import tensorflow as tf
 
+        n_truncated = int(tf.reduce_sum(tf.cast(ng < 0, tf.int64)).numpy())
+        n_total = int(tf.size(ng).numpy())
+        LOGGER.debug(
+            f"Truncating {n_truncated} negative pixels ({100.0 * n_truncated / n_total:.4f}%) to zero in galaxy count (for a total of {n_total} pixels)"
+        )
         ng_clip = tf.clip_by_value(ng, clip_value_min=0, clip_value_max=1e5)
         ng = ng_clip * tf.reduce_sum(ng) / tf.reduce_sum(ng_clip)
     else:

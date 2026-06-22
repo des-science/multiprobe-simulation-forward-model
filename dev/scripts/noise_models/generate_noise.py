@@ -16,7 +16,7 @@ from msfm.utils.maps import make_normallized_maps
 conf_dir = "../../configs/config.yaml"
 conf = read_yaml(conf_dir)
 n_side = conf["analysis"]["n_side"]
-n_pix = conf["analysis"]["n_pix"]
+n_pix = hp.nside2npix(n_side)
 tomo = 1
 
 
