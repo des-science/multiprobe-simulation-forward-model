@@ -249,6 +249,13 @@ def main(indices, args):
             if sc_mode == "prior" and args.tomo_bg_metacal is None:
                 tomo_bg_metacal = bsc_samples[i_patch]
 
+            # unique seed per (permutation, patch) so the 80 realizations have independent noise
+            # (mirrors the grid's np_seed = i_sobol + i_signal). For rotate source clustering this is
+            # essential: the noise depends only on (catalog, seed), so a constant seed would otherwise
+            # duplicate the shape noise across all permutations. The seed is a deterministic function of
+            # (index, i_patch) only, so the noise stays matched between mocks at the same realization.
+            noise_seed = args.np_seed + index * msfm_conf["analysis"]["n_patches"] + i_patch
+
             wl_gamma_patch, gc_count_patch = observation.forward_model_cosmogrid(
                 perm_dir,
                 conf=msfm_conf,
@@ -266,7 +273,7 @@ def main(indices, args):
                 tomo_bg=args.tomo_bg,
                 tomo_cg=args.tomo_cg,
                 survey_sys=args.contaminate_survey_systematics,
-                noise_seed=args.np_seed,
+                noise_seed=noise_seed,
             )
 
             obs_map, obs_cl_raw, _ = observation.forward_model_observation_map(
