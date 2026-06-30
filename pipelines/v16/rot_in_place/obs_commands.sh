@@ -73,6 +73,20 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --system=slurm --source_file=../../pipelines/v16/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
+esub ../../msfm/apps/run_single_postprocessing.py \
+    --dir_in=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/benchmarks/fiducial_bench \
+    --dir_out=/pscratch/sd/a/athomsen/dlss/data/v16/rot_in_place/obs \
+    --suffix_out="_source_clustering_gatti" \
+    --with_lensing --with_clustering \
+    --tomo_bg_metacal 1 1 1 1 \
+    --msfm_config=../../configs/v16/sc_gatti.yaml \
+    --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
+    --job_name="postproc_v16_sc_gatti" \
+    --log_dir=/pscratch/sd/a/athomsen/run_files/v16/esub_logs \
+    --system=slurm --source_file=../../pipelines/v16/perlmutter_setup.sh \
+    --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
+
+
 # eta in shells, for comparison with the fiducial
 esub ../../msfm/apps/run_single_postprocessing.py \
     --dir_in=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/tests/test_eta_ia/CosmoGrid/bary/benchmarks/fiducial_bench \
