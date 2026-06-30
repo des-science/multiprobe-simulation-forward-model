@@ -231,3 +231,51 @@ def noise_gen_in_place(gamma_abs, w, pix, base_patch_pix, n_pix, n_noise_per_sig
         gamma2_patch = tf.gather(gamma2_per_pix, base_patch_pix)
 
     return gamma1_patch.numpy(), gamma2_patch.numpy()
+
+
+def source_clustering_factor(delta, b_sc, floor=1e-3):
+    """Per-pixel shape-noise modulation for the Gatti et al. (https://arxiv.org/abs/2307.13860)
+    source-clustering model.
+
+    The source galaxy density is modulated by the matter density field as (1 + b_sc * delta), so the
+    shape noise of the pixel-averaged shear scales as f = 1 / sqrt(1 + b_sc * delta): overdense regions
+    host more sources and therefore have less shape noise. This is the exact per-pixel reduction of
+    eq. (5), since the modulation is constant within a pixel and factors out of the catalog binning.
+
+    Args:
+        delta (np.ndarray): Per-pixel simulation source-bin density contrast (delta = (n - <n>) / <n>).
+        b_sc (float): Source-clustering bias of the tomographic bin.
+        floor (float, optional): Lower clip on (1 + b_sc * delta) to keep it positive. Defaults to 1e-3.
+
+    Returns:
+        np.ndarray: Per-pixel modulation factor f, same shape as delta.
+    """
+    return 1.0 / np.sqrt(np.clip(1.0 + b_sc * delta, a_min=floor, a_max=None))
+
+
+def shape_noise_variance_map(gamma_abs, w, pix, n_pix):
+    """Per-pixel reference (no source-clustering) shape-noise variance of the weighted mean ellipticity.
+
+    For a pixel with galaxies of absolute ellipticity |e| and weight w, randomly rotating the
+    ellipticities gives a weighted-mean shear whose variance (e1 and e2 components summed) is
+    sum(w**2 * |e|**2) / (sum(w))**2. This is cosmology-independent and is used for the kurtosis term
+    of the Gatti calibration (see source_clustering_factor).
+
+    Args:
+        gamma_abs (np.ndarray): Absolute ellipticity |e| of each catalog galaxy.
+        w (np.ndarray): Weight of each catalog galaxy.
+        pix (np.ndarray): Full-sky pixel index of each catalog galaxy.
+        n_pix (int): Total number of pixels in the healpy map.
+
+    Returns:
+        np.ndarray: Per-pixel reference shape-noise variance of shape (n_pix,).
+    """
+    pix = np.asarray(pix).astype(np.int64)
+    num = np.bincount(pix, weights=w**2 * gamma_abs**2, minlength=n_pix)
+    den = np.bincount(pix, weights=w, minlength=n_pix)
+
+    var = np.zeros(n_pix, dtype=np.float64)
+    mask = den > 0
+    var[mask] = num[mask] / den[mask] ** 2
+
+    return var

@@ -279,7 +279,8 @@ def load_noise_file(conf=None):
     with h5py.File(noise_file, "r") as f:
         tomo_gamma_cat = []
         for z_bin in conf["survey"]["metacal"]["z_bins"]:
-            # shape (n_gal, 3) with e1, e2, w
+            # shape (n_gal, 4) with e1, e2, w, pix (pix is the full-sky pixel index per galaxy,
+            # used by the 'rotate' and 'gatti' source-clustering modes)
             gamma_cat = f[f"{z_bin}/cat"][:]
 
             tomo_gamma_cat.append(gamma_cat)
@@ -332,3 +333,57 @@ def read_metacal_bias(key, conf=None):
         metacal_bias = f[key][:]
 
     return np.array(metacal_bias)
+
+
+def read_sc_calibration(conf, b_sc):
+    """Load the Gatti source-clustering calibration factors and evaluate them at the bias b_sc.
+
+    The calibration restores the correct shape-noise variance and kurtosis after the per-pixel
+    modulation f = 1 / sqrt(1 + b_sc * delta) (see lensing.source_clustering_factor). The factors
+    (corr_variance, A_corr, coeff_kurtosis) are stored as linear fits in b_sc, one per metacal bin,
+    and determined in a separate calibration notebook. The file is an .npy dict of the form
+        {"corr_variance": {"slope": [...], "intercept": [...]},
+         "A_corr":        {"slope": [...], "intercept": [...]},
+         "coeff_kurtosis":{"slope": [...], "intercept": [...]}}
+    where each array has length n_z_metacal.
+
+    If no calibration file is configured or it does not exist on disk, a no-op calibration
+    (corr_variance, A_corr, coeff_kurtosis) = (1.0, 1.0, 0.0) is returned for every bin, so the
+    pipeline runs (pure f-modulation) before the calibration has been determined.
+
+    Args:
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary
+            (the config is passed through) or None (the default config is loaded).
+        b_sc (array-like): Per metacal bin source-clustering bias at which to evaluate the fits.
+
+    Returns:
+        list: Per metacal bin tuple (corr_variance, A_corr, coeff_kurtosis).
+    """
+    conf = load_config(conf)
+
+    b_sc = np.atleast_1d(np.asarray(b_sc, dtype=np.float64))
+    n_z = len(conf["survey"]["metacal"]["z_bins"])
+
+    sc_calib_path = conf["files"].get("sc_calibration", None)
+
+    if sc_calib_path is None:
+        LOGGER.warning("No sc_calibration file configured, using no-op source-clustering calibration")
+        return [(1.0, 1.0, 0.0)] * n_z
+
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    sc_calib_file = os.path.join(repo_dir, sc_calib_path)
+
+    if not os.path.exists(sc_calib_file):
+        LOGGER.warning(
+            f"sc_calibration file {sc_calib_file} not found, using no-op source-clustering calibration"
+        )
+        return [(1.0, 1.0, 0.0)] * n_z
+
+    fits = np.load(sc_calib_file, allow_pickle=True).item()
+    LOGGER.info(f"Loaded source-clustering calibration from {sc_calib_file}")
+
+    def _eval(name, i):
+        return fits[name]["slope"][i] * b_sc[i] + fits[name]["intercept"][i]
+
+    return [(_eval("corr_variance", i), _eval("A_corr", i), _eval("coeff_kurtosis", i)) for i in range(n_z)]

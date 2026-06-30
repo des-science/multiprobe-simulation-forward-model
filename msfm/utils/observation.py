@@ -330,7 +330,7 @@ def forward_model_cosmogrid(
             if noisy:
                 sc_mode = conf["analysis"]["modelling"]["lensing"]["source_clustering"]
 
-                if tomo_bg_metacal is not None:
+                if tomo_bg_metacal is not None and sc_mode != "gatti":
                     LOGGER.info(
                         f"Using tomo_bg_metacal={tomo_bg_metacal} from the function call, setting source_clustering to 'fixed'"
                     )
@@ -353,10 +353,40 @@ def forward_model_cosmogrid(
                     ).astype(int)
                 elif sc_mode == "rotate":
                     LOGGER.info("Rotating galaxies in place for shape noise")
+                elif sc_mode == "gatti":
+                    LOGGER.info("Gatti source-clustering: density-modulated rotate-in-place shape noise")
+                    # per-bin source galaxy bias b_sc, distinct from the 'fixed' metacal source-clustering
+                    # bias (read_metacal_bias): the function call (tomo_bg_metacal) overrides the config
+                    # default (gatti_bsc, = 1 per bin)
+                    n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
+                    if tomo_bg_metacal is not None:
+                        b_sc_gatti = np.atleast_1d(tomo_bg_metacal)
+                        LOGGER.info(f"Using b_sc={b_sc_gatti} from the function call (tomo_bg_metacal)")
+                    else:
+                        b_sc_gatti = np.atleast_1d(
+                            conf["analysis"]["modelling"]["lensing"].get("gatti_bsc", [1.0] * n_z_metacal)
+                        )
+                        LOGGER.info(f"Using b_sc={b_sc_gatti} from the config (gatti_bsc)")
+
+                    # simulation source-bin density contrast (full sky, per metacal bin), same convention
+                    # as the 'fixed' branch above
+                    delta_metacal = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
+
+                    # per metacal bin (corr_variance, A_corr, coeff_kurtosis), no-op (1, 1, 0) by default
+                    sc_calib = files.read_sc_calibration(conf, b_sc_gatti)
                 else:
                     raise ValueError(f"Unknown source clustering mode {sc_mode}")
 
                 tomo_gamma_cat = files.load_noise_file(conf)
+
+                # per-pixel reference shape-noise variance for the kurtosis term (only if needed)
+                if sc_mode == "gatti" and any(ck != 0 for _, _, ck in sc_calib):
+                    var_ref_metacal = np.zeros((n_pix, len(tomo_gamma_cat)))
+                    for i_z_var, cat in enumerate(tomo_gamma_cat):
+                        gamma_abs_var = np.abs(cat[:, 0] + 1j * cat[:, 1])
+                        var_ref_metacal[:, i_z_var] = lensing.shape_noise_variance_map(
+                            gamma_abs_var, cat[:, 2], cat[:, 3], n_pix
+                        )
 
             gamma1 = []
             gamma2 = []
@@ -404,6 +434,35 @@ def forward_model_cosmogrid(
                             gamma1_noise, gamma2_noise = lensing.noise_gen(counts, cat_dist, n_noise_per_signal=1)
                             gamma1_noise = gamma1_noise[:, 0]
                             gamma2_noise = gamma2_noise[:, 0]
+                        elif sc_mode == "gatti":
+                            pix_cat = gamma_cat[:, 3]
+                            gamma1_noise, gamma2_noise = lensing.noise_gen_in_place(
+                                gamma_abs, w, pix_cat, patch_pix, n_pix, n_noise_per_signal=1
+                            )
+
+                            # density-modulate the rotate-in-place noise (Gatti et al. eq. 5). f uses the
+                            # simulation LSS of the cut-out (aligned with the signal, which is taken at
+                            # cutout_patch_pix), while var_ref is a real-data property at the base patch_pix
+                            f_sc = lensing.source_clustering_factor(
+                                delta_metacal[cutout_patch_pix, i_z], b_sc_gatti[i_z]
+                            )
+                            corr_variance, A_corr, coeff_kurtosis = sc_calib[i_z]
+                            mod = f_sc / np.sqrt(A_corr * corr_variance)
+                            if coeff_kurtosis != 0:
+                                # a negative coeff_kurtosis can drive (1 + coeff_kurtosis * var_ref)
+                                # below zero on sparse pixels with large var_ref; clip to keep the noise
+                                # finite (the variance correction cannot be negative)
+                                kurt_arg = 1.0 + coeff_kurtosis * var_ref_metacal[patch_pix, i_z]
+                                n_clip = int(np.sum(kurt_arg < 0))
+                                if n_clip > 0:
+                                    LOGGER.warning(
+                                        f"Clipping {n_clip} pixel(s) with negative kurtosis argument to zero "
+                                        f"shape noise (metacal bin {i_z}, coeff_kurtosis={coeff_kurtosis:.3g})"
+                                    )
+                                mod = mod * np.sqrt(np.clip(kurt_arg, a_min=0.0, a_max=None))
+
+                            gamma1_noise = gamma1_noise[:, 0] * mod
+                            gamma2_noise = gamma2_noise[:, 0] * mod
                         else:
                             pix_cat = gamma_cat[:, 3]
                             gamma1_noise, gamma2_noise = lensing.noise_gen_in_place(
