@@ -1,4 +1,4 @@
-from msfm.utils import logger
+from msfm.utils import logger, files
 
 LOGGER = logger.get_logger(__file__)
 
@@ -20,6 +20,16 @@ def print_and_check_modeling_in_config(conf):
     conf_lensing = conf["analysis"]["modelling"]["lensing"]
     if conf_lensing["extended_nla"]:
         assert conf["analysis"]["params"]["ia"]["tatt"] == ["bta"]
+
+    # shape-noise model: get_shape_noise validates the per-field values (method/bias/fixed_bsc);
+    # additionally check that a prior bias has the sampled 'sc' parameter to feed the Latin hypercube
+    sn_method, sn_bias, sn_fixed_bsc = files.get_shape_noise(conf)
+    LOGGER.info(f"Shape-noise model: method={sn_method}, bias={sn_bias}, fixed_bsc={sn_fixed_bsc}")
+    if sn_bias == "prior":
+        assert conf["analysis"]["params"].get("sc"), (
+            "shape_noise bias 'prior' requires analysis.params.sc (e.g. [bsc]) to sample b_sc from the "
+            "Latin hypercube"
+        )
 
     # clustering
     bg_params = conf["analysis"]["params"]["bg"]["linear"]

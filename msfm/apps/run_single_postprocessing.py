@@ -217,11 +217,12 @@ def main(indices, args):
     for index in indices:
         perm_dir = os.path.join(args.dir_in, f"perm_{index:04}")
 
-        # metacal bias logic
-        sc_mode = msfm_conf["analysis"]["modelling"]["lensing"]["source_clustering"]
+        # metacal bias logic: determine the source-clustering bias passed to forward_model_cosmogrid
+        method, bias, fixed_bsc = files.get_shape_noise(msfm_conf)
         if args.tomo_bg_metacal is not None:
             tomo_bg_metacal = args.tomo_bg_metacal
-        elif sc_mode == "fixed":
+        elif method == "count" and bias == "fixed":
+            # count+fixed: per-cosmology metacal bias read from files.metacal_bias
             if "/grid/" in perm_dir:
                 match = re.search(r"cosmo_(\d{6})", perm_dir)
                 i_sobol = int(match.group(1))
@@ -230,13 +231,14 @@ def main(indices, args):
                 tomo_bg_metacal = files.read_metacal_bias(f"fiducial", conf=msfm_conf)
             else:
                 raise ValueError(f"Cannot determine metacal bias key from perm_dir={perm_dir!r}: expected '/grid/' or '/fiducial/'/'benchmark' in path")
-        elif sc_mode == "prior":
+        elif bias == "prior":
+            # count+prior or gatti+prior: sample bsc from the prior (assigned per patch below)
             sc_prior = parameters.get_prior_intervals(["bsc"], conf=msfm_conf)
             bsc_samples = np.random.default_rng(seed=index).uniform(
                 sc_prior[0, 0], sc_prior[0, 1], size=msfm_conf["analysis"]["n_patches"]
             )
             tomo_bg_metacal = None  # set per patch below
-        else:  # rotate
+        else:  # in_place, or gatti+fixed (which uses the config fixed_bsc inside forward_model_cosmogrid)
             tomo_bg_metacal = None
 
         obs_maps = []
@@ -248,7 +250,7 @@ def main(indices, args):
                 LOGGER.warning("Debug mode: only processing the first patch")
                 break
 
-            if sc_mode == "prior" and args.tomo_bg_metacal is None:
+            if bias == "prior" and args.tomo_bg_metacal is None:
                 tomo_bg_metacal = bsc_samples[i_patch]
 
             # unique seed per (permutation, patch) so the 80 realizations have independent noise

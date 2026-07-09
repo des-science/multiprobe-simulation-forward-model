@@ -370,18 +370,19 @@ def postprocess_shape_noise(
     tomo_gamma_cat = noise_file
     gamma_cat = tomo_gamma_cat[i_z]
 
-    # metacal clustering
-    sc_mode = conf["analysis"]["modelling"]["lensing"]["source_clustering"]
+    # metacal shape-noise model (see files.get_shape_noise):
+    #   count    -> Poisson-resample the catalog weighted by the source density (metacal bias)
+    #   in_place -> rotate galaxies in place (no source-clustering bias)
+    #   gatti    -> rotate in place, then density-modulate like Gatti et al. (https://arxiv.org/abs/2307.13860)
+    method, bias, fixed_bsc = files.get_shape_noise(conf)
+    n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
 
-    if sc_mode == "fixed":
-        tomo_bias = files.read_metacal_bias(bgs_key, conf)
-        bias = tomo_bias[i_z]
-    elif sc_mode == "prior":
-        bias = None  # will be sampled per patch
-    elif sc_mode == "rotate":
-        bias = None
+    if method == "count" and bias == "fixed":
+        # per-cosmology metacal source-clustering bias from files.metacal_bias
+        count_bias = files.read_metacal_bias(bgs_key, conf)[i_z]
     else:
-        raise ValueError(f"Unknown source clustering mode {sc_mode}")
+        # count+prior samples the bias per patch; in_place/gatti do not resample counts
+        count_bias = None
 
     tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
     n_bar = tomo_n_gal[i_z]
@@ -392,29 +393,36 @@ def postprocess_shape_noise(
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
     hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
 
-    # create joint distribution, as this is faster than random indexing
     gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
     w = gamma_cat[:, 2]
 
-    if sc_mode in ["fixed", "prior"]:
+    if method == "count":
+        # create joint distribution, as this is faster than random indexing
         cat_dist = tfp.distributions.Empirical(samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1)
 
         # normalize to number density contrast
         delta_full_sky_norm = (delta_full_sky - np.mean(delta_full_sky)) / np.mean(delta_full_sky)
 
-        if sc_mode == "fixed":
+        if bias == "fixed":
             counts_full = clustering.galaxy_density_to_count(
-                n_bar, delta_full_sky_norm, bias, systematics_map=None
+                n_bar, delta_full_sky_norm, count_bias, systematics_map=None
             ).astype(int)
             counts_full = np.random.poisson(counts_full).astype(int)
     else:
-        LOGGER.warning("Rotating galaxies in place for shape noise")
+        LOGGER.warning(f"Rotating galaxies in place for shape noise (method {method!r})")
         pix_cat = gamma_cat[:, 3]
+
+        if method == "gatti":
+            # simulation source-bin density contrast (full sky), same convention as the count branch
+            delta_full_sky_norm = (delta_full_sky - np.mean(delta_full_sky)) / np.mean(delta_full_sky)
+            # per-pixel reference shape-noise variance for the (optional) kurtosis term; cosmology-independent
+            gamma_abs_np = np.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
+            var_ref = lensing.shape_noise_variance_map(gamma_abs_np, w, pix_cat, n_pix)
 
     kappa_dvs = np.zeros((n_patches, n_noise_per_signal, data_vec_len), dtype=np.float32)
     for i_patch, patch_pix in enumerate(patches_pix):
-        if sc_mode in ["fixed", "prior"]:
-            if sc_mode == "prior" and bsc_samples is not None:
+        if method == "count":
+            if bias == "prior" and bsc_samples is not None:
                 bias_patch = bsc_samples[(i_perm * n_patches) + i_patch]
                 delta_patch = delta_full_sky_norm[patch_pix]
                 counts_patch = clustering.galaxy_density_to_count(
@@ -431,6 +439,35 @@ def postprocess_shape_noise(
             gamma1, gamma2 = lensing.noise_gen_in_place(
                 gamma_abs, w, pix_cat, base_patch_pix, n_pix, n_noise_per_signal
             )
+
+            if method == "gatti":
+                # density-modulate the rotate-in-place noise (Gatti et al. eq. 5). f_sc uses the
+                # simulation LSS of the cut-out (patch_pix, aligned with the signal), while var_ref is a
+                # real-data property placed at base_patch_pix like the noise itself. b_sc is the per-bin
+                # source-clustering bias: fixed -> config fixed_bsc[i_z]; prior -> per-patch bsc_samples.
+                b_sc = fixed_bsc[i_z] if bias == "fixed" else bsc_samples[(i_perm * n_patches) + i_patch]
+                f_sc = lensing.source_clustering_factor(delta_full_sky_norm[patch_pix], b_sc)
+
+                # per metacal bin (corr_variance, A_corr, coeff_kurtosis), no-op (1, 1, 0) by default
+                corr_variance, A_corr, coeff_kurtosis = files.read_sc_calibration(
+                    conf, np.full(n_z_metacal, b_sc)
+                )[i_z]
+                mod = f_sc / np.sqrt(A_corr * corr_variance)
+                if coeff_kurtosis != 0:
+                    # a negative coeff_kurtosis can drive (1 + coeff_kurtosis * var_ref) below zero on
+                    # sparse pixels with large var_ref; clip to keep the variance correction non-negative
+                    kurt_arg = 1.0 + coeff_kurtosis * var_ref[base_patch_pix]
+                    n_clip = int(np.sum(kurt_arg < 0))
+                    if n_clip > 0:
+                        LOGGER.warning(
+                            f"Clipping {n_clip} pixel(s) with negative kurtosis argument to zero shape "
+                            f"noise (metacal bin {i_z}, coeff_kurtosis={coeff_kurtosis:.3g})"
+                        )
+                    mod = mod * np.sqrt(np.clip(kurt_arg, a_min=0.0, a_max=None))
+
+                # broadcast the per-pixel modulation across the n_noise_per_signal realizations
+                gamma1 = gamma1 * mod[:, None]
+                gamma2 = gamma2 * mod[:, None]
 
         # not vectorized because of the healpy alm transform
         for i_noise in range(n_noise_per_signal):

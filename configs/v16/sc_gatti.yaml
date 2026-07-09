@@ -98,13 +98,17 @@ analysis:
     degrade_to_grf: False
     lensing:
       store: True
-      # Gatti et al. (https://arxiv.org/abs/2307.13860) source clustering: real catalog positions
-      # (survey inhomogeneity retained) with the shape noise modulated by the simulation LSS.
-      source_clustering: gatti
-      # per-bin source galaxy bias b_sc for the gatti modulation, distinct from the 'fixed' metacal
-      # source-clustering bias. Default = 1 per bin; overridden by tomo_bg_metacal in
-      # forward_model_cosmogrid (e.g. via --tomo_bg_metacal in run_single_postprocessing).
-      gatti_bsc: [1.0, 1.0, 1.0, 1.0]
+      # shape-noise model (parsed/validated by files.get_shape_noise)
+      shape_noise:
+        # Gatti et al. (https://arxiv.org/abs/2307.13860) source clustering: real catalog positions
+        # (survey inhomogeneity retained) with the shape noise density-modulated by the simulation LSS
+        # in_place (rotate galaxies in place) | gatti (calibrated density modulation) | count (Poisson resampling)
+        method: gatti
+        # fixed | prior (ignored for in_place). gatti+fixed uses the cosmology-independent fixed_bsc below
+        bias: fixed
+        # per metacal bin source galaxy bias b_sc for the gatti modulation (cosmology-independent), used
+        # only for method gatti with bias fixed
+        fixed_bsc: [1.0, 1.0, 1.0, 1.0]
       # whether to include the TATT cross-term on top of NLA
       extended_nla: True
       nla:
