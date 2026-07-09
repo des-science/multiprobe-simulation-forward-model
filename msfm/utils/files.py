@@ -335,6 +335,69 @@ def read_metacal_bias(key, conf=None):
     return np.array(metacal_bias)
 
 
+def get_shape_noise(conf=None):
+    """Parse and validate the shape-noise model configuration block.
+
+    The block lives at conf["analysis"]["modelling"]["lensing"]["shape_noise"] and disentangles two
+    orthogonal choices:
+      - method: how the shape noise is generated / whether it models source clustering
+          "in_place" -> rotate galaxies in place (no source-clustering bias)
+          "gatti"    -> calibrated Gatti et al. (https://arxiv.org/abs/2307.13860) density modulation
+          "count"    -> count-based Poisson resampling of the catalog
+      - bias: where the per-bin source-clustering bias b_sc comes from (ignored for "in_place")
+          "fixed" -> gatti: cosmology-independent `fixed_bsc` from the config
+                     count: per-cosmology bias read from files.metacal_bias
+          "prior" -> b_sc sampled from the Latin hypercube (params.sc = [bsc])
+
+    Raises a clear ValueError for any unexpected/old-string form so a bad config fails loudly
+    everywhere the shape-noise model is read.
+
+    Args:
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary
+            (the config is passed through) or None (the default config is loaded). Defaults to None.
+
+    Returns:
+        tuple: (method, bias, fixed_bsc). `bias` is None for method "in_place"; `fixed_bsc` is the
+            per metacal bin np.ndarray used only for method "gatti" with bias "fixed" (else None).
+    """
+    conf = load_config(conf)
+
+    sn_conf = conf["analysis"]["modelling"]["lensing"]["shape_noise"]
+    if not isinstance(sn_conf, dict):
+        raise ValueError(
+            f"shape_noise config must be a nested block with a 'method' (and 'bias') key, got {sn_conf!r}"
+        )
+
+    method = sn_conf.get("method")
+    valid_methods = ("in_place", "gatti", "count")
+    if method not in valid_methods:
+        raise ValueError(f"shape_noise method must be one of {valid_methods}, got {method!r}")
+
+    # in_place rotates galaxies in place and has no notion of a source-clustering bias
+    if method == "in_place":
+        return method, None, None
+
+    bias = sn_conf.get("bias")
+    valid_biases = ("fixed", "prior")
+    if bias not in valid_biases:
+        raise ValueError(
+            f"shape_noise bias must be one of {valid_biases} for method {method!r}, got {bias!r}"
+        )
+
+    fixed_bsc = None
+    if method == "gatti" and bias == "fixed":
+        n_z = len(conf["survey"]["metacal"]["z_bins"])
+        fixed_bsc = sn_conf.get("fixed_bsc")
+        if fixed_bsc is None or len(fixed_bsc) != n_z:
+            raise ValueError(
+                f"shape_noise fixed_bsc must be a length-{n_z} list for method 'gatti' with bias 'fixed', "
+                f"got {fixed_bsc!r}"
+            )
+        fixed_bsc = np.asarray(fixed_bsc, dtype=np.float64)
+
+    return method, bias, fixed_bsc
+
+
 def read_sc_calibration(conf, b_sc):
     """Load the Gatti source-clustering calibration factors and evaluate them at the bias b_sc.
 

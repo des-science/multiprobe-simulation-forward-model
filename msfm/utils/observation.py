@@ -328,22 +328,27 @@ def forward_model_cosmogrid(
                 wl_kappa_map *= 1.0 + m_bias
 
             if noisy:
-                sc_mode = conf["analysis"]["modelling"]["lensing"]["source_clustering"]
+                # shape-noise model (see files.get_shape_noise): count / in_place / gatti
+                method, bias, fixed_bsc = files.get_shape_noise(conf)
 
-                if tomo_bg_metacal is not None and sc_mode != "gatti":
+                # a metacal bias supplied via the function call overrides the config bias source: for
+                # count/in_place it selects the count method with that fixed bias (historical behavior),
+                # for gatti it overrides the per-bin b_sc used in the density modulation
+                if tomo_bg_metacal is not None and method != "gatti":
                     LOGGER.info(
-                        f"Using tomo_bg_metacal={tomo_bg_metacal} from the function call, setting source_clustering to 'fixed'"
+                        f"Using tomo_bg_metacal={tomo_bg_metacal} from the function call, using count shape noise"
                     )
-                    sc_mode = "fixed"
+                    method = "count"
 
-                if sc_mode in ["fixed", "prior"]:
+                if method == "count":
                     if tomo_bg_metacal is None:
-                        if i_sobol is not None:
+                        if bias == "fixed" and i_sobol is not None:
                             tomo_bg_metacal = files.read_metacal_bias(f"cosmo_{i_sobol:06}", conf=conf)
                             LOGGER.info(f"Using tomo_bg_metacal={tomo_bg_metacal} from the Sobol index {i_sobol}")
                         else:
                             raise ValueError(
-                                "Either tomo_bg_metacal or i_sobol must be provided to generate the shape noise for fixed source clustering"
+                                "count shape noise needs tomo_bg_metacal (for bias: prior) or i_sobol (for "
+                                "bias: fixed) to determine the metacal source-clustering bias"
                             )
 
                     tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
@@ -351,36 +356,39 @@ def forward_model_cosmogrid(
                     counts_map = clustering.galaxy_density_to_count(
                         tomo_n_gal, dg, tomo_bg_metacal, systematics_map=None
                     ).astype(int)
-                elif sc_mode == "rotate":
+                elif method == "in_place":
                     LOGGER.info("Rotating galaxies in place for shape noise")
-                elif sc_mode == "gatti":
+                elif method == "gatti":
                     LOGGER.info("Gatti source-clustering: density-modulated rotate-in-place shape noise")
-                    # per-bin source galaxy bias b_sc, distinct from the 'fixed' metacal source-clustering
-                    # bias (read_metacal_bias): the function call (tomo_bg_metacal) overrides the config
-                    # default (gatti_bsc, = 1 per bin)
+                    # per-bin source galaxy bias b_sc for the modulation; the function call
+                    # (tomo_bg_metacal) overrides the config fixed_bsc (bias: fixed) or supplies the
+                    # sampled bsc (bias: prior)
                     n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
                     if tomo_bg_metacal is not None:
-                        b_sc_gatti = np.atleast_1d(tomo_bg_metacal)
+                        b_sc_gatti = np.atleast_1d(np.asarray(tomo_bg_metacal, dtype=float))
+                        if b_sc_gatti.size == 1:
+                            b_sc_gatti = np.full(n_z_metacal, b_sc_gatti[0])
                         LOGGER.info(f"Using b_sc={b_sc_gatti} from the function call (tomo_bg_metacal)")
+                    elif bias == "fixed":
+                        b_sc_gatti = np.asarray(fixed_bsc, dtype=float)
+                        LOGGER.info(f"Using b_sc={b_sc_gatti} from the config (fixed_bsc)")
                     else:
-                        b_sc_gatti = np.atleast_1d(
-                            conf["analysis"]["modelling"]["lensing"].get("gatti_bsc", [1.0] * n_z_metacal)
+                        raise ValueError(
+                            "gatti shape noise with bias: prior needs tomo_bg_metacal (the sampled bsc) to "
+                            "be passed to forward_model_cosmogrid"
                         )
-                        LOGGER.info(f"Using b_sc={b_sc_gatti} from the config (gatti_bsc)")
 
                     # simulation source-bin density contrast (full sky, per metacal bin), same convention
-                    # as the 'fixed' branch above
+                    # as the count branch above
                     delta_metacal = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
 
                     # per metacal bin (corr_variance, A_corr, coeff_kurtosis), no-op (1, 1, 0) by default
                     sc_calib = files.read_sc_calibration(conf, b_sc_gatti)
-                else:
-                    raise ValueError(f"Unknown source clustering mode {sc_mode}")
 
                 tomo_gamma_cat = files.load_noise_file(conf)
 
                 # per-pixel reference shape-noise variance for the kurtosis term (only if needed)
-                if sc_mode == "gatti" and any(ck != 0 for _, _, ck in sc_calib):
+                if method == "gatti" and any(ck != 0 for _, _, ck in sc_calib):
                     var_ref_metacal = np.zeros((n_pix, len(tomo_gamma_cat)))
                     for i_z_var, cat in enumerate(tomo_gamma_cat):
                         gamma_abs_var = np.abs(cat[:, 0] + 1j * cat[:, 1])
@@ -423,7 +431,7 @@ def forward_model_cosmogrid(
                         gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
                         w = gamma_cat[:, 2]
 
-                        if sc_mode in ["fixed", "prior"]:
+                        if method == "count":
                             counts = counts_map[cutout_patch_pix, i_z]
 
                             # create joint distribution, as this is faster than random indexing
@@ -434,7 +442,7 @@ def forward_model_cosmogrid(
                             gamma1_noise, gamma2_noise = lensing.noise_gen(counts, cat_dist, n_noise_per_signal=1)
                             gamma1_noise = gamma1_noise[:, 0]
                             gamma2_noise = gamma2_noise[:, 0]
-                        elif sc_mode == "gatti":
+                        elif method == "gatti":
                             pix_cat = gamma_cat[:, 3]
                             gamma1_noise, gamma2_noise = lensing.noise_gen_in_place(
                                 gamma_abs, w, pix_cat, patch_pix, n_pix, n_noise_per_signal=1
@@ -616,7 +624,7 @@ def forward_model_cosmogrid(
         return wl_gamma_patch, gc_count_patch
 
 
-def make_shape_noise_map(wl_counts_map, conf, source_clustering="fixed", noise_seed=12):
+def make_shape_noise_map(wl_counts_map, conf, method="count", noise_seed=12):
     import tensorflow as tf
     import tensorflow_probability as tfp
 
@@ -639,16 +647,16 @@ def make_shape_noise_map(wl_counts_map, conf, source_clustering="fixed", noise_s
             gamma_abs = tf.math.abs(tomo_gamma_cat[i][:, 0] + 1j * tomo_gamma_cat[i][:, 1])
             w = tomo_gamma_cat[i][:, 2]
 
-            if source_clustering in ["fixed", "prior"]:
+            if method == "count":
                 # create joint distribution, as this is faster than random indexing
                 cat_dist = tfp.distributions.Empirical(samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1)
 
                 gamma1_noise, gamma2_noise = lensing.noise_gen(counts, cat_dist, n_noise_per_signal=1)
-            elif source_clustering == "rotate":
+            elif method == "in_place":
                 pix_cat = tomo_gamma_cat[i][:, 3]
                 gamma1_noise, gamma2_noise = lensing.noise_gen_in_place(gamma_abs, w, pix_cat, patch_pix, n_pix, 1)
             else:
-                raise ValueError(f"Unknown source clustering mode {source_clustering}")
+                raise ValueError(f"Unknown shape-noise method {method!r}")
 
             # only take the first noise realization
             gamma1_noise = gamma1_noise[:, 0]

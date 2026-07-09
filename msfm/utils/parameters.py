@@ -45,7 +45,8 @@ def get_parameters(params=None, conf=None):
         if conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]:
             params += conf["analysis"]["params"]["bg"]["quadratic"]
         try:
-            if conf["analysis"]["modelling"]["lensing"]["source_clustering"] == "prior":
+            _, sn_bias, _ = files.get_shape_noise(conf)
+            if sn_bias == "prior":
                 params += conf["analysis"]["params"]["sc"]
         except KeyError:
             pass

@@ -1,7 +1,7 @@
 # contains the configuration parameters of the forward model pipeline
 dirs:
-  # absolute on Clariden
-  catalog: /users/athomsen/scratch/deep_lss/data/y3-cats
+  # absolute on Perlmutter
+  catalog: /pscratch/sd/a/athomsen/y3/y3-cats
   # relative to the root of this repository
   redshift_distributions: data/redshift_distributions
 
@@ -94,7 +94,7 @@ analysis:
     # degrade the maps to Gaussian Random Fields for testing and comparison to the power spectra
     degrade_to_grf: False
     lensing:
-      store: True
+      store: False
       # shape-noise model (parsed/validated by files.get_shape_noise)
       shape_noise:
         # in_place (rotate galaxies in place) | gatti (calibrated density modulation) | count (Poisson resampling)
@@ -127,8 +127,8 @@ analysis:
   grid:
     # CosmoGrid
     n_cosmos: 2500
-    n_perms_per_cosmo: 20
-    n_noise_per_signal: 5
+    n_perms_per_cosmo: 2
+    n_noise_per_signal: 2
     priors:
       # from Table 1 in https://arxiv.org/pdf/2201.07771
       Om: [0.1, 0.5]

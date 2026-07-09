@@ -13,6 +13,9 @@ files:
   healpy_data: data/healpy_data
   peak_binning: data/peaks/binning/v11_extended.h5
   metacal_bias: data/metacal_biases_desy3.h5
+  # linear-fit calibration factors for the Gatti source-clustering model (see read_sc_calibration);
+  # the file need not exist yet, in which case a no-op calibration is used
+  sc_calibration: data/sc_calibration_desy3.npy
 
 survey:
   name: DESy3
@@ -67,6 +70,8 @@ analysis:
       linear: [bg1, bg2, bg3, bg4]
       quadratic: [bg1_q, bg2_q, bg3_q, bg4_q]
       stochasticity: [rg]
+    # source-clustering bias, sampled from the Latin hypercube for shape_noise bias: prior
+    sc: [bsc]
   footprint:
     # the original DES footprint is first rotated around the y- and then the z-axis to enable the cut-outs
     rotation:
@@ -90,15 +95,19 @@ analysis:
       theta_fwhm: Null
   modelling:
     baryonified: True
-    store_cross_maps: False
+    store_cross_maps: True
     # degrade the maps to Gaussian Random Fields for testing and comparison to the power spectra
     degrade_to_grf: False
     lensing:
       store: True
       # shape-noise model (parsed/validated by files.get_shape_noise)
       shape_noise:
+        # Gatti et al. (https://arxiv.org/abs/2307.13860) source clustering: real catalog positions
+        # (survey inhomogeneity retained) with the shape noise density-modulated by the simulation LSS
         # in_place (rotate galaxies in place) | gatti (calibrated density modulation) | count (Poisson resampling)
-        method: in_place
+        method: gatti
+        # fixed | prior (ignored for in_place). gatti+prior samples bsc from the Latin hypercube (params.sc = [bsc])
+        bias: prior
       # whether to include the TATT cross-term on top of NLA
       extended_nla: True
       nla:
@@ -151,6 +160,8 @@ analysis:
       bg3: [0.8, 3.0]
       bg4: [0.8, 3.0]
       rg: [0.6, 1.0]
+      # source-clustering bias prior (sampled into the Latin hypercube for shape_noise bias: prior)
+      bsc: [0.5, 1.5]
       Om_s8_border_points:
         [
           [0.1, 1.4],

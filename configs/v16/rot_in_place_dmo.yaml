@@ -95,7 +95,10 @@ analysis:
     degrade_to_grf: False
     lensing:
       store: True
-      source_clustering: rotate
+      # shape-noise model (parsed/validated by files.get_shape_noise)
+      shape_noise:
+        # in_place (rotate galaxies in place) | gatti (calibrated density modulation) | count (Poisson resampling)
+        method: in_place
       # whether to include the TATT cross-term on top of NLA
       extended_nla: True
       nla:

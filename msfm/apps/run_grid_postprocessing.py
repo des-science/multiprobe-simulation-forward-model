@@ -186,6 +186,8 @@ def main(indices, args):
 
     # configuration
     conf = files.load_config(args.config)
+    # shape-noise model; sn_bias == "prior" sources the source-clustering bias from the Latin hypercube
+    _, sn_bias, _ = files.get_shape_noise(conf)
     if not args.to_san:
         with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
             yaml.dump(conf, f)
@@ -231,7 +233,7 @@ def main(indices, args):
     astro_params += conf["analysis"]["params"]["bg"]["linear"]
     if quadratic_biasing:
         astro_params += conf["analysis"]["params"]["bg"]["quadratic"]
-    if conf["analysis"]["modelling"]["lensing"]["source_clustering"] == "prior":
+    if sn_bias == "prior":
         astro_params += conf["analysis"]["params"]["sc"]
     LOGGER.info(f"Sampling the astrophysical parameters {astro_params} from a Latin hypercube")
 
@@ -308,11 +310,7 @@ def main(indices, args):
                 astro_samples = qmc.scale(unscaled_samples, l_bounds=astro_priors[:, 0], u_bounds=astro_priors[:, 1])
                 astro_samples = astro_samples.astype(np.float32)
 
-                bsc_samples = (
-                    astro_samples[:, -1]
-                    if conf["analysis"]["modelling"]["lensing"]["source_clustering"] == "prior"
-                    else None
-                )
+                bsc_samples = astro_samples[:, -1] if sn_bias == "prior" else None
 
                 if args.debug and os.path.exists(state_file):
                     with open(state_file, "rb") as f:
@@ -365,7 +363,7 @@ def main(indices, args):
                     cosmo_sample = np.concatenate([cosmo, astro_sample])
 
                     # to keep the indexing identical
-                    if conf["analysis"]["modelling"]["lensing"]["source_clustering"] == "prior":
+                    if sn_bias == "prior":
                         astro_sample = astro_sample[:-1]
 
                     # lensing
