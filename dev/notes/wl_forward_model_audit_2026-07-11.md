@@ -149,8 +149,12 @@ never built — the `dg -> sn` pair stays; its input is ignored by the `in_place
 of the tatt/bta keys is behind an `extended_nla` (or `"bta" in params`) guard except one, which was
 fixed: `msi/utils/plotting.py` now uses `.get("tatt", [])`. Because the y3-deep-lss probes configs
 list the training params explicitly (they are NOT derived from the msfm config), bta-free variants
-were added for the compressor: `configs/probes/lensing_nla.yaml`, `combined_nla.yaml`,
-`lensing_ext_nla.yaml` (cross/2x2pt/3x2pt follow the same one-line pattern when needed). The
+were added for the compressor: `configs/probes/lensing_nla.yaml` and `combined_nla.yaml`
+(cross/2x2pt/3x2pt follow the same one-line pattern when needed). *(Correction, same day: the msi
+plotting fix and the `_nla` probes configs had not actually been persisted on Perlmutter — they were
+(re-)applied in the follow-up session and are uncommitted in the msi and y3-deep-lss working trees.
+A `lensing_ext_nla.yaml` mentioned in an earlier draft does not exist — there is no `lensing_ext`
+base config.)* The
 bta-containing probes configs fail fast on v17 data (`all_params.index('bta')` -> ValueError in
 `grid_pipeline`/`cls_preprocessing`), and conversely the `_nla` configs must not be used on
 v16-and-earlier data. Verified: all_params derivation, prior/fiducial lookups, probes column
