@@ -3,10 +3,16 @@
 # v17 baseline = v16 rot_in_place without the delta-NLA cross term (standard NLA, bta removed,
 # no ds map) -- see configs/v17/baseline.yaml and dev/notes/wl_forward_model_audit_2026-07-11.md.
 #
-# Only the grid needs regeneration: at the fiducial the v16 and v17 forward models are bit-identical
-# (bta = 0 there), so the fiducial tfrecords, the obs/ benchmark products, and the white-noise Cls of
-# v16/rot_in_place can be reused/symlinked (see baseline/obs_commands.sh). The white-noise step is
-# still listed below for a fully self-contained v17 dataset.
+# For training, only the grid needs regeneration: at the fiducial the v16 and v17 forward models are
+# bit-identical (bta = 0 there), so the fiducial tfrecords, the obs/ benchmark products, and the
+# white-noise Cls of v16/rot_in_place can be reused/symlinked (see baseline/obs_commands.sh). The
+# white-noise step is still listed below for a fully self-contained v17 dataset.
+#
+# The fiducial_tfrecords step below is NOT a reuse of the v16 fiducial: it runs WITH the derivatives
+# (no --no_derivatives) directly on baseline.yaml to enable a Fisher forecast of the WL constraining
+# power (dev/notes/wl_forward_model_audit_2026-07-11.md section 5). Unlike the v16 fiducial
+# (v16/simple.yaml), it uses the grid forward model exactly: per-bin galaxy biasing and a per-example
+# multiplicative shear bias draw (shared between the fiducial and its perturbations).
 
 # postprocessing
 - name: grid_tfrecords
@@ -17,6 +23,20 @@
     --cosmogrid_version="1.1" --mode=jobarray --function=all --n_jobs=2500 \
     --max_njobs=1000 --tasks="0>2500" --keep_submit_files \
     --job_name=tfr_grid_v17 \
+    --log_dir=/pscratch/sd/a/athomsen/run_files/v17/esub_logs --system=slurm \
+    --source_file=../../pipelines/v17/perlmutter_setup.sh \
+    --additional_slurm_args="--account=m5030,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
+
+# fiducial + finite-difference derivatives for the Fisher forecast (see header). 1000 permutations
+# -> 1 permutation per file; each task loops over all 17 fiducial-perturbation cosmology dirs.
+- name: fiducial_tfrecords
+  cmd: esub ../../msfm/apps/run_fiducial_postprocessing.py --n_files=1000 \
+    --config=../../configs/v17/baseline.yaml \
+    --dir_in=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary \
+    --dir_out=/pscratch/sd/a/athomsen/v11desy3/v17/baseline/tfrecords/fiducial \
+    --cosmogrid_version="1.1" --mode=jobarray --function=all --n_jobs=1000 \
+    --max_njobs=1000 --tasks="0>1000" --keep_submit_files \
+    --job_name=tfr_fidu_v17 \
     --log_dir=/pscratch/sd/a/athomsen/run_files/v17/esub_logs --system=slurm \
     --source_file=../../pipelines/v17/perlmutter_setup.sh \
     --additional_slurm_args="--account=m5030,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"

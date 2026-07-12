@@ -10,6 +10,12 @@ to one.
 
 For the fiducial, the main loop runs over the different permutations (simulation runs).
 
+The forward model is functionally equivalent to the one in run_grid_postprocessing.py (multiplicative shear bias,
+shape-noise model, per-bin or power-law galaxy biasing), evaluated at the fiducial parameters and their
+finite-difference perturbations (for example for Fisher forecasts). The astrophysical amplitudes are read from the
+config instead of being sampled from the Latin hypercube, and the per-example m-bias draw is shared between the
+fiducial and its perturbations to keep the finite differences consistent.
+
 Meant for
  - Euler (CPU nodes, local scratch)
  - esub jobarrays
@@ -27,6 +33,7 @@ from msfm.utils import (
     filenames,
     input_output,
     files,
+    lensing,
     clustering,
     cosmogrid,
     postprocessing,
@@ -51,8 +58,9 @@ def resources(args):
     if args.cluster == "perlmutter":
         # because of hyperthreading, there's a total of 256 threads per node
         # the 8 cores don't speed things up much, but are included to increase the memory
+        # with the derivatives, every permutation loops over all (2 * n_params + 1) cosmology dirs
         resources = {
-            "main_time": 1,
+            "main_time": 4 if not args.no_derivatives else 1,
             "main_n_cores": 16,
             "main_memory": 1952,
             "main_scratch": 0,
@@ -187,6 +195,10 @@ def main(indices, args):
 
     # configuration
     conf = files.load_config(args.config)
+    # shape-noise model; a "prior" source-clustering bias is sampled from the Latin hypercube on the grid and has no
+    # fiducial counterpart
+    _, sn_bias, _ = files.get_shape_noise(conf)
+    assert sn_bias != "prior", "The prior source-clustering bias is not implemented for the fiducial"
     if not args.to_san:
         with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
             yaml.dump(conf, f)
@@ -196,16 +208,18 @@ def main(indices, args):
 
     baryonified = conf["analysis"]["modelling"]["baryonified"]
 
+    # the fiducial serialization (tfrecords.parse_forward_fiducial) always contains both probes
+    assert conf["analysis"]["modelling"]["lensing"]["store"], "The fiducial always stores both probes"
+    assert conf["analysis"]["modelling"]["clustering"]["store"], "The fiducial always stores both probes"
+    assert not conf["analysis"]["modelling"]["store_cross_maps"], "Cross maps are not implemented for the fiducial"
+
     extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
     assert not extended_nla, "The extension to NLA has not been implemented yet"
 
-    power_law_biasing = conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]
-    per_bin_biasing = conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]
     quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
     stochasticity = conf["analysis"]["modelling"]["clustering"]["stochasticity"]
     assert not quadratic_biasing, "The quadratic biasing has not been implemented yet"
     assert not stochasticity, "The stochasticity has not been implemented yet"
-    assert not per_bin_biasing, "Per bin biasing has not been implemented yet"
 
     # directories
     file_dir = os.path.dirname(__file__)
@@ -251,7 +265,7 @@ def main(indices, args):
     ia_pert_labels = parameters.get_fiducial_perturbation_labels(conf["analysis"]["params"]["ia"]["nla"])[1:]
     LOGGER.info(f"There's {len(ia_pert_labels)} intrinsic alignment labels = {ia_pert_labels}")
 
-    bg_params = conf["analysis"]["params"]["bg"]["linear"]
+    bg_params = list(conf["analysis"]["params"]["bg"]["linear"])
     if quadratic_biasing:
         bg_params += conf["analysis"]["params"]["bg"]["quadratic"]
     bg_pert_labels = parameters.get_fiducial_perturbation_labels(bg_params)[1:]
@@ -265,6 +279,7 @@ def main(indices, args):
     # transforms
     lensing_transform = _get_lensing_transform(conf, pixel_file)
     clustering_transform = _get_clustering_transform(conf, pixel_file)
+    m_bias_dist = lensing.get_m_bias_distribution(conf)
 
     LOGGER.warning(f"Starting the main loop trough indices {indices}")
 
@@ -361,6 +376,11 @@ def main(indices, args):
                         (n_patches, n_bg_perts, n_noise_per_signal, n_ell, n_cross_bins), dtype=np.float32
                     )
 
+                    # multiplicative shear bias: like on the grid, one draw per example is baked into the
+                    # .tfrecords (see run_grid_postprocessing.py), but the draw is shared by the fiducial and all
+                    # of its perturbations so that the finite differences stay consistent
+                    tomo_m_bias = m_bias_dist.sample(n_patches).numpy().astype(np.float32)
+
                     if args.no_derivatives:
                         LOGGER.warning("Not computing the derivatives")
                         cosmo_dirs_in = [cosmo_dirs_in[0]]
@@ -403,6 +423,7 @@ def main(indices, args):
                                     kg_in,
                                     ia_in,
                                     ia_label="fiducial",
+                                    m_bias=tomo_m_bias[i_patch],
                                     is_true_fiducial=True,
                                     sn_samples=sn_samples_in,
                                     np_seed=i_signal,
@@ -422,7 +443,7 @@ def main(indices, args):
                                 # intrinsic alignment perturbations
                                 for i_ia, ia_pert_label in enumerate(ia_pert_labels):
                                     ia_perts[i_patch, i_ia], alm_ia = lensing_transform(
-                                        kg_in, ia_in, ia_label=ia_pert_label, np_seed=i_signal
+                                        kg_in, ia_in, ia_label=ia_pert_label, m_bias=tomo_m_bias[i_patch], np_seed=i_signal
                                     )
                                     cl_ia_perts[i_patch, i_ia] = power_spectra.run_tfrecords_alm_to_cl(
                                         alm_ia, alm_sn, alm_dg, alm_pn
@@ -439,7 +460,9 @@ def main(indices, args):
 
                             # cosmological perturbations
                             else:
-                                kg, alm_kg = lensing_transform(kg_in, ia_in, ia_label="fiducial", np_seed=i_signal)
+                                kg, alm_kg = lensing_transform(
+                                    kg_in, ia_in, ia_label="fiducial", m_bias=tomo_m_bias[i_patch], np_seed=i_signal
+                                )
                                 dg, alm_dg = clustering_transform(dg_in, dg2_in, bg_label="fiducial", np_seed=i_signal)
 
                             kg_perts[i_patch, i_cosmo] = kg
@@ -551,11 +574,16 @@ def _get_lensing_transform(conf, pixel_file):
 
         return kg, alm
 
-    def lensing_transform(kg, ia, ia_label, is_true_fiducial=False, sn_samples=None, np_seed=None):
+    def lensing_transform(kg, ia, ia_label, m_bias, is_true_fiducial=False, sn_samples=None, np_seed=None):
         assert bool(not is_true_fiducial) != bool(sn_samples is not None)
 
         # important not to use +=, since then the array is transformed in place
         kg = kg + tomo_Aia_perts_dict[ia_label] * ia
+
+        # multiplicative shear bias like on the grid; drawn once per example in main so that the fiducial and the
+        # perturbations share the same value (the noise is not m-biased)
+        kg = (1.0 + m_bias) * kg
+
         kg = metacal_mask * kg
 
         # only smooth the shape noise and return the alms for the fiducial, not the perturbations
@@ -592,10 +620,17 @@ def _get_clustering_transform(conf, pixel_file):
     quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
 
     maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
-    tomo_n_gal_maglim = tf.constant(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
+    tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
     # redshift dependence of the bias
-    tomo_bg_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg", conf)
+    power_law_biasing = conf["analysis"]["modelling"]["clustering"]["power_law_biasing"]
+    per_bin_biasing = conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]
+    if power_law_biasing:
+        tomo_bg_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg", conf)
+    elif per_bin_biasing:
+        tomo_bg_perts_dict = parameters.get_per_bin_bias_perturbations_dict(conf)
+    else:
+        raise ValueError("Unsupported configuration of clustering bias")
     if quadratic_biasing:
         tomo_bg2_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("bg2", conf)
 

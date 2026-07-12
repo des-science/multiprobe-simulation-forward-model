@@ -136,6 +136,37 @@ def get_fiducial_perturbation_labels(params=None):
     return pert_labels
 
 
+def get_per_bin_bias_perturbations_dict(conf=None):
+    """Returns a dictionary containing the per redshift bin linear galaxy bias values for the fiducial and the
+    perturbations, for the per_bin_biasing parametrization (params like ["bg1", "bg2", "bg3", "bg4"]). This is the
+    per-bin analog of get_tomo_amplitude_perturbations_dict("bg", conf), which covers power_law_biasing: every
+    perturbation label (like "delta_bg2_m") perturbs a single bin while the others stay at their fiducial values.
+
+    Args:
+        conf (str, dict, optional): The config, either specified as a str pointing to a file or a dict. Defaults to
+            None, then the standard config of this repo is used.
+
+    Returns:
+        dict: Keys "fiducial" and "delta_{bgi}_{m,p}" (matching get_fiducial_perturbation_labels), values are the per
+            bin amplitude arrays of shape (n_z_bins,).
+    """
+    conf = files.load_config(conf)
+
+    bg_params = conf["analysis"]["params"]["bg"]["linear"]
+    fiducial = np.array([conf["analysis"]["fiducial"][param] for param in bg_params], dtype=np.float32)
+
+    tomo_bias_perturbations_dict = {"fiducial": fiducial}
+    for i_bin, param in enumerate(bg_params):
+        delta = conf["analysis"]["fiducial"]["perturbations"][param]
+
+        for sign, label in zip((-1.0, 1.0), (f"delta_{param}_m", f"delta_{param}_p")):
+            perturbed = fiducial.copy()
+            perturbed[i_bin] += sign * delta
+            tomo_bias_perturbations_dict[label] = perturbed
+
+    return tomo_bias_perturbations_dict
+
+
 def get_tomo_amplitude_perturbations_dict(param, conf=None):
     """Returns a dictionary containing the tomographic amplitudes calculated like in redshift.py for the different
     perturbations of the intrinsic alignment or galaxy biasing parameters.

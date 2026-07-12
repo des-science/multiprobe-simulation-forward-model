@@ -4,7 +4,7 @@
 Created February 2023
 Author: Arne Thomsen
 
-This file is loosely based off 
+This file is loosely based off
 https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/input_pipeline.py
 by Janis Fluri
 """
@@ -410,10 +410,10 @@ class FiducialPipeline(MSFMpipeline):
                 cl_tensor = None
 
         # gather the indices
-        i_example = data_vectors.pop("i_example")
+        i_signal = data_vectors.pop("i_signal")
         i_noise = data_vectors.pop("i_noise")
 
-        return map_tensor, cl_tensor, (i_example, i_noise)
+        return map_tensor, cl_tensor, (i_signal, i_noise)
 
     def _lensing_augmentations(self, data_vectors: dict) -> tf.Tensor:
         """Applies random augmentations and general pre-processing to the weak lensing maps (kg). This includes in
