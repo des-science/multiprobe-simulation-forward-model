@@ -54,11 +54,19 @@ def resources(args):
     args = setup(args)
 
     if args.cluster == "perlmutter":
-        # because of hyperthreading, there's a total of 256 threads per node
+        # Billing choice for the shared QOS, where NERSC bills max(cores/128, mem/512GB) of a node.
+        # The memory we need sets a floor on that charge, and cores under the floor are effectively
+        # free: measured peak RSS ~14.6 GB + margin, and main_memory is per-core, so total =
+        # 4 * 4352 = 17 GB -> a 17/512 = 3.3% floor, which 4 cores (4/128 = 3.1%) sits just under.
+        # More cores would push the charge above the floor; fewer would not make it any cheaper.
+        # Billed 3.3% of a node vs 6.25% at the old 8 cores.
+        # NOTE the SHTs are memory-bandwidth heavy, but they do scale with cores (measured 6.4x from
+        # 1->8 threads; the bandwidth wall only appears once ~3 tasks share a NUMA domain). So 4
+        # cores is a billing decision, not a claim that cores don't help -- main_time keeps margin.
         resources = {
-            "main_time": 8,
-            "main_n_cores": 8,
-            "main_memory": 1952,
+            "main_time": 3,
+            "main_n_cores": 4,
+            "main_memory": 4352,
             "main_scratch": 0,
             "merge_time": 16,
             "merge_n_cores": 32,

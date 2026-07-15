@@ -56,13 +56,16 @@ def resources(args):
     args = setup(args)
 
     if args.cluster == "perlmutter":
-        # because of hyperthreading, there's a total of 256 threads per node
-        # the 8 cores don't speed things up much, but are included to increase the memory
-        # with the derivatives, every permutation loops over all (2 * n_params + 1) cosmology dirs
+        # Same billing logic as run_grid_postprocessing.resources: NERSC bills max(cores/128,
+        # mem/512GB) on the shared QOS, so the memory sets a floor on the charge and cores under it
+        # are effectively free. With the derivatives every permutation loops over all
+        # (2 * n_params + 1) cosmology dirs, peaking at ~17.2 GB -> total = 4 * 5120 = 20 GB ->
+        # billed ~3.9% of a node, vs 12.5% at the old 16 cores. (A later packed run measured only
+        # ~11.5 GB average-at-peak per task, so the 20 GB request is comfortably conservative.)
         resources = {
-            "main_time": 4 if not args.no_derivatives else 1,
-            "main_n_cores": 16,
-            "main_memory": 1952,
+            "main_time": 2 if not args.no_derivatives else 1,
+            "main_n_cores": 4,
+            "main_memory": 5120,
             "main_scratch": 0,
             "merge_time": 2,
             "merge_n_cores": 32,
