@@ -13,13 +13,16 @@ results in `/iopsstor/scratch/cscs/athomsen/deep_lss/runs/wl_audit/` (job 273511
 
 ---
 
-## Executive summary (state as of 2026-07-12)
+## Executive summary (state as of 2026-07-13)
 
 1. **No bug found anywhere in the WL data path.** KS inversion, mode removal, shape-noise
    calibration (§§3.1–3.2), scale cuts/smoothing and m-bias (§3.5), and the full v17 re-trace
    including exact NEST/RING verification, ℓ_min = 30 (essentially free), and the NLA `tomo_Aia`
    amplitudes (§§3.7–3.8) all check out. Signal, noise, and real-data paths apply the same
-   operations in the same order.
+   operations in the same order. **The absolute amplitude/scale of the kg and ia *input* maps is
+   also correct** (§3.9): their measured full-sky Cls match independent CCL GG/II/GI theory to
+   ≈2–3 % over ℓ ∈ [100, 1500], and the NLA A_IA=1/η=0/C1 convention baked into the ia map is
+   verified directly — closing the last untested WL data-side hypothesis.
 2. **delta-NLA `bta`:** the `ds` template is large at low z (Cl(ds) ≈ 1.2 × Cl(ia) in metacal1,
    §3.3), but fixing bta = 0 on the existing chains changes nothing (§3.4) — the hypothesis
    survives only at **compression level** (network trained across the ×7.7 bin-1 power swing).
@@ -452,7 +455,103 @@ area → σ +6 %; noise-dominated limit (boundary pixels are ~0.8× depth, contr
 → σ +4 %. Real but small — a ~1.05× slice of the residual 1.26–1.33× gap, and only if their
 mask is actually wider at nside 512 (unverified).
 
-## 4. Ranked hypotheses for the constraining-power gap (state as of 2026-07-12)
+### 3.9 Follow-up (2026-07-13): full-sky input maps vs. independent CCL theory — kg/ia amplitude and scale are CORRECT; hypothesis ruled out
+
+Every prior signal check (§§3.2, 3.3, 3.5c) divided the pipeline output by each map's *own*
+full-sky Cl, so a wrong absolute amplitude or scale baked into the `kg` (lensing) or `ia`
+(NLA intrinsic-alignment) input maps themselves would have passed unnoticed while still lowering
+the S/N of the forward-modelled data vector. This is the one WL data-side hypothesis §§2–3.8 never
+tested. Now closed. Script: `dev/scripts/wl_audit/wl_theory_comparison.py` (Perlmutter CPU +
+`~/.local` pyccl 3.2.1 / camb; maps on CFS
+`/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/fiducial/cosmo_fiducial`).
+Results in `/pscratch/sd/a/athomsen/deep_lss/runs/wl_audit/wl_theory_comparison.{npz,png}`.
+
+Method: measured full-sky auto/cross pseudo-Cls of the nside-1024 `kg`/`ia` maps (healpy
+`anafast`, deconvolved by the nside-1024 pixel window, averaged over perms) vs. an **independent**
+pyccl prediction at the exact CosmoGrid fiducial cosmology (`CosmoGridV1_metainfo.h5`:
+Ω_cdm = 0.20928, Ω_b = 0.0493, h = 0.6736, σ8 = 0.84, n_s = 0.9649, Σm_ν ≈ 0.06 eV, w0 = −1;
+halofit) built from the **stored** per-bin `n(z)` (`/nz/metacal*` in the map file, the same n(z)
+the projection used):
+- `kg` → GG (`WeakLensingTracer`, shear only)
+- `ia` → II (`WeakLensingTracer`, `has_shear=False`, `ia_bias=1`, `use_A_ia=True`), i.e. the NLA
+  auto at A_IA = 1, η = 0 — exactly the amplitude/convention baked into the map. **The two NLA
+  normalisations are numerically identical** (verified 2026-07-13): CCL applies
+  `−A_ia·5e-14·RHO_CRITICAL·Ω_m/D(a)` and UFalcon `F_NLA = −A_IA·C1·ρ_crit,0·Ω_m/D(z)` with
+  C1 = 5e-14 h⁻², and both products equal **0.013876831** to 10 significant figures (the often-quoted
+  0.0134 is a different ρ_crit rounding — not what either code uses). Consequently any residual II/GI
+  offset can only come from the growth factor D — which is exactly what the w0 scan below finds. The
+  forward model applies the per-bin `tomo_Aia = Aia·⟨((1+z)/(1+z0))^n_Aia⟩` on top, so η = 0 in the
+  map is correct — no double counting.
+- `kg × ia` → GI (negative cross).
+
+Result — **the input maps are correct in both absolute amplitude and scale dependence.** Two
+independent map variants were measured: dark-matter-only (`v11dmo`, the clean match to halofit) and
+the baryonified maps actually used in production (`v11dmb`). Median measured/theory over ℓ bins
+(bins 1–4; dmo unless noted):
+
+| probe | ℓ∈[100,300] | [300,600] | [600,1000] | [1000,1500] |
+|---|---|---|---|---|
+| kg / GG (dmo) | 0.98–0.99 | 0.98 | 0.98 | 0.98–0.99 |
+| ia / II (dmo) | 0.98–0.99 | 0.97–0.99 | 0.97–0.98 | 0.98 |
+| kg·ia / GI (dmo) | 0.98–0.99 | 0.97–0.98 | 0.97–0.98 | 0.98–0.99 |
+
+All twelve spectra (4 bins × {GG, II, GI}) sit within ≈1–3 % of the independent theory across the
+full ℓ ∈ [30, 1500], flat in ℓ (8-perm run; the ≈0.95 dip at ℓ ∈ [30, 100] seen in an early 2-perm
+run was cosmic variance over the few low-ℓ modes and vanishes at 8 perms → ≈0.99, so no finite-box
+deficit above the ℓ_min = 30 cut). The only ℓ-dependent departure is in the **production (dmb) maps**: they
+track dmo/theory to ℓ ≈ 300 then droop to ≈0.83–0.87 (kg), ≈0.84–0.95 (ia), ≈0.83–0.92 (cross) by
+ℓ = 1000–1500 — the **expected baryonic suppression** of small-scale power (halofit is DMO), shared
+by all three probes and therefore not an amplitude/scale misspecification. Consequences:
+
+1. **kg amplitude/scale: correct.** No lensing-efficiency, prefactor, or Born-projection error.
+2. **ia amplitude/scale AND the NLA normalization (A_IA=1, η=0, C1) convention: correct.** ia/II ≈ 1
+   directly verifies the intrinsic-alignment map is neither under- nor over-amplified; the physical
+   IA signal is `tomo_Aia · ia` with the fiducial `tomo_Aia = [0.360, 0.442, 0.558, 0.652]` (§3.8a),
+   which is small vs. lensing — as it should be, not because the template is misnormalised.
+3. **Relative kg↔ia amplitude: correct.** The GI cross matches theory (right sign and magnitude),
+   so there is no relative mis-scaling between the two probes that could dilute the combined
+   `kg + tomo_Aia·ia` S/N.
+
+The user's hypothesis — a misspecified amplitude/scale for kg or ia reducing the map-level S/N — is
+therefore **ruled out**. The WL data path is clean end to end, including the absolute normalisation
+of its inputs; the constraining-power gap remains compression/inference-side (§4 items 1–2).
+
+**Cosmology scan (2026-07-13, `dev/scripts/wl_audit/wl_theory_scan.py`): the check holds across the
+prior, and it surfaced one real (benign) IA-map approximation.** Repeated the measured-vs-CCL
+comparison at 3 grid cosmologies spanning S8 (0.58 / 0.79 / 0.98 at w0 ≈ −1) and 3 spanning w0
+(−1.58 / −1.24 / −0.56 at S8 ≈ 0.75–0.85). Only the baryonified (v11dmb) maps exist off-fiducial, so
+ℓ ∈ [30, 300] is the clean amplitude/scale band (baryons negligible). **Directory indexing gotcha
+(cost one wrong run): the CosmoGrid grid directory is `cosmo_{sobol_index:06d}` = `path_par`, NOT
+`cosmo_{id_param}` — sobol_index ≠ id_param (e.g. id_param 1412 → sobol 28190 → `cosmo_028190`); the
+cosmology must be paired by matching `sobol_index` in the metainfo.** Findings (median over
+ℓ ∈ [100, 300], 2 perms):
+
+- **kg / GG (lensing): correct everywhere.** Ratio 0.97–1.02 at ℓ ∈ [100, 300] (0.97–1.04 over the
+  full ℓ < 300 band) across the *entire* S8 = 0.58–0.98 and w0 = −1.58 to −0.56 range. The
+  cosmological (lensing) signal — the part that carries the constraining power — has the right
+  amplitude and scale at every cosmology tested.
+- **ia / II (intrinsic alignment): a flat-in-ℓ, cosmology-dependent amplitude offset.** ia/II runs
+  from 1.16 (w0 = −1.58) to 0.88 (w0 = −0.56); the GI cross tracks its square root, i.e. the offset
+  is a pure multiplicative factor `f` on the IA field (II ∝ f², GI ∝ f, GG ∝ 1). `f` correlates with
+  w0, not S8, and is ≈1 (0.99) at the near-fiducial points.
+- **Attributed to the IA growth-factor convention.** `f` matches, to ≈1–2 %, the ratio of the NLA
+  weight `∫ n(z)/D(z) dz` computed with UFalcon's *analytic* ΛCDM-form growth integral
+  (`g = 5Ω_m/2·E(z)·∫₀^a da'/(a'E)³`, `probe_weights.F_NLA_model`) vs. CCL's true wCDM growth ODE
+  (measured `f` vs. D-ratio: 1.080/1.081, 1.044/1.049, 1.001/1.010, 0.988/1.008, 0.961/0.988,
+  0.938/0.959 for w0 = −1.58…−0.56). The analytic integral is exact at w0 = −1 but drifts up to
+  ≈±8 % at the w0 prior edges. The lensing (kg) field is ray-traced from the actual sim density, so
+  it does **not** inherit this approximation (hence GG stays exact); only the IA weight, which
+  multiplies that same field by `F_NLA(z)`, does.
+- **Impact: negligible for the constraining-power question.** (i) It is an IA-only, subdominant
+  effect (physical IA is `tomo_Aia · ia` with `tomo_Aia ≈ 0.4–0.65`); (ii) it does not touch the
+  correctly-normalised lensing signal or its S/N; (iii) the IA amplitude `Aia` is a marginalised
+  nuisance (prior [−3, 3]), so a mostly-multiplicative IA rescaling is largely absorbed. The one
+  genuine subtlety is that the offset is w0-dependent, so it introduces a mild, unphysical
+  w0–Aia coupling in the IA sector — worth knowing, but a second-order effect on a nuisance
+  direction, not a driver of the Om/S8 gap. (A future fix, if ever wanted, is to build the IA maps
+  with the ODE growth for wCDM; not worth a regeneration for this analysis.)
+
+## 4. Ranked hypotheses for the constraining-power gap (state as of 2026-07-13)
 
 The data path is clean (§§2–3.8), so the live candidates are all compression/inference-side:
 
@@ -474,7 +573,10 @@ The data path is clean (§§2–3.8), so the live candidates are all compression
    free, §3.7; high ℓ is shape-noise-dominated, unsmoothed ≈ smoothed expected, §3.5a);
    shape-noise miscalibration, KS/mode-removal amplitude bugs, missing Cl cross terms, NEST/RING
    errors, sim-vs-data response/weighting or pixel-window inconsistencies (§§3.1–3.2, 3.7);
-   tomo_Aia / NLA redshift evolution (§3.8a); m-bias marginalization (< 1 %, §3.5b).
+   tomo_Aia / NLA redshift evolution (§3.8a); m-bias marginalization (< 1 %, §3.5b);
+   **absolute amplitude/scale of the kg and ia input maps** (§3.9: measured full-sky Cls match
+   independent CCL GG/II/GI theory to ≈2–3 % over ℓ ∈ [100, 1500]; the NLA A_IA=1/η=0/C1
+   convention is verified directly).
 
 ## 5. Next steps
 
