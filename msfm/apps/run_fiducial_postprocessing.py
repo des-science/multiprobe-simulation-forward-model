@@ -219,6 +219,12 @@ def main(indices, args):
     extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
     assert not extended_nla, "The extension to NLA has not been implemented yet"
 
+    # B-mode information-loss study: additionally carry the metacal B-mode convergence through the lensing forward
+    # model and store the extra cross-spectra that involve a B channel (see run_tfrecords_alm_to_cl_bmode)
+    keep_b_mode = conf["analysis"]["modelling"]["lensing"].get("b_mode_cls", False)
+    if keep_b_mode:
+        LOGGER.warning("b_mode_cls is on: also computing the metacal B-mode Cls block (cl_bmode_*)")
+
     quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
     stochasticity = conf["analysis"]["modelling"]["clustering"]["stochasticity"]
     assert not quadratic_biasing, "The quadratic biasing has not been implemented yet"
@@ -337,6 +343,9 @@ def main(indices, args):
                         cl_perts = state["cl_perts"]
                         cl_ia_perts = state["cl_ia_perts"]
                         cl_bg_perts = state["cl_bg_perts"]
+                        cl_bmode_perts = state["cl_bmode_perts"]
+                        cl_bmode_ia_perts = state["cl_bmode_ia_perts"]
+                        cl_bmode_bg_perts = state["cl_bmode_bg_perts"]
                         all_i_example = state["all_i_example"]
                     LOGGER.warning(f"Debug mode, reading the state from {state_file}")
                 else:
@@ -379,6 +388,24 @@ def main(indices, args):
                         (n_patches, n_bg_perts, n_noise_per_signal, n_ell, n_cross_bins), dtype=np.float32
                     )
 
+                    # B-mode Cls block: the 12-channel [E, maglim, B] stack minus the standard 8-channel subset.
+                    # Only metacal (spin-2) has a B-mode, so there are n_metacal_bins extra channels.
+                    n_bmode_channels = n_bins + n_metacal_bins
+                    n_bmode_cross = (n_bmode_channels * (n_bmode_channels + 1) // 2) - n_cross_bins
+                    all_alm_sn_b = []
+                    if keep_b_mode:
+                        cl_bmode_perts = np.zeros(
+                            (n_patches, n_cosmo_perts, n_noise_per_signal, n_ell, n_bmode_cross), dtype=np.float32
+                        )
+                        cl_bmode_ia_perts = np.zeros(
+                            (n_patches, n_ia_perts, n_noise_per_signal, n_ell, n_bmode_cross), dtype=np.float32
+                        )
+                        cl_bmode_bg_perts = np.zeros(
+                            (n_patches, n_bg_perts, n_noise_per_signal, n_ell, n_bmode_cross), dtype=np.float32
+                        )
+                    else:
+                        cl_bmode_perts = cl_bmode_ia_perts = cl_bmode_bg_perts = None
+
                     # multiplicative shear bias: like on the grid, one draw per example is baked into the
                     # .tfrecords (see run_grid_postprocessing.py), but the draw is shared by the fiducial and all
                     # of its perturbations so that the finite differences stay consistent
@@ -416,13 +443,21 @@ def main(indices, args):
                             else:
                                 dg2_in = None
 
+                            # parallel metacal B-mode convergence inputs (None disables the B channel downstream)
+                            if keep_b_mode:
+                                kg_b_in = data_vec_container["kg_b"][i_patch]
+                                ia_b_in = data_vec_container["ia_b"][i_patch]
+                            else:
+                                kg_b_in = ia_b_in = None
+
                             # astrophysics perturbations are calculated with respect to the fiducial cosmo params
                             if is_fiducial:
                                 # shape (n_noise_per_signal, n_pix, n_z_bins) load the shape noise realization
                                 sn_samples_in = data_vec_container["sn"][i_patch]
+                                sn_b_samples_in = data_vec_container["sn_b"][i_patch] if keep_b_mode else None
 
                                 # add the signal and ia maps and smooth everything
-                                kg, sn_samples, alm_kg, alm_sn = lensing_transform(
+                                kg, sn_samples, alm_kg, alm_sn, alm_kg_b, alm_sn_b = lensing_transform(
                                     kg_in,
                                     ia_in,
                                     ia_label="fiducial",
@@ -430,6 +465,9 @@ def main(indices, args):
                                     is_true_fiducial=True,
                                     sn_samples=sn_samples_in,
                                     np_seed=i_signal,
+                                    kg_b=kg_b_in,
+                                    ia_b=ia_b_in,
+                                    sn_b_samples=sn_b_samples_in,
                                 )
 
                                 # convert dg to galaxy number and draw the poisson noise realization
@@ -442,15 +480,22 @@ def main(indices, args):
 
                                 all_alm_sn.append(alm_sn)
                                 all_alm_pn.append(alm_pn)
+                                all_alm_sn_b.append(alm_sn_b)
 
                                 # intrinsic alignment perturbations
                                 for i_ia, ia_pert_label in enumerate(ia_pert_labels):
-                                    ia_perts[i_patch, i_ia], alm_ia = lensing_transform(
-                                        kg_in, ia_in, ia_label=ia_pert_label, m_bias=tomo_m_bias[i_patch], np_seed=i_signal
+                                    ia_perts[i_patch, i_ia], alm_ia, alm_ia_b = lensing_transform(
+                                        kg_in, ia_in, ia_label=ia_pert_label, m_bias=tomo_m_bias[i_patch], np_seed=i_signal,
+                                        kg_b=kg_b_in, ia_b=ia_b_in,
                                     )
                                     cl_ia_perts[i_patch, i_ia] = power_spectra.run_tfrecords_alm_to_cl(
                                         alm_ia, alm_sn, alm_dg, alm_pn
                                     )
+                                    if keep_b_mode:
+                                        cl_bmode_ia_perts[i_patch, i_ia] = power_spectra.run_tfrecords_alm_to_cl_bmode(
+                                            alm_ia, alm_sn, alm_dg, alm_pn, alm_ia_b, alm_sn_b,
+                                            cl_reference=cl_ia_perts[i_patch, i_ia],
+                                        )
 
                                 # galaxy clustering perturbations
                                 for i_bg, bg_pert_label in enumerate(bg_pert_labels):
@@ -460,11 +505,17 @@ def main(indices, args):
                                     cl_bg_perts[i_patch, i_bg] = power_spectra.run_tfrecords_alm_to_cl(
                                         alm_kg, alm_sn, alm_bg, alm_pn
                                     )
+                                    if keep_b_mode:
+                                        cl_bmode_bg_perts[i_patch, i_bg] = power_spectra.run_tfrecords_alm_to_cl_bmode(
+                                            alm_kg, alm_sn, alm_bg, alm_pn, alm_kg_b, alm_sn_b,
+                                            cl_reference=cl_bg_perts[i_patch, i_bg],
+                                        )
 
                             # cosmological perturbations
                             else:
-                                kg, alm_kg = lensing_transform(
-                                    kg_in, ia_in, ia_label="fiducial", m_bias=tomo_m_bias[i_patch], np_seed=i_signal
+                                kg, alm_kg, alm_kg_b = lensing_transform(
+                                    kg_in, ia_in, ia_label="fiducial", m_bias=tomo_m_bias[i_patch], np_seed=i_signal,
+                                    kg_b=kg_b_in, ia_b=ia_b_in,
                                 )
                                 dg, alm_dg = clustering_transform(dg_in, dg2_in, bg_label="fiducial", np_seed=i_signal)
 
@@ -473,6 +524,12 @@ def main(indices, args):
                             cl_perts[i_patch, i_cosmo] = power_spectra.run_tfrecords_alm_to_cl(
                                 alm_kg, all_alm_sn[i_patch], alm_dg, all_alm_pn[i_patch]
                             )
+                            if keep_b_mode:
+                                cl_bmode_perts[i_patch, i_cosmo] = power_spectra.run_tfrecords_alm_to_cl_bmode(
+                                    alm_kg, all_alm_sn[i_patch], alm_dg, all_alm_pn[i_patch],
+                                    alm_kg_b, all_alm_sn_b[i_patch],
+                                    cl_reference=cl_perts[i_patch, i_cosmo],
+                                )
 
                     if args.debug:
                         state = {
@@ -485,6 +542,9 @@ def main(indices, args):
                             "cl_perts": cl_perts,
                             "cl_ia_perts": cl_ia_perts,
                             "cl_bg_perts": cl_bg_perts,
+                            "cl_bmode_perts": cl_bmode_perts,
+                            "cl_bmode_ia_perts": cl_bmode_ia_perts,
+                            "cl_bmode_bg_perts": cl_bmode_bg_perts,
                             "all_i_example": all_i_example,
                         }
                         with open(state_file, "wb") as f:
@@ -511,6 +571,9 @@ def main(indices, args):
                         cl_ia_perts[i_patch],
                         cl_bg_perts[i_patch],
                         all_i_example[i_patch],
+                        cl_bmode_perts=cl_bmode_perts[i_patch] if keep_b_mode else None,
+                        cl_bmode_ia_perts=cl_bmode_ia_perts[i_patch] if keep_b_mode else None,
+                        cl_bmode_bg_perts=cl_bmode_bg_perts[i_patch] if keep_b_mode else None,
                     )
 
                     file_writer.write(serialized)
@@ -577,9 +640,8 @@ def _get_lensing_transform(conf, pixel_file):
 
         return kg, alm
 
-    def lensing_transform(kg, ia, ia_label, m_bias, is_true_fiducial=False, sn_samples=None, np_seed=None):
-        assert bool(not is_true_fiducial) != bool(sn_samples is not None)
-
+    def _lensing_channel(kg, ia, ia_label, m_bias):
+        """The IA combination + m-bias + mask applied identically to an E- or B-mode convergence data vector."""
         # important not to use +=, since then the array is transformed in place
         kg = kg + tomo_Aia_perts_dict[ia_label] * ia
 
@@ -589,11 +651,29 @@ def _get_lensing_transform(conf, pixel_file):
 
         kg = metacal_mask * kg
 
+        return kg
+
+    def lensing_transform(
+        kg, ia, ia_label, m_bias, is_true_fiducial=False, sn_samples=None, np_seed=None,
+        # B-mode convergence channel (B-mode Cls study); when kg_b is None the B outputs are returned as None
+        kg_b=None, ia_b=None, sn_b_samples=None,
+    ):
+        assert bool(not is_true_fiducial) != bool(sn_samples is not None)
+        keep_b_mode = kg_b is not None
+        if keep_b_mode:
+            assert (ia_b is not None) and (bool(not is_true_fiducial) != bool(sn_b_samples is not None))
+
+        kg = _lensing_channel(kg, ia, ia_label, m_bias)
+        if keep_b_mode:
+            # the B-mode convergence goes through the exact same IA combination + m-bias + mask (by linearity)
+            kg_b = _lensing_channel(kg_b, ia_b, ia_label, m_bias)
+
         # only smooth the shape noise and return the alms for the fiducial, not the perturbations
         if is_true_fiducial:
             assert sn_samples is not None, "sn has to be provided if is_true_fiducial is True"
 
             smooth_sn_samples, alm_sn_samples = [], []
+            alm_sn_b_samples = [] if keep_b_mode else None
             for i, sn in enumerate(sn_samples):
                 sn = metacal_mask * sn
                 sn, alm_sn = lensing_smoothing(sn, np_seed + i)
@@ -601,18 +681,27 @@ def _get_lensing_transform(conf, pixel_file):
                 smooth_sn_samples.append(sn)
                 alm_sn_samples.append(alm_sn)
 
+                if keep_b_mode:
+                    sn_b = metacal_mask * sn_b_samples[i]
+                    _, alm_sn_b = lensing_smoothing(sn_b, np_seed + i)
+                    alm_sn_b_samples.append(alm_sn_b)
+
             sn_samples = np.stack(smooth_sn_samples, axis=0)
             alm_sn_samples = np.stack(alm_sn_samples, axis=0)
+            if keep_b_mode:
+                alm_sn_b_samples = np.stack(alm_sn_b_samples, axis=0)
 
             # noiseless
             kg, alm_kg = lensing_smoothing(kg, np_seed)
+            alm_kg_b = lensing_smoothing(kg_b, np_seed)[1] if keep_b_mode else None
 
-            return kg, sn_samples, alm_kg, alm_sn_samples
+            return kg, sn_samples, alm_kg, alm_sn_samples, alm_kg_b, alm_sn_b_samples
 
         else:
             kg, alm_kg = lensing_smoothing(kg, np_seed)
+            alm_kg_b = lensing_smoothing(kg_b, np_seed)[1] if keep_b_mode else None
 
-            return kg, alm_kg
+            return kg, alm_kg, alm_kg_b
 
     return lensing_transform
 
@@ -738,7 +827,11 @@ def _serialize_and_verify(
     cl_ia_perts,
     cl_bg_perts,
     i_signal,
+    cl_bmode_perts=None,
+    cl_bmode_ia_perts=None,
+    cl_bmode_bg_perts=None,
 ):
+    keep_b_mode = cl_bmode_perts is not None
 
     # serialize
     serialized = tfrecords.parse_forward_fiducial(
@@ -758,11 +851,16 @@ def _serialize_and_verify(
         cl_ia_perts,
         cl_bg_perts,
         i_signal,
+        # B-mode power spectra (None -> not serialized)
+        cl_bmode_perts=cl_bmode_perts,
+        cl_bmode_ia_perts=cl_bmode_ia_perts,
+        cl_bmode_bg_perts=cl_bmode_bg_perts,
     ).SerializeToString()
 
     # verify
     inv_tfr = tfrecords.parse_inverse_fiducial(
-        serialized, cosmo_pert_labels + ia_pert_labels + bg_pert_labels, range(n_noise_per_signal)
+        serialized, cosmo_pert_labels + ia_pert_labels + bg_pert_labels, range(n_noise_per_signal),
+        with_bmode=keep_b_mode,
     )
 
     # maps
@@ -788,6 +886,21 @@ def _serialize_and_verify(
     assert np.allclose(inv_cl_perts, cl_perts)
     assert np.allclose(inv_cl_ia_perts, cl_ia_perts)
     assert np.allclose(inv_cl_bg_perts, cl_bg_perts)
+
+    # B-mode power spectra (parallel field, plain reshape, no cross-bin gather)
+    if keep_b_mode:
+        inv_cl_bmode_perts = tf.stack(
+            [inv_tfr[f"cl_bmode_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0
+        )
+        inv_cl_bmode_ia_perts = tf.stack(
+            [inv_tfr[f"cl_bmode_{pert_label}"] for pert_label in ia_pert_labels], axis=0
+        )
+        inv_cl_bmode_bg_perts = tf.stack(
+            [inv_tfr[f"cl_bmode_{pert_label}"] for pert_label in bg_pert_labels], axis=0
+        )
+        assert np.allclose(inv_cl_bmode_perts, cl_bmode_perts)
+        assert np.allclose(inv_cl_bmode_ia_perts, cl_bmode_ia_perts)
+        assert np.allclose(inv_cl_bmode_bg_perts, cl_bmode_bg_perts)
 
     LOGGER.debug("Decoded the map part of the .tfrecord successfully")
 
@@ -819,19 +932,24 @@ def merge(indices, args):
         return_pattern=True,
     )
 
+    keep_b_mode = conf["analysis"]["modelling"]["lensing"].get("b_mode_cls", False)
+
     cls_dset = tf.data.Dataset.list_files(tfr_pattern)
     cls_dset = cls_dset.interleave(tf.data.TFRecordDataset, cycle_length=16, block_length=1)
     # the default arguments for parse_inverse_fiducial_cls are fine since we're not in graph mode
-    cls_dset = cls_dset.map(tfrecords.parse_inverse_fiducial_cls)
+    cls_dset = cls_dset.map(lambda x: tfrecords.parse_inverse_fiducial_cls(x, with_bmode=keep_b_mode))
     if args.debug:
         cls_dset = cls_dset.take(10)
 
     cls = []
+    cls_bmode = [] if keep_b_mode else None
     i_examples = []
     for example in LOGGER.progressbar(
         cls_dset, total=n_examples, desc="Looping through the .tfrecords", at_level="info"
     ):
         cls.append(example["cls"].numpy())
+        if keep_b_mode:
+            cls_bmode.append(example["cls_bmode"].numpy())
         i_examples.append(int(example["i_signal"]))
 
     # noise realizations
@@ -842,6 +960,8 @@ def merge(indices, args):
     # concatenate the different simulation runs and noise realizations along the same axis
     # cls.shape[0] = n_examples * n_noise
     cls = np.concatenate(cls, axis=0)
+    if keep_b_mode:
+        cls_bmode = np.concatenate(cls_bmode, axis=0)
 
     # i_examples.shape[0] = n_examples
     i_examples = np.array(i_examples)
@@ -850,11 +970,28 @@ def merge(indices, args):
     # sort by example index
     i_sort = np.argsort(i_examples)
     cls = cls[i_sort, ...]
+    if keep_b_mode:
+        cls_bmode = cls_bmode[i_sort, ...]
     i_examples = i_examples[i_sort]
     i_noise = i_noise[i_sort]
 
     # perform the binning (all examples at the same time)
     binned_cls, bin_edges = power_spectra.bin_according_to_config(cls, conf)
+
+    if keep_b_mode:
+        # the B-block has 42 columns, which is not triangular, so bin_according_to_config (with_cross=True) would trip
+        # its triangular assert. Bin each column independently on the identical fixed ell grid instead.
+        n_bmode_cross = cls_bmode.shape[-1]
+        binned_cls_bmode, bin_edges_bmode = power_spectra.smooth_and_bin_cls(
+            cls_bmode,
+            with_cross=False,
+            l_mins_smoothing=[None] * n_bmode_cross,
+            l_maxs_smoothing=[None] * n_bmode_cross,
+            fixed_binning=True,
+            n_bins=conf["analysis"]["power_spectra"]["n_bins"],
+            l_min_binning=conf["analysis"]["power_spectra"]["l_min"],
+            l_max_binning=conf["analysis"]["power_spectra"]["l_max"],
+        )
 
     # separate folder on the same level as tfrecords
     if args.debug:
@@ -868,6 +1005,10 @@ def merge(indices, args):
         f.create_dataset("cls/raw", data=cls)
         f.create_dataset("cls/binned", data=binned_cls)
         f.create_dataset("cls/bin_edges", data=bin_edges)
+        if keep_b_mode:
+            f.create_dataset("cls/bmode_raw", data=cls_bmode)
+            f.create_dataset("cls/bmode_binned", data=binned_cls_bmode)
+            f.create_dataset("cls/bmode_bin_edges", data=bin_edges_bmode)
         f.create_dataset("i_signal", data=i_examples)
         f.create_dataset("i_noise", data=i_noise)
 

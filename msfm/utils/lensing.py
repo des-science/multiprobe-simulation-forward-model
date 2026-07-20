@@ -63,6 +63,7 @@ def mode_removal(
     gamma2kappa_fac,
     n_side,
     hp_datapath=None,
+    keep_b_mode=False,
     # deprecated
     apply_smoothing=False,
     l_min=None,
@@ -70,13 +71,20 @@ def mode_removal(
     make_grf=False,
     np_seed=None,
 ):
-    """Takes in survey patches of gamma maps and puts out survey patches of kappa maps that only contain E-modes
+    """Takes in survey patches of gamma maps and puts out survey patches of kappa maps that only contain E-modes.
+
+    Masking a pure-E shear field leaks power into the B-mode; the default (``keep_b_mode=False``) discards that
+    B-mode as in the standard kappa-only forward model. When ``keep_b_mode=True`` the B-mode convergence patch is
+    also reconstructed (from the *same* spin-2 alm transform, so no extra map2alm) and returned alongside the E-mode
+    patch, for the B-mode information-loss Fisher study.
 
     Args:
         gamma1_patch (np.ndarray): Array of size n_pix, but only the survey patch is populated
         gamma2_patch (np.ndarray): Same
         gamma2kappa_fac (np.ndarray): Kaiser squires conversion factors
         n_side (int): Resolution of the map
+        keep_b_mode (bool, optional): If True, also reconstruct and return the B-mode convergence patch. Defaults
+            to False (E-mode only, back-compatible single-array return).
         apply_smoothing (bool, optional): Whether to apply smoothing to the kappa map. This is included here because
             the alm coefficients are already computed anyways for the mode removal. Defaults to False.
         l_min (int, optional): Minimal ell, this removes the large scales if smoothing is applied. Defaults to None.
@@ -86,7 +94,8 @@ def mode_removal(
         hp_datapath (str, optional): Path to a healpy pixel weights file. Defaults to None.
 
     Returns:
-        np.ndarray: Array of size n_pix, but only the survey patch is populated
+        np.ndarray: E-mode kappa patch of size n_pix (only the survey patch is populated). If ``keep_b_mode`` is
+            True, a tuple ``(kappa_E_patch, kappa_B_patch)`` of two such arrays is returned instead.
     """
     # gamma: map -> alm
     _, gamma_alm_E, gamma_alm_B = hp.map2alm(
@@ -100,6 +109,7 @@ def mode_removal(
 
     # kappa: alm -> map
     if apply_smoothing:
+        assert not keep_b_mode, "keep_b_mode is not supported with the deprecated in-mode-removal smoothing"
         LOGGER.warning(f"Double check what you're doing, smoothing within the mode removal has been deprecated")
         if make_grf:
             kappa_patch = scales.alm_to_grf_map(kappa_alm, l_min, l_max, n_side, np_seed)
@@ -107,6 +117,12 @@ def mode_removal(
             kappa_patch = scales.alm_to_smoothed_map(kappa_alm, n_side, l_min, l_max, nest=False)
     else:
         kappa_patch = hp.alm2map(kappa_alm, n_side, pol=False).astype(np.float32)
+
+    if keep_b_mode:
+        # reuse the spin-2 alms already computed above: only the projection factor differs
+        kappa_alm_B = gamma_alm_B * gamma2kappa_fac
+        kappa_patch_B = hp.alm2map(kappa_alm_B, n_side, pol=False).astype(np.float32)
+        return kappa_patch, kappa_patch_B
 
     return kappa_patch
 

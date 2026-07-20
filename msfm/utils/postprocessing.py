@@ -40,8 +40,11 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
     if store_clustering:
         samples.append("maglim")
 
+    # B-mode convergence Cls study: also carry a parallel B-mode data vector through the metacal (lensing) channel
+    keep_b_mode = conf["analysis"]["modelling"]["lensing"].get("b_mode_cls", False)
+
     # output container, one for each example
-    data_vec_container = _set_up_per_example_dv_container(conf, pixel_file, is_fiducial)
+    data_vec_container = _set_up_per_example_dv_container(conf, pixel_file, is_fiducial, keep_b_mode=keep_b_mode)
     for sample in samples:
         LOGGER.timer.start("sample")
         LOGGER.info(f"Starting with sample {sample}")
@@ -75,11 +78,17 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
                         noise_file,
                         full_maps_file,
                         bgs_key="fiducial",
+                        keep_b_mode=keep_b_mode,
                     )
                 elif sample == "maglim":
                     data_vecs = postprocess_maglim_bin(
                         conf, full_sky_bin, in_map_type, out_map_type, i_z, "fiducial", pixel_file, rng=rng
                     )
+
+                # unpack the parallel B-mode data vector for the lensing channel (see postprocess_metacal_bin)
+                if keep_b_mode and sample == "metacal":
+                    data_vecs, data_vecs_b = data_vecs
+                    data_vec_container[f"{out_map_type}_b"][..., i_z] = data_vecs_b
 
                 # collect the different permutations along the first axis
                 data_vec_container[out_map_type][..., i_z] = data_vecs
@@ -91,7 +100,7 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
     return data_vec_container
 
 
-def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
+def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial, keep_b_mode=False):
     n_patches = conf["analysis"]["n_patches"]
     n_noise_per_signal = conf["analysis"]["fiducial"]["n_noise_per_signal"]
     data_vec_len = len(pixel_file[0])
@@ -107,6 +116,8 @@ def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
 
     data_vec_container = {}
     for out_map_type in out_map_types:
+        # metacal (lensing) outputs additionally get a parallel "_b" B-mode container when keep_b_mode
+        is_lensing = out_map_type in ["kg", "ia", "ds", "sn"]
         if out_map_type in ["kg", "ia", "ds"]:
             n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
             dvs_shape = (n_patches, data_vec_len, n_z_bins)
@@ -122,6 +133,8 @@ def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
 
         if dvs_shape is not None:
             data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
+            if keep_b_mode and is_lensing:
+                data_vec_container[f"{out_map_type}_b"] = np.zeros(dvs_shape, dtype=np.float32)
 
     return data_vec_container
 
@@ -258,14 +271,17 @@ def postprocess_metacal_bin(
     bgs_key,
     i_perm=None,
     bsc_samples=None,
+    keep_b_mode=False,
 ):
+    # keep_b_mode makes the lensing/shape-noise branches return (E_dvs, B_dvs) tuples (see mode_removal)
     if in_map_type in ["kg", "ia"]:
         # shape (n_patches, data_vec_len)
-        kappa_dvs = postprocess_lensing(full_sky_map, conf, pixel_file, i_z)
+        kappa_dvs = postprocess_lensing(full_sky_map, conf, pixel_file, i_z, keep_b_mode=keep_b_mode)
     elif in_map_type == "dg" and out_map_type == "sn":
         # shape (n_patches, n_noise_per_signal, data_vec_len)
         kappa_dvs = postprocess_shape_noise(
-            full_sky_map, conf, simset, pixel_file, noise_file, i_z, bgs_key, i_perm, bsc_samples
+            full_sky_map, conf, simset, pixel_file, noise_file, i_z, bgs_key, i_perm, bsc_samples,
+            keep_b_mode=keep_b_mode,
         )
     elif in_map_type == "dg" and out_map_type == "ds":
         full_sky_ia = _read_full_sky_bin(conf, full_maps_file, "ia", conf["survey"]["metacal"]["z_bins"][i_z])
@@ -273,14 +289,14 @@ def postprocess_metacal_bin(
             (full_sky_map - np.mean(full_sky_map)) / np.mean(full_sky_map)
         )
         # shape (n_patches, data_vec_len)
-        kappa_dvs = postprocess_lensing(full_sky_ds, conf, pixel_file, i_z)
+        kappa_dvs = postprocess_lensing(full_sky_ds, conf, pixel_file, i_z, keep_b_mode=keep_b_mode)
     else:
         raise ValueError(f"Unknown input map type {in_map_type} for metacal/weak lensing")
 
     return kappa_dvs
 
 
-def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
+def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z, keep_b_mode=False):
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
     n_patches = conf["analysis"]["n_patches"]
@@ -311,6 +327,8 @@ def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
     )
 
     kappa_dvs = np.zeros((n_patches, data_vec_len), dtype=np.float32)
+    # parallel B-mode convergence data vectors (only populated when keep_b_mode)
+    kappa_dvs_b = np.zeros((n_patches, data_vec_len), dtype=np.float32) if keep_b_mode else None
     for i_patch, patch_pix in enumerate(patches_pix):
         # The 90° rots do NOT change the shear, however, the mirroring does,
         # therefore we have to swap sign of gamma2 for the last 2 patches!
@@ -334,7 +352,10 @@ def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
             n_side,
             apply_smoothing=False,
             hp_datapath=hp_datapath,
+            keep_b_mode=keep_b_mode,
         )
+        if keep_b_mode:
+            kappa_patch, kappa_patch_b = kappa_patch
 
         # cut out padded data vector
         kappa_dv = maps.map_to_data_vec(
@@ -347,12 +368,23 @@ def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
 
         kappa_dvs[i_patch] = kappa_dv
 
-    # shape (n_patches, data_vec_len)
+        if keep_b_mode:
+            kappa_dvs_b[i_patch] = maps.map_to_data_vec(
+                hp_map=kappa_patch_b,
+                data_vec_len=data_vec_len,
+                corresponding_pix=corresponding_pix,
+                cutout_pix=base_patch_pix,
+                remove_mean=True,
+            )
+
+    # shape (n_patches, data_vec_len); a second identically shaped array for the B-mode when keep_b_mode
+    if keep_b_mode:
+        return kappa_dvs, kappa_dvs_b
     return kappa_dvs
 
 
 def postprocess_shape_noise(
-    delta_full_sky, conf, simset, pixel_file, noise_file, i_z, bgs_key, i_perm=None, bsc_samples=None
+    delta_full_sky, conf, simset, pixel_file, noise_file, i_z, bgs_key, i_perm=None, bsc_samples=None, keep_b_mode=False
 ):
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
@@ -420,6 +452,9 @@ def postprocess_shape_noise(
             var_ref = lensing.shape_noise_variance_map(gamma_abs_np, w, pix_cat, n_pix)
 
     kappa_dvs = np.zeros((n_patches, n_noise_per_signal, data_vec_len), dtype=np.float32)
+    kappa_dvs_b = (
+        np.zeros((n_patches, n_noise_per_signal, data_vec_len), dtype=np.float32) if keep_b_mode else None
+    )
     for i_patch, patch_pix in enumerate(patches_pix):
         if method == "count":
             if bias == "prior" and bsc_samples is not None:
@@ -485,7 +520,10 @@ def postprocess_shape_noise(
                 n_side,
                 apply_smoothing=False,
                 hp_datapath=hp_datapath,
+                keep_b_mode=keep_b_mode,
             )
+            if keep_b_mode:
+                kappa_patch, kappa_patch_b = kappa_patch
 
             # cut out padded data vector
             kappa_dv = maps.map_to_data_vec(
@@ -498,7 +536,18 @@ def postprocess_shape_noise(
 
             kappa_dvs[i_patch, i_noise] = kappa_dv
 
-    # shape (n_patches, n_noise_per_signal, data_vec_len)
+            if keep_b_mode:
+                kappa_dvs_b[i_patch, i_noise] = maps.map_to_data_vec(
+                    hp_map=kappa_patch_b,
+                    data_vec_len=data_vec_len,
+                    corresponding_pix=corresponding_pix,
+                    cutout_pix=base_patch_pix,
+                    remove_mean=True,
+                )
+
+    # shape (n_patches, n_noise_per_signal, data_vec_len); a second such array for the B-mode when keep_b_mode
+    if keep_b_mode:
+        return kappa_dvs, kappa_dvs_b
     return kappa_dvs
 
 

@@ -314,6 +314,10 @@ def parse_forward_fiducial(
     cl_bg_perts,
     # label
     i_signal,
+    # B-mode power spectra (B-mode Cls study); None -> not serialized, back-compatible schema
+    cl_bmode_perts=None,
+    cl_bmode_ia_perts=None,
+    cl_bmode_bg_perts=None,
 ):
     """The fiducials don't need a label and contain the perturbation for the delta loss with
     n_perts = 2 * n_params + 1
@@ -352,6 +356,8 @@ def parse_forward_fiducial(
         len(sn_realz) == len(pn_realz) == cl_perts.shape[1]
     ), "the number of noise realizations has to be identical for sn, pn and the cls"
 
+    keep_b_mode = cl_bmode_perts is not None
+
     # define the structure of a single example
     features = {
         # tensor shapes
@@ -367,25 +373,48 @@ def parse_forward_fiducial(
         "n_z_cross": _int64_feature(cl_perts.shape[3]),
     }
 
+    # B-mode power spectra: the fiducial-cosmology block for the covariance path + the number of B cross bins
+    if keep_b_mode:
+        features["cls_bmode"] = _bytes_feature(tf.io.serialize_tensor(cl_bmode_perts[0]))
+        features["n_z_cross_bmode"] = _int64_feature(cl_bmode_perts.shape[3])
+
     # cosmological perturbations (kappa and delta)
-    for label, kg_pert, dg_pert, cl_pert in zip(cosmo_pert_labels, kg_perts, dg_perts, cl_perts):
+    if not keep_b_mode:
+        cl_bmode_perts = [None] * len(cosmo_pert_labels)
+    for label, kg_pert, dg_pert, cl_pert, cl_bmode_pert in zip(
+        cosmo_pert_labels, kg_perts, dg_perts, cl_perts, cl_bmode_perts
+    ):
         features[f"kg_{label}"] = _bytes_feature(tf.io.serialize_tensor(kg_pert))
         features[f"dg_{label}"] = _bytes_feature(tf.io.serialize_tensor(dg_pert))
         features[f"cl_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_pert))
+        if keep_b_mode:
+            features[f"cl_bmode_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_bmode_pert))
 
     # intrinsic alignment perturbations (kappa)
-    for label, ia_pert, cl_ia_pert in zip(ia_pert_labels, ia_perts, cl_ia_perts):
+    if not keep_b_mode:
+        cl_bmode_ia_perts = [None] * len(ia_pert_labels)
+    for label, ia_pert, cl_ia_pert, cl_bmode_ia_pert in zip(
+        ia_pert_labels, ia_perts, cl_ia_perts, cl_bmode_ia_perts
+    ):
         features[f"kg_{label}"] = _bytes_feature(tf.io.serialize_tensor(ia_pert))
         features[f"cl_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_ia_pert))
+        if keep_b_mode:
+            features[f"cl_bmode_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_bmode_ia_pert))
 
     # shape noise realizations
     for i, sn in enumerate(sn_realz):
         features[f"sn_{i}"] = _bytes_feature(tf.io.serialize_tensor(sn))
 
     # galaxy biasing (delta)
-    for label, bg_pert, cl_bg_pert in zip(bg_pert_labels, bg_perts, cl_bg_perts):
+    if not keep_b_mode:
+        cl_bmode_bg_perts = [None] * len(bg_pert_labels)
+    for label, bg_pert, cl_bg_pert, cl_bmode_bg_pert in zip(
+        bg_pert_labels, bg_perts, cl_bg_perts, cl_bmode_bg_perts
+    ):
         features[f"dg_{label}"] = _bytes_feature(tf.io.serialize_tensor(bg_pert))
         features[f"cl_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_bg_pert))
+        if keep_b_mode:
+            features[f"cl_bmode_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_bmode_bg_pert))
 
     # poisson noise realizations
     for i, pn in enumerate(pn_realz):
@@ -412,6 +441,9 @@ def parse_inverse_fiducial(
     with_clustering=True,
     return_maps=True,
     return_cls=True,
+    # B-mode power spectra (parallel field cl_bmode_{label}); requires a tfrecord written with b_mode_cls on
+    with_bmode=False,
+    n_z_cross_bmode=None,
 ):
     """Use the same structure as in in the forward pass above. Note that n_pix and n_z_bins have to be passed as
     arguments to ensure that the function can be converted to a graph.
@@ -446,6 +478,9 @@ def parse_inverse_fiducial(
         "i_signal": tf.io.FixedLenFeature([], tf.int64),
     }
 
+    if with_bmode:
+        features["n_z_cross_bmode"] = tf.io.FixedLenFeature([], tf.int64)
+
     # all perturbation parameters
     for label in pert_labels:
         if return_maps:
@@ -458,6 +493,8 @@ def parse_inverse_fiducial(
                 features[f"dg_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
         features[f"cl_{label}"] = tf.io.FixedLenFeature([], tf.string)
+        if with_bmode:
+            features[f"cl_bmode_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
     if return_maps:
         # all desired noise realizations
@@ -512,6 +549,20 @@ def parse_inverse_fiducial(
                 bin_indices,
             )
 
+            # B-mode block: plain reshape + noise gather only (its 42 columns do not fit the triangular
+            # metacal+maglim layout assumed by the get_cross_bin_indices gather)
+            if with_bmode:
+                _parse_and_reshape_cls_bmode(
+                    output_data,
+                    serialized_data,
+                    f"cl_bmode_{label}",
+                    f"cl_bmode_{label}",
+                    n_noise,
+                    n_cls,
+                    n_z_cross_bmode,
+                    noise_indices,
+                )
+
     if return_maps:
         # all desired noise realizations
         for i in noise_indices:
@@ -539,6 +590,9 @@ def parse_inverse_fiducial_cls(
     n_noise=None,
     n_cls=None,
     n_z_cross=None,
+    # B-mode block (fiducial-cosmology cls_bmode); requires a tfrecord written with b_mode_cls on
+    with_bmode=False,
+    n_z_cross_bmode=None,
 ):
     """
     Use the same structure as in in the forward pass above, but only return the data associated with the power spectra.
@@ -566,6 +620,9 @@ def parse_inverse_fiducial_cls(
         # labels
         "i_signal": tf.io.FixedLenFeature([], tf.int64),
     }
+    if with_bmode:
+        features["cls_bmode"] = tf.io.FixedLenFeature([], tf.string)
+        features["n_z_cross_bmode"] = tf.io.FixedLenFeature([], tf.int64)
 
     serialized_data = tf.io.parse_single_example(serialized_example, features)
 
@@ -581,6 +638,18 @@ def parse_inverse_fiducial_cls(
     else:
         cls = tf.ensure_shape(cls, shape=(n_noise, n_cls, n_z_cross))
     output_data["cls"] = cls
+
+    # B-mode power spectra (fiducial cosmology only, for the sample covariance)
+    if with_bmode:
+        cls_bmode = tf.io.parse_tensor(serialized_data["cls_bmode"], out_type=tf.float32)
+        if n_noise is None and n_cls is None and n_z_cross_bmode is None:
+            cls_bmode = tf.reshape(
+                cls_bmode,
+                shape=(serialized_data["n_noise"], serialized_data["n_cls"], serialized_data["n_z_cross_bmode"]),
+            )
+        else:
+            cls_bmode = tf.ensure_shape(cls_bmode, shape=(n_noise, n_cls, n_z_cross_bmode))
+        output_data["cls_bmode"] = cls_bmode
 
     # indices
     output_data["i_signal"] = serialized_data["i_signal"]
@@ -620,6 +689,28 @@ def _parse_and_reshape_cls(
 
     cls = tf.gather(cls, noise_indices, axis=0)
     cls = tf.gather(cls, bin_indices, axis=-1)
+
+    out_dict[key_out] = cls
+
+    return out_dict
+
+
+def _parse_and_reshape_cls_bmode(
+    out_dict, serialized_data, key_in, key_out, n_noise, n_cls, n_z_cross_bmode, noise_indices
+):
+    """Parse the B-mode Cls block. Unlike _parse_and_reshape_cls, there is no cross-bin gather: the B-touching
+    columns do not follow the triangular metacal+maglim ordering, so they are kept as stored (plain reshape) and
+    only the requested noise realizations are gathered."""
+    cls = tf.io.parse_tensor(serialized_data[key_in], out_type=tf.float32)
+
+    if n_noise is None and n_cls is None and n_z_cross_bmode is None:
+        cls = tf.reshape(
+            cls, shape=(serialized_data["n_noise"], serialized_data["n_cls"], serialized_data["n_z_cross_bmode"])
+        )
+    else:
+        cls = tf.ensure_shape(cls, shape=(n_noise, n_cls, n_z_cross_bmode))
+
+    cls = tf.gather(cls, noise_indices, axis=0)
 
     out_dict[key_out] = cls
 

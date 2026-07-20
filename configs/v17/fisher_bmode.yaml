@@ -1,0 +1,41 @@
+# Fisher-forecast spec for the B-mode Cls information-loss study, driven by
+# `python -m msfm.apps.run_fisher_forecast --spec configs/v17/fisher_bmode.yaml`.
+#
+# Three forecasts, two comparisons:
+#   baseline_E  -> bmode_E   : l_min ablation (drop the lensing ell_min=30 map high-pass)
+#   bmode_E     -> bmode_EB  : B-mode information gain (append the 42 B-touching Cl columns)
+# `baseline_E` alone is the standard, current E-mode-only forecast.
+
+# Config used only for the Gaussian prior widths when options.priors is true (params are shared, so
+# either tree's config works).
+config: configs/v17/baseline_bmode.yaml
+
+options:
+  priors: false      # also runs are re-invocable with --priors / --no-priors
+  hartlap: true      # (n - p - 2)/(n - 1) debiasing of the inverse sample covariance
+  normalize: true    # solve on the correlation matrix (cond ~1e2 instead of ~1e15; result identical)
+
+# Cl blocks -> (covariance dataset in fiducial_cls.h5, jacobian dataset in forecast_inputs.h5).
+# Omit this key to use the defaults in msfm.utils.fisher.BLOCKS_DEFAULT (identical to below).
+blocks:
+  E: {cov: cls/binned,       jac: pert_binned_E}   # 36-col E/clustering (standard data vector)
+  B: {cov: cls/bmode_binned, jac: pert_binned_B}   # 42-col B-touching (BB auto+cross, B x E, B x maglim)
+
+# Data sources: each is a (covariance h5, jacobian h5) pair. The covariance h5 is a
+# run_fiducial_postprocessing merge output; the jacobian h5 is dev/bmode_fisher/reduce.py output.
+sources:
+  baseline:                                        # ell_min=30, E-only tree (b_mode_cls off)
+    cov: /pscratch/sd/a/athomsen/v11desy3/v17/baseline/cls/fiducial_cls.h5
+    jac: /pscratch/sd/a/athomsen/v11desy3/v17/baseline/cls/forecast_inputs.h5
+  bmode:                                           # ell_min=None, E+B tree (b_mode_cls on)
+    cov: /pscratch/sd/a/athomsen/v11desy3/v17/baseline_bmode/cls/fiducial_cls.h5
+    jac: /pscratch/sd/a/athomsen/v11desy3/v17/baseline_bmode/cls/forecast_inputs.h5
+
+forecasts:
+  baseline_E: {source: baseline, blocks: [E]}      # standard current forecast
+  bmode_E:    {source: bmode,    blocks: [E]}       # + low-ell (l_min dropped)
+  bmode_EB:   {source: bmode,    blocks: [E, B]}    # + B-mode
+
+compare:
+  - [baseline_E, bmode_E]    # what dropping ell_min=30 buys
+  - [bmode_E, bmode_EB]      # what adding the B-mode buys

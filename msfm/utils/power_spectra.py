@@ -268,6 +268,89 @@ def run_tfrecords_alm_to_cl(alm_kg, alm_sn_realz, alm_dg, alm_pn_realz):
     return cls
 
 
+def bmode_column_masks(n_e_g, n_b):
+    """Boolean masks over the lexicographic ``get_cls`` columns of an ``(n_e_g + n_b)``-channel stack.
+
+    ``get_cls(with_cross=True)`` emits one column per ordered pair ``(i, j)`` with ``i <= j``. This returns two
+    boolean arrays over those columns: ``touches_b`` (either index is a B channel, i.e. ``>= n_e_g``) and
+    ``both_e_g`` (both indices ``< n_e_g``, i.e. the standard E + clustering subset). For the fiducial config
+    ``n_e_g = 8`` (metacal-E x4 + maglim x4) and ``n_b = 4`` (metacal-B x4): 78 columns total, 36 ``both_e_g``,
+    42 ``touches_b``.
+
+    Args:
+        n_e_g (int): Number of non-B channels (metacal E + maglim), which come first in the stack.
+        n_b (int): Number of metacal B-mode channels, appended after the non-B channels.
+
+    Returns:
+        (np.ndarray, np.ndarray): boolean arrays (touches_b, both_e_g), each of length (n_e_g + n_b) * (... + 1) / 2.
+    """
+    n_total = n_e_g + n_b
+    touches_b = []
+    both_e_g = []
+    for i in range(n_total):
+        for j in range(n_total):
+            # get_cls keeps i == j and, with cross, i < j -> i.e. i <= j
+            if i <= j:
+                touches_b.append((i >= n_e_g) or (j >= n_e_g))
+                both_e_g.append((i < n_e_g) and (j < n_e_g))
+    return np.array(touches_b), np.array(both_e_g)
+
+
+def run_tfrecords_alm_to_cl_bmode(alm_kg, alm_sn_realz, alm_dg, alm_pn_realz, alm_kg_b, alm_sn_b_realz, cl_reference=None):
+    """B-mode extension of ``run_tfrecords_alm_to_cl``: build the 12-channel ``[metacal-E, maglim, metacal-B]`` alm
+    stack and return only the cross-spectra that involve a metacal B-mode channel (42 columns for the fiducial
+    config). Clustering (maglim) is spin-0 and has no B-mode, so only the metacal channels are doubled.
+
+    The first ``n_e_g`` channels are byte-for-byte the same stack as ``run_tfrecords_alm_to_cl``; when ``cl_reference``
+    (its output) is passed, this asserts that the ``both_e_g`` subset of the 12-channel ``get_cls`` reproduces it
+    exactly, a free regression guard that the column ordering is consistent.
+
+    Args:
+        alm_kg (np.ndarray): Shape (n_alms, n_z_metacal), metacal E-mode lensing signal alms.
+        alm_sn_realz (np.ndarray): Shape (n_noise, n_alms, n_z_metacal), E-mode shape-noise alms.
+        alm_dg (np.ndarray): Shape (n_alms, n_z_maglim), clustering signal alms.
+        alm_pn_realz (np.ndarray): Shape (n_noise, n_alms, n_z_maglim), Poisson-noise alms.
+        alm_kg_b (np.ndarray): Shape (n_alms, n_z_metacal), metacal B-mode convergence signal alms.
+        alm_sn_b_realz (np.ndarray): Shape (n_noise, n_alms, n_z_metacal), B-mode shape-noise alms.
+        cl_reference (np.ndarray, optional): Output of ``run_tfrecords_alm_to_cl`` for the same alms, shape
+            (n_noise, n_ell, n_e_g_cross). If given, the both_e_g subset is asserted equal to it. Defaults to None.
+
+    Returns:
+        np.ndarray: Shape (n_noise, n_ell, n_bmode_cross), the B-touching cross-spectra (n_bmode_cross = 42).
+    """
+    n_noise_per_signal = alm_sn_realz.shape[0]
+    assert alm_pn_realz.shape[0] == alm_sn_b_realz.shape[0] == n_noise_per_signal
+
+    n_e_g = alm_kg.shape[1] + alm_dg.shape[1]
+    n_b = alm_kg_b.shape[1]
+    touches_b, both_e_g = bmode_column_masks(n_e_g, n_b)
+
+    cls = []
+    for i_noise in range(n_noise_per_signal):
+        alms = np.concatenate(
+            [
+                alm_kg + alm_sn_realz[i_noise],
+                alm_dg + alm_pn_realz[i_noise],
+                alm_kg_b + alm_sn_b_realz[i_noise],
+            ],
+            axis=1,
+        )
+        cls_full = get_cls(alms, with_cross=True)
+
+        if cl_reference is not None:
+            assert np.allclose(cls_full[:, both_e_g], cl_reference[i_noise]), (
+                "B-mode 12-channel get_cls does not reproduce the standard E+clustering cls on the both-E/g subset; "
+                "the column ordering assumption is violated"
+            )
+
+        cls.append(cls_full[:, touches_b])
+
+    # shape (n_noise_per_signal, n_ell, n_bmode_cross)
+    cls = np.stack(cls, axis=0)
+
+    return cls
+
+
 def get_l_limits(conf):
     l_min_lensing = conf["analysis"]["scale_cuts"]["lensing"]["l_min"]
     l_min_clustering = conf["analysis"]["scale_cuts"]["clustering"]["l_min"]
