@@ -1,18 +1,11 @@
 # contains the configuration parameters of the forward model pipeline
 #
-# v18 = v17 with count based shape noise and the DES Y3 imaging systematics in the source density.
-# Two changes on top of v17 (which is v16/rot_in_place without the delta-NLA cross term: standard
-# NLA, no bta, no dg -> ds map pair for metacal):
-#   1. shape_noise.method is "count" instead of "in_place", i.e. the shear catalog is Poisson
-#      resampled per pixel according to the source density, with the per-cosmology source clustering
-#      bias of files.metacal_bias.
-#   2. shape_noise.survey_systematics imprints the DES Y3 imaging systematics (depth, seeing,
-#      stellar density, ...) on the model source density before that resampling, from the lss_sys
-#      ISD maps of files.metacal_systematics. Without it the source clustering bias absorbs them,
-#      which produced the implausibly large tomo bin 4 value of the earlier fits.
-# The bias table has to be the one fit against the SAME forward model, which configuration.py
-# asserts via the systematics_label attribute of the table. See
-# dev/notebooks/source_clustering/bias_fit_desy3.ipynb.
+# v18 = v17 (standard NLA, no bta) with source clustering back in the shape noise: the shear catalog
+# is Poisson resampled according to the source density, and the DES Y3 imaging systematics (depth,
+# seeing, stellar density) are imprinted on that density first. Without the imprint the source
+# clustering bias absorbs the systematics, which is what inflated tomo bin 4 to b ~ 3.
+# The bias table must be the one fit against this same forward model; configuration.py asserts that
+# via its systematics_label attribute. See dev/notebooks/source_clustering/bias_fit_desy3.ipynb.
 dirs:
   # absolute on Clariden
   catalog: /users/athomsen/scratch/deep_lss/data/y3-cats
@@ -26,17 +19,16 @@ files:
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
   peak_binning: data/peaks/binning/v11_extended.h5
-  # source clustering bias fit against the CONTAMINATED forward model, see the header
-  metacal_bias: data/metacal_biases_desy3_v2_sys.h5
-  # DES Y3 imaging systematics maps of the metacal sources, exported by the lss_sys repository
+  # DES Y3 imaging systematics of the metacal sources, exported by the lss_sys repository
   metacal_systematics: data/metacal_sources_STD32_512.h5
+  # source clustering bias, fit against the CONTAMINATED forward model
+  metacal_bias: data/metacal_biases_desy3_v2_sys.h5
 
 survey:
   name: DESy3
   metacal:
     map_types:
-      # standard NLA: no dg -> ds pair (the dg input of sn is only used by density-modulated
-      # shape-noise methods and is ignored by in_place)
+      # standard NLA, so no dg -> ds pair. dg is the source density that the count shape noise resamples
       input: [kg, ia, dg]
       output: [kg, ia, sn]
     z_bins: [metacal1, metacal2, metacal3, metacal4]
@@ -119,11 +111,9 @@ analysis:
         method: count
         # fixed (per-cosmology bias from files.metacal_bias) | prior (b_sc sampled from the Latin hypercube)
         bias: fixed
-        # whether to imprint the DES Y3 imaging systematics of files.metacal_systematics on the model
-        # source density before the Poisson resampling (files.get_metacal_systematics)
+        # imprint files.metacal_systematics on the source density before the resampling
         survey_systematics: True
-      # whether to include the TATT cross-term on top of NLA (v17: off, standard NLA -- bta does not
-      # exist in this config and no ds map is built)
+      # whether to include the TATT cross-term on top of NLA (off: standard NLA, no bta, no ds map)
       extended_nla: False
       nla:
         truncate_nz: True

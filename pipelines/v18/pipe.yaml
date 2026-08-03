@@ -1,0 +1,53 @@
+# this is meant for Perlmutter, not Euler
+#
+# v18 baseline = v17 (standard NLA, no bta, no ds map) with count based shape noise and the DES Y3
+# imaging systematics imprinted on the model source density -- see configs/v18/baseline.yaml.
+#
+# UNLIKE v17, NOTHING CAN BE REUSED FROM AN EARLIER VERSION. v17 could symlink the v16 fiducial
+# because the two were bit-identical at bta = 0; v18 changes the shape noise itself, so the grid,
+# the fiducial and the obs/ benchmark products all have to be regenerated. The white-noise Cls are
+# the one exception, since they do not touch the shape-noise model.
+#
+# The fiducial_tfrecords step runs WITH the derivatives (no --no_derivatives) to enable a Fisher
+# forecast of the WL constraining power (dev/notes/wl_forward_model_audit_2026-07-11.md section 5).
+# It uses the grid forward model exactly: per-bin galaxy biasing and a per-example multiplicative
+# shear bias draw shared between the fiducial and its perturbations. Note that the shape noise is
+# generated only at the fiducial cosmology itself, not at the perturbations (by design, see
+# postprocessing.postprocess_fiducial_permutations), so the source clustering bias table is only
+# ever queried for its "fiducial" key here.
+
+# postprocessing
+- name: grid_tfrecords
+  cmd: esub ../../msfm/apps/run_grid_postprocessing.py --n_files=2500 \
+    --config=../../configs/v18/baseline.yaml \
+    --dir_in=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary \
+    --dir_out=/pscratch/sd/a/athomsen/v11desy3/v18/baseline/tfrecords/grid \
+    --cosmogrid_version="1.1" --mode=jobarray --function=all --n_jobs=2500 \
+    --max_njobs=1000 --tasks="0>2500" --keep_submit_files \
+    --job_name=tfr_grid_v18 \
+    --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs --system=slurm \
+    --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --additional_slurm_args="--account=m5030,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
+
+# fiducial + finite-difference derivatives for the Fisher forecast (see header). 1000 permutations
+# -> 1 permutation per file; each task loops over all 17 fiducial-perturbation cosmology dirs.
+- name: fiducial_tfrecords
+  cmd: esub ../../msfm/apps/run_fiducial_postprocessing.py --n_files=1000 \
+    --config=../../configs/v18/baseline.yaml \
+    --dir_in=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary \
+    --dir_out=/pscratch/sd/a/athomsen/v11desy3/v18/baseline/tfrecords/fiducial \
+    --cosmogrid_version="1.1" --mode=jobarray --function=all --n_jobs=1000 \
+    --max_njobs=1000 --tasks="0>1000" --keep_submit_files \
+    --job_name=tfr_fidu_v18 \
+    --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs --system=slurm \
+    --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --additional_slurm_args="--account=m5030,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
+
+# noise generation for the Cls (independent of the shape-noise model -- reusable, see header)
+- name: cl_white_noise
+  cmd: esub ../../msfm/apps/run_power_spectra_noise.py --n_noise=1000000 \
+    --n_noise_per_index=1000 --config=../../configs/v18/baseline.yaml \
+    --dir_out=/pscratch/sd/a/athomsen/v11desy3/v18/baseline/cls \
+    --mode=jobarray --function=all --system=slurm --job_name=white_noise_v18 \
+    --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs \
+    --additional_slurm_args="--account=m5030,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"

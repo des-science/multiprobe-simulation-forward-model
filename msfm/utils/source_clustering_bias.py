@@ -59,6 +59,9 @@ L_MAX_2PT = (589, 863, 1159, 1382)
 # deterministic in the bias, without which the Nelder-Mead simplex cannot converge
 DEFAULT_SEED = 42
 
+# the per cosmology fit diagnostics stored alongside the biases, which no consumer of the table reads
+_DIAGNOSTIC_COMPRESSION = {"compression": "gzip", "compression_opts": 4}
+
 
 def _count_statistic(counts, kind, i_z, mask=None):
     """One-point or two-point statistic of a single tomographic galaxy count map.
@@ -518,19 +521,31 @@ def fit_bias_table(
         f.attrs["systematics_label"] = systematics_label if systematics_label is not None else "none"
         f.attrs["kind"] = kind
 
-        loss_group = f.create_group("loss")
-        stat_group = f.create_group("stat")
-        for key in cosmo_dirs:
-            # top level, such that files.read_metacal_bias(key, conf) works unchanged
-            f.create_dataset(key, data=biases[key])
-            loss_group.create_dataset(key, data=losses[key])
+        keys = list(cosmo_dirs)
+        # the row order of the stacked diagnostics below
+        f.create_dataset("keys", data=np.array(keys, dtype=object), dtype=h5py.string_dtype())
 
-            if isinstance(stats[key], np.ndarray):
-                stat_group.create_dataset(key, data=stats[key])
-            else:
-                # ragged two-point statistics, one dataset per tomographic bin
+        for key in keys:
+            # one dataset per cosmology at the top level, such that files.read_metacal_bias(key, conf) works unchanged
+            f.create_dataset(key, data=biases[key])
+
+        # the diagnostics are STACKED instead of written per cosmology: 2500 tiny HDF5 datasets cost several times
+        # more in object metadata than the data itself (measured 14.5 -> 4.4 MB for the full table), and the table has
+        # to be small enough to live in the repository
+        f.create_dataset("loss", data=np.array([losses[key] for key in keys]), **_DIAGNOSTIC_COMPRESSION)
+
+        if all(isinstance(stats[key], np.ndarray) for key in keys):
+            stat = np.array([stats[key] for key in keys])
+            # the one-point statistic is a histogram of pixel counts, which fits comfortably into int32
+            if np.issubdtype(stat.dtype, np.integer):
+                stat = stat.astype(np.int32)
+            f.create_dataset("stat", data=stat, **_DIAGNOSTIC_COMPRESSION)
+        else:
+            # the two-point statistics are ragged across the tomographic bins, so they cannot be stacked
+            stat_group = f.create_group("stat")
+            for key in keys:
                 for i_z, stat in enumerate(stats[key]):
-                    stat_group.create_dataset(f"{key}/bin_{i_z}", data=stat)
+                    stat_group.create_dataset(f"{key}/bin_{i_z}", data=stat, **_DIAGNOSTIC_COMPRESSION)
     LOGGER.info(f"Stored the bias table of {len(biases)} cosmologies in {out_file}")
 
     return biases

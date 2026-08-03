@@ -24,7 +24,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
 import numpy as np
 import os, argparse, warnings, h5py, time, re
 
-from msfm.utils import files, logger, input_output, imports, observation, parameters
+from msfm.utils import files, logger, input_output, imports, observation, parameters, configuration
 
 hp = imports.import_healpy(parallel=False)
 
@@ -204,6 +204,10 @@ def setup(args):
 def main(indices, args):
     args = setup(args)
     msfm_conf = files.load_config(args.msfm_config)
+
+    # like the grid and fiducial apps. Most importantly this asserts that the source clustering bias table was fit
+    # against the same forward model that is about to consume it, which is otherwise a silent mismatch
+    configuration.print_and_check_modeling_in_config(msfm_conf)
 
     if args.debug:
         args.max_sleep = 0
