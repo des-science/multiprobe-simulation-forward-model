@@ -1,6 +1,42 @@
+import os, h5py
+
 from msfm.utils import logger, files
 
 LOGGER = logger.get_logger(__file__)
+
+
+def _check_metacal_bias_matches_forward_model(conf, survey_systematics):
+    """Assert that the source clustering bias table was fit against the forward model that is about to use it.
+
+    The bias is fixed by matching the simulated one-point function of the source counts to DES Y3, so a table fit
+    against a clean model has the imaging systematics absorbed into b. Combining it with a forward model that also
+    imprints them double counts the systematics, and the reverse leaves them out entirely. Neither shows up as an
+    error anywhere downstream, hence this check.
+
+    Args:
+        conf (dict): Configuration.
+        survey_systematics (bool): Whether the forward model imprints the imaging systematics, see
+            files.get_shape_noise.
+    """
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+
+    with h5py.File(os.path.join(repo_dir, conf["files"]["metacal_bias"]), "r") as f:
+        # tables predating this attribute were all fit against a clean forward model
+        table_label = str(f.attrs.get("systematics_label", "none"))
+
+    if survey_systematics:
+        with h5py.File(os.path.join(repo_dir, conf["files"]["metacal_systematics"]), "r") as f:
+            conf_label = str(f.attrs["label"])
+    else:
+        conf_label = "none"
+
+    assert table_label == conf_label, (
+        f"The metacal bias table {conf['files']['metacal_bias']} was fit against the imaging systematics "
+        f"{table_label!r}, but the forward model applies {conf_label!r}. Point files.metacal_bias at the table that "
+        f"was fit with the same shape_noise.survey_systematics setting"
+    )
+    LOGGER.info(f"Metacal source clustering bias table fit against the imaging systematics {table_label!r}")
 
 
 def print_and_check_modeling_in_config(conf):
@@ -23,13 +59,18 @@ def print_and_check_modeling_in_config(conf):
 
     # shape-noise model: get_shape_noise validates the per-field values (method/bias/fixed_bsc);
     # additionally check that a prior bias has the sampled 'sc' parameter to feed the Latin hypercube
-    sn_method, sn_bias, sn_fixed_bsc = files.get_shape_noise(conf)
-    LOGGER.info(f"Shape-noise model: method={sn_method}, bias={sn_bias}, fixed_bsc={sn_fixed_bsc}")
+    sn_method, sn_bias, sn_fixed_bsc, sn_survey_sys = files.get_shape_noise(conf)
+    LOGGER.info(
+        f"Shape-noise model: method={sn_method}, bias={sn_bias}, fixed_bsc={sn_fixed_bsc}, "
+        f"survey_systematics={sn_survey_sys}"
+    )
     if sn_bias == "prior":
         assert conf["analysis"]["params"].get("sc"), (
             "shape_noise bias 'prior' requires analysis.params.sc (e.g. [bsc]) to sample b_sc from the "
             "Latin hypercube"
         )
+    if sn_method == "count" and sn_bias == "fixed":
+        _check_metacal_bias_matches_forward_model(conf, sn_survey_sys)
 
     # clustering
     bg_params = conf["analysis"]["params"]["bg"]["linear"]

@@ -329,7 +329,7 @@ def forward_model_cosmogrid(
 
             if noisy:
                 # shape-noise model (see files.get_shape_noise): count / in_place / gatti
-                method, bias, fixed_bsc = files.get_shape_noise(conf)
+                method, bias, fixed_bsc, survey_systematics = files.get_shape_noise(conf)
 
                 # a metacal bias supplied via the function call overrides the config bias source: for
                 # count/in_place it selects the count method with that fixed bias (historical behavior),
@@ -353,8 +353,12 @@ def forward_model_cosmogrid(
 
                     tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
                     dg = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
+
+                    # DES Y3 imaging systematics of the source density. This branch works on the full sky, so the
+                    # base patch correction is scattered into a map that is 1 (no correction) everywhere else
+                    contamination = files.get_metacal_systematics(conf, full_sky=True) if survey_systematics else None
                     counts_map = clustering.galaxy_density_to_count(
-                        tomo_n_gal, dg, tomo_bg_metacal, systematics_map=None
+                        tomo_n_gal, dg, tomo_bg_metacal, contamination_map=contamination
                     ).astype(int)
                 elif method == "in_place":
                     LOGGER.info("Rotating galaxies in place for shape noise")

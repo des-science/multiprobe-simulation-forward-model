@@ -195,7 +195,7 @@ def main(indices, args):
     # configuration
     conf = files.load_config(args.config)
     # shape-noise model; sn_bias == "prior" sources the source-clustering bias from the Latin hypercube
-    _, sn_bias, _ = files.get_shape_noise(conf)
+    _, sn_bias, _, _ = files.get_shape_noise(conf)
     if not args.to_san:
         with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
             yaml.dump(conf, f)

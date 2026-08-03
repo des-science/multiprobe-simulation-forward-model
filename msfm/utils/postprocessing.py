@@ -406,7 +406,7 @@ def postprocess_shape_noise(
     #   count    -> Poisson-resample the catalog weighted by the source density (metacal bias)
     #   in_place -> rotate galaxies in place (no source-clustering bias)
     #   gatti    -> rotate in place, then density-modulate like Gatti et al. (https://arxiv.org/abs/2307.13860)
-    method, bias, fixed_bsc = files.get_shape_noise(conf)
+    method, bias, fixed_bsc, survey_systematics = files.get_shape_noise(conf)
     n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
 
     if method == "count" and bias == "fixed":
@@ -415,6 +415,10 @@ def postprocess_shape_noise(
     else:
         # count+prior samples the bias per patch; in_place/gatti do not resample counts
         count_bias = None
+
+    # DES Y3 imaging systematics of the source density. Lives in the base patch frame, which is also the frame that
+    # everything below the patch_pix cut-out works in, so the same array applies to every symmetry copy of the patch
+    sys_patch = files.get_metacal_systematics(conf)[:, i_z] if survey_systematics else None
 
     tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
     n_bar = tomo_n_gal[i_z]
@@ -436,10 +440,9 @@ def postprocess_shape_noise(
         delta_full_sky_norm = (delta_full_sky - np.mean(delta_full_sky)) / np.mean(delta_full_sky)
 
         if bias == "fixed":
-            counts_full = clustering.galaxy_density_to_count(
-                n_bar, delta_full_sky_norm, count_bias, systematics_map=None
-            ).astype(int)
-            counts_full = np.random.poisson(counts_full).astype(int)
+            # expected counts on the full sky; the imaging systematics and the Poisson draw follow per patch below,
+            # since the systematics are defined in the base patch frame that the cut-out lands in
+            ng_full = clustering.galaxy_density_to_count(n_bar, delta_full_sky_norm, count_bias)
     else:
         LOGGER.warning(f"Rotating galaxies in place for shape noise (method {method!r})")
         pix_cat = gamma_cat[:, 3]
@@ -460,13 +463,12 @@ def postprocess_shape_noise(
             if bias == "prior" and bsc_samples is not None:
                 bias_patch = bsc_samples[(i_perm * n_patches) + i_patch]
                 delta_patch = delta_full_sky_norm[patch_pix]
-                counts_patch = clustering.galaxy_density_to_count(
-                    n_bar, delta_patch, bias_patch, systematics_map=None
-                ).astype(int)
-                counts_patch = np.random.poisson(counts_patch).astype(int)
-                counts = counts_patch
+                ng = clustering.galaxy_density_to_count(n_bar, delta_patch, bias_patch, contamination_map=sys_patch)
             else:
-                counts = counts_full[patch_pix]
+                # the cut-out lands in the base patch frame, so the DES imprint applies to every patch alike
+                ng = ng_full[patch_pix] if sys_patch is None else ng_full[patch_pix] * sys_patch
+
+            counts = np.random.poisson(ng.astype(int)).astype(int)
 
             # vectorized sampling, shape (len(counts), n_noise_per_signal)
             gamma1, gamma2 = lensing.noise_gen(counts, cat_dist, n_noise_per_signal)

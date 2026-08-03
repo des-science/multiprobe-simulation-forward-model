@@ -176,6 +176,111 @@ def get_clustering_systematics(conf=None, pixel_type="data_vector", apply_smooth
     return np.stack(tomo_sys, axis=-1)
 
 
+# the rotation of the imaging systematics maps into the footprint frame costs about a second, while
+# get_metacal_systematics is called once per tomographic bin and permutation. Keyed by the file path
+_METACAL_SYSTEMATICS_CACHE = {}
+
+
+def get_metacal_systematics(conf=None, full_sky=False, dataset="contamination"):
+    """Per (metacal) tomographic bin DES Y3 imaging systematics contamination factor of the source galaxy density.
+
+    The maps are produced by the lss_sys repository, see its output/README.md. They quantify the spurious density
+    modulation that the survey properties (depth, seeing, stellar density, ...) imprint on the observed source counts
+    and that the simulations do not have. This function returns the "contamination" dataset <1/W>, which is what a
+    clean model density is multiplied by to impose the DES imprint. It is deliberately NOT the "weight" dataset <W>,
+    which decontaminates observed counts and is not the reciprocal of this one (they differ by up to 12.7%, since
+    averaging over sub pixels does not commute with inverting).
+
+    Two conventions have to be bridged. The maps are stored full sky in the RING scheme in celestial coordinates,
+    whereas the forward model works in the rotated footprint frame of Fig. 4 of https://arxiv.org/pdf/2511.04681, so
+    they are rotated with the very same hp.Rotator that notebooks/pixel_file.ipynb used to build the mask and the
+    maglim systematics maps. And they carry unit mean over their own footprint, which is slightly wider than the
+    thresholded analysis mask, so they are renormalized to unit mean over the base patch. That makes the
+    contamination conserve the total galaxy count over exactly the footprint that n_bar is measured on.
+
+    Args:
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
+            passed through) or None (the default config is loaded). Defaults to None.
+        full_sky (bool, optional): Whether to scatter the base patch into a full sky map that is 1 (i.e. no
+            contamination) everywhere else, for the full sky consumers. Defaults to False.
+        dataset (str, optional): Either "contamination" (<1/W>, imprint on a clean model) or "weight" (<W>,
+            decontaminate an observation). Only "contamination" belongs in the forward model, "weight" is there for
+            diagnostics of the observation itself. Defaults to "contamination".
+
+    Returns:
+        np.ndarray: (len(base_patch_pix), n_z_metacal) contamination factor in the base patch frame, or
+            (n_pix, n_z_metacal) if full_sky is set.
+    """
+    assert dataset in ("contamination", "weight"), f"Unknown dataset {dataset!r}"
+
+    conf = load_config(conf)
+
+    n_side = conf["analysis"]["n_side"]
+    n_pix = hp.nside2npix(n_side)
+    n_z = len(conf["survey"]["metacal"]["z_bins"])
+
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    sys_file = os.path.join(repo_dir, conf["files"]["metacal_systematics"])
+
+    _, patches_pix_dict, _, _ = load_pixel_file(conf)
+    base_patch_pix = patches_pix_dict["metacal"][0][0]
+
+    cache_key = (sys_file, n_side, n_z, dataset)
+    if cache_key not in _METACAL_SYSTEMATICS_CACHE:
+        # the footprint rotation of notebooks/pixel_file.ipynb, which defines the frame of the mask and the patches
+        y_rad = conf["analysis"]["footprint"]["rotation"]["y_rad"]
+        z_rad = conf["analysis"]["footprint"]["rotation"]["z_rad"]
+        rotator = hp.Rotator(rot=(0, -y_rad, z_rad), eulertype="Y", deg=False)
+
+        tomo_sys = []
+        with h5py.File(sys_file, "r") as f:
+            assert str(f.attrs["ordering"]) == "RING", f"Expected RING ordered maps, got {f.attrs['ordering']!r}"
+            assert int(f.attrs["n_bins"]) == n_z, f"Expected {n_z} tomographic bins, got {f.attrs['n_bins']}"
+            n_side_sys = int(f.attrs["nside"])
+            zero_off_footprint = str(f.attrs.get("off_footprint", "unseen")) == "zero"
+            LOGGER.info(
+                f"Reading the {dataset} maps of the imaging systematics run {str(f.attrs['label'])!r} at nside "
+                f"{n_side_sys} (lss_sys {str(f.attrs['git_sha'])[:8]})"
+            )
+
+            for i_z in range(n_z):
+                sys_map = f[f"bin{i_z}/{dataset}"][:].astype(np.float64)
+
+                # off the footprint there is no correction defined, which is not the same as a correction of zero.
+                # Setting it to 1 before the rotation also keeps the interpolation from bleeding into the footprint
+                covered = (sys_map != 0.0) if zero_off_footprint else ~hp.mask_bad(sys_map)
+                sys_map = np.where(covered, sys_map, 1.0)
+
+                if n_side_sys != n_side:
+                    sys_map = hp.ud_grade(sys_map, nside_out=n_side, order_in="RING", order_out="RING")
+
+                # celestial to the rotated footprint frame
+                sys_map = rotator.rotate_map_pixel(sys_map)
+
+                # the maps carry unit mean over their own (wider) footprint, renormalize to the analysis one
+                sys_patch = sys_map[base_patch_pix]
+                sys_patch /= np.mean(sys_patch)
+                tomo_sys.append(sys_patch)
+
+                LOGGER.debug(
+                    f"Bin {i_z + 1}: contamination in "
+                    f"[{sys_patch.min():.3f}, {sys_patch.max():.3f}], std {sys_patch.std():.4f}"
+                )
+
+        # shape (len(base_patch_pix), n_z_metacal)
+        _METACAL_SYSTEMATICS_CACHE[cache_key] = np.stack(tomo_sys, axis=-1)
+
+    tomo_sys = _METACAL_SYSTEMATICS_CACHE[cache_key]
+
+    if full_sky:
+        sys_full = np.ones((n_pix, n_z))
+        sys_full[base_patch_pix] = tomo_sys
+        return sys_full
+
+    return tomo_sys
+
+
 def get_tomo_dv_masks(conf=None):
     """Masks the data vectors for the different tomographic bins. (NEST ordering)
 
@@ -348,6 +453,10 @@ def get_shape_noise(conf=None):
           "fixed" -> gatti: cosmology-independent `fixed_bsc` from the config
                      count: per-cosmology bias read from files.metacal_bias
           "prior" -> b_sc sampled from the Latin hypercube (params.sc = [bsc])
+      - survey_systematics: whether to imprint the DES Y3 imaging systematics of
+          files.metacal_systematics on the model source density before it is resampled, see
+          files.get_metacal_systematics. Only "count" acts on the source density, so it is False for
+          the other methods. Absent means False, which keeps the v16/v17 configs parsing.
 
     Raises a clear ValueError for any unexpected/old-string form so a bad config fails loudly
     everywhere the shape-noise model is read.
@@ -357,8 +466,9 @@ def get_shape_noise(conf=None):
             (the config is passed through) or None (the default config is loaded). Defaults to None.
 
     Returns:
-        tuple: (method, bias, fixed_bsc). `bias` is None for method "in_place"; `fixed_bsc` is the
-            per metacal bin np.ndarray used only for method "gatti" with bias "fixed" (else None).
+        tuple: (method, bias, fixed_bsc, survey_systematics). `bias` is None for method "in_place";
+            `fixed_bsc` is the per metacal bin np.ndarray used only for method "gatti" with bias
+            "fixed" (else None); `survey_systematics` is a bool that is only ever True for "count".
     """
     conf = load_config(conf)
 
@@ -375,7 +485,7 @@ def get_shape_noise(conf=None):
 
     # in_place rotates galaxies in place and has no notion of a source-clustering bias
     if method == "in_place":
-        return method, None, None
+        return method, None, None, False
 
     bias = sn_conf.get("bias")
     valid_biases = ("fixed", "prior")
@@ -395,7 +505,14 @@ def get_shape_noise(conf=None):
             )
         fixed_bsc = np.asarray(fixed_bsc, dtype=np.float64)
 
-    return method, bias, fixed_bsc
+    survey_systematics = bool(sn_conf.get("survey_systematics", False))
+    if survey_systematics and method != "count":
+        raise ValueError(
+            f"shape_noise survey_systematics is only defined for method 'count', which acts on the source "
+            f"density, got method {method!r}"
+        )
+
+    return method, bias, fixed_bsc, survey_systematics
 
 
 def read_sc_calibration(conf, b_sc):

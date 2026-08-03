@@ -218,7 +218,7 @@ def main(indices, args):
         perm_dir = os.path.join(args.dir_in, f"perm_{index:04}")
 
         # metacal bias logic: determine the source-clustering bias passed to forward_model_cosmogrid
-        method, bias, fixed_bsc = files.get_shape_noise(msfm_conf)
+        method, bias, fixed_bsc, survey_systematics = files.get_shape_noise(msfm_conf)
         if args.tomo_bg_metacal is not None:
             tomo_bg_metacal = args.tomo_bg_metacal
         elif method == "count" and bias == "fixed":

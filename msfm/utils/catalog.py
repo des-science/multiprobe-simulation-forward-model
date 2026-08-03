@@ -65,6 +65,34 @@ def survey_angles_to_pix(conf, ra, dec, n_side):
     return pix
 
 
+def survey_pix_to_angles(conf, pix, n_side):
+    """Inverse of survey_angles_to_pix: celestial positions of pixel centres of the rotated footprint frame.
+
+    Used to look up a map that is given in celestial coordinates (e.g. the imaging systematics maps of the lss_sys
+    repository) at the pixels of the rotated frame that the forward model works in.
+
+    Args:
+        conf (str, dict): Can be either a string (a config.yaml is read in), a dictionary (the config is passed
+            through) or None (the default config is loaded).
+        pix (np.ndarray): Pixel indices in the rotated footprint frame, in the RING scheme.
+        n_side (int): Resolution of the pixel indices.
+
+    Returns:
+        tuple: (ra, dec) of the pixel centres in degrees.
+    """
+    conf = files.load_config(conf)
+
+    vec_rot = np.array(hp.pix2vec(n_side, pix))
+
+    # the rotation matrix is orthogonal, so its transpose undoes it
+    rot = _get_footprint_rotation_matrix(conf)
+    vec = np.dot(rot.T, vec_rot)
+
+    theta, phi = hp.vec2ang(vec.T)
+
+    return np.rad2deg(phi), 90.0 - np.rad2deg(theta)
+
+
 def survey_angles_to_pix_and_shear_rotation(conf, ra, dec, n_side):
     """Like survey_angles_to_pix, but also returns the per-object spin-2 rotation
     angle psi needed to re-express the shear in the local frame of the rotated
