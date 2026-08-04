@@ -1,59 +1,17 @@
 # Packed regular-QOS run of the v17 baseline postprocessing (no esub)
 
-Clean-start submission of the v17 baseline dataset (grid + fiducial) on `--qos=regular`
-(whole CPU nodes), packing many postprocessing tasks per node, each pinned to a NUMA domain.
-This is the simplified sibling of `../packed_esub`: the per-task call goes through a ~30-line
-`run_packed.py` instead of `esub --mode=run`.
+Clean-start submission of the v17 baseline dataset (grid + fiducial) on `--qos=regular` (whole
+CPU nodes), packing many postprocessing tasks per node, each pinned to a NUMA domain. Uses the
+version-agnostic executors in `../../common/packed/` — see that directory's `README.md` for *why*
+this exists (vs. esub/shared, vs. unpinned packing) and how the `SLOTS`/`OMP` sizing methodology
+works in general. This file only covers what's specific to v17.
 
-## Why not the default esub/shared chain
+v17 also still has an esub/shared-QOS path (`../esub/`, driven by `../pipe.yaml`), kept
+intentionally in case there's a reason to fall back to it. `submit_single_mock.sh` in this
+directory duplicates exactly one arm also defined in `../esub/obs_commands.sh` (`sc_fixed_sys`) —
+see the cross-reference comments in both files if you change one.
 
-`--qos=shared` maps to the 70-node `shared_milan_ss11` pool, which is chronically saturated by
-other users' multi-day jobs — only ~5 of our tasks run at a time (ETA weeks). The
-`regular_milan_ss11` pool is ~2850 nodes with idle capacity, and short single-node jobs backfill
-quickly. But regular QOS is **node-exclusive**, so a plain jobarray would waste a 128-core node
-on one ~14 GB task. We therefore hand-pack many tasks onto each node.
-
-## Why no esub
-
-esub earns its keep on a farm of *independent* shared-QOS jobarray tasks: it maintains a
-`done.dat` of finished indices and offers `rerun_missing`. On packed full nodes that buys
-nothing — the natural unit of completion is the output `.tfrecord` file, so we track it there:
-`./submit.sh --rerun` globs `--dir_out` and resubmits any index whose file is absent. A
-failed/killed task leaves either no file or a partial one (`TFRecordWriter` truncates on open, so
-a partial can only exist for a task interrupted mid-write); see *If something fails* for how to
-handle a partial. `run_packed.py` calls the app's `main`/`merge` with the exact arg list esub
-forwards, so tfrecord contents are bit-for-bit identical. No Python in `msfm` was modified.
-
-## Why pinning is mandatory (not just a NUMA nicety)
-
-**Each task must be pinned to one NUMA domain with `numactl` — the run is ~4x slower without
-it.** Two independent reasons, both measured on real nodes:
-
-1. **Thread-pool explosion.** `OMP_NUM_THREADS` bounds OpenMP/BLAS but **not** TensorFlow's
-   intra/inter-op pools (used by `TFRecordWriter` and the verify-parse), which auto-size to the
-   *visible CPU count*. Unpinned, every task sees all 256 CPUs and spawned **~536 threads**; with
-   24 tasks that is ~12.9k threads and a load average of **~750** on a 256-thread node — ~3x
-   oversubscription, constant context-switching. `numactl --cpunodebind` confines each task to a
-   32-CPU domain, so the pools size to 32, and we additionally set `TF_NUM_INTRAOP_THREADS`
-   explicitly as a belt-and-suspenders cap.
-2. **Memory-bandwidth locality.** The dominant cost is healpy's libsharp SHTs (`map2alm`/
-   `alm2map`), which are OpenMP-parallel and **memory-bandwidth heavy** — they scale ~linearly to
-   ~8 threads (measured 6.4x from 1→8), then hit a bandwidth knee. `--preferred=<domain>` keeps
-   each task's memory on its local controllers, so the 8 domains' controllers are used evenly and
-   accesses don't cross the die.
-
-## How the packing is sized — pack to the bandwidth knee, not the RAM ceiling
-
-Each `regular` node is **8 NUMA domains × 16 cores (32 HW threads) × ~64 GB** (2× EPYC 7763,
-~503 GB usable). We keep **SLOTS a multiple of 8** so `SLOTS/8` tasks land on each domain and set
-`OMP ≈ 32 / (SLOTS/8)` (rounded down) to split each domain's 32 threads across its tasks.
-
-The per-domain 64 GB is only an *upper* bound on SLOTS, and it is **not** the binding constraint:
-the SHTs are memory-**bandwidth** heavy, and a domain's controllers saturate at **~3 tasks**, past
-which extra tasks/domain raise the node time faster than they cut the node count — so node-hours
-*increase*. The right `SLOTS` is the bandwidth-saturation knee (measured **3 tasks/domain → 24
-slots** for both chains), not "fill the RAM". Both chains fit 4/domain on memory but are cheaper at
-3 (see the benchmark below).
+## This chain's sizing
 
 | chain    | peak RSS/task | SLOTS | per domain       | threads/task | node mem | node time (measured)     |
 |----------|---------------|------:|------------------|-------------:|---------:|--------------------------|
@@ -84,14 +42,11 @@ workload. (The same holds for fiducial: 24-slot = 37.5 min → ~26 nh vs 32-slot
 
 ## Files
 
-- `submit.sh` — control script / single source of truth. Builds the index list, submits the
-  packed array, then the merge (afterok). Exports an absolute `DRIVER` path (the executors run
-  from Slurm's spool dir and cannot locate the driver themselves).
-- `run_packed.py` — ~30-line driver: imports the app by path and calls `main`/`merge` directly.
-- `packed_node.slurm` — generic executor: runs `$SLOTS` `numactl`-pinned `run_packed.py` tasks in
-  parallel, `SLOTS/8` per NUMA domain. All config arrives via `--export=ALL`.
-- `merge_node.slurm` — single-node `run_packed.py --function=merge`; globs the `.tfrecord` files
-  and writes `{grid,fiducial}_cls.h5`.
+- `submit.sh` — control script / single source of truth for grid+fiducial tfrecord production.
+  Builds the index list, submits the packed array, then the merge (afterok), routing through
+  `../../common/packed/{run_packed.py,packed_node.slurm,merge_node.slurm}`.
+- `submit_single_mock.sh` — packed submission for the `sc_fixed_sys` single-postprocessing mock
+  (see the cross-reference note above).
 
 ## Estimated cost / wall clock (at the current 24/10 default)
 
@@ -123,7 +78,7 @@ could otherwise feed a corrupt file into the merge.
   maps to indices `[k*SLOTS,(k+1)*SLOTS)`; a later `ARRAY=1-41 ./submit.sh fiducial` covers the
   rest, reusing element 0's output.
 - `SKIP_MERGE=1` defers the merge; once every stage is done submit it with
-  `sbatch --dependency=afterok:<id1>:<id2> --time=<MERGE_TIME> --job-name=<chain>_merge --export=ALL merge_node.slurm`.
+  `sbatch --dependency=afterok:<id1>:<id2> --time=<MERGE_TIME> --job-name=<chain>_merge --output=<PACKED_LOGS>/%x_%A.out --export=ALL ../../common/packed/merge_node.slurm`.
 
 ## If something fails
 
@@ -144,7 +99,8 @@ could otherwise feed a corrupt file into the merge.
   `afterok`):
   ```bash
   # export APP / DRIVER / JOB_NAME / APP_ARGS as submit.sh does, then:
-  sbatch --time=04:00:00 --job-name=tfr_fidu_v17_merge --export=ALL merge_node.slurm
+  sbatch --time=04:00:00 --job-name=tfr_fidu_v17_merge --output=$PACKED_LOGS/%x_%A.out \
+      --export=ALL ../../common/packed/merge_node.slurm
   ```
   This was needed once for the v17 run: input map `cosmo_delta_bary_nu_p/perm_0209` was corrupt
   upstream (the only bad file of 67,260), so fiducial index 209 could not complete and the set was

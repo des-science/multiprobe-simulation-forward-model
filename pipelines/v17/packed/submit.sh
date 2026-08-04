@@ -1,9 +1,10 @@
 #!/bin/bash
 # Clean-start submission of the v17 baseline postprocessing on regular QOS (whole CPU nodes),
-# packing many tasks per node -- WITHOUT esub. This is the single source of truth for the run:
-# it holds all per-chain configuration and exports it to the generic executors
-# packed_node.slurm / merge_node.slurm, which call run_packed.py (a ~30-line import-and-call
-# driver). Nothing runs until this script is invoked.
+# packing many tasks per node -- WITHOUT esub. This is the single source of truth for the run: it
+# holds all per-chain configuration and exports it to the generic executors in
+# ../../common/packed/ (packed_node.slurm / merge_node.slurm, which call run_packed.py -- a
+# ~30-line import-and-call driver shared by every pipeline version). Nothing runs until this
+# script is invoked.
 #
 # Usage:
 #   DRY_RUN=1 ./submit.sh both            # print the sbatch calls, touch nothing
@@ -24,10 +25,12 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # --- fixed paths -----------------------------------------------------------------------------
+REPO=/global/homes/a/athomsen/multiprobe-simulation-forward-model
+# the generic executors, shared with v18 and any future version -- see ../../common/packed/README.md
+COMMON_PACKED=$REPO/pipelines/common/packed
 # absolute path to the driver, exported to the slurm scripts. It must be absolute: Slurm copies
 # the batch script into /var/spool/slurmd/<job>, so the executors cannot locate it themselves.
-DRIVER=$(pwd)/run_packed.py
-REPO=/global/homes/a/athomsen/multiprobe-simulation-forward-model
+DRIVER=$COMMON_PACKED/run_packed.py
 # CONFIG / DATA_ROOT default to the v17 baseline but can be overridden from the environment for a
 # parallel run (e.g. the B-mode Cls study: CONFIG_OVERRIDE=configs/v17/baseline_bmode.yaml with a
 # separate DATA_ROOT_OVERRIDE so the completed baseline tfrecords are never touched). JOB_SUFFIX is
@@ -141,15 +144,17 @@ submit_chain() {
     local packed_id
     if [ -n "$DRY_RUN" ]; then
         echo "DRY RUN + sbatch --parsable --array=$array_spec --time=$NODE_TIME" \
-             "--job-name=${JOB_NAME}_packed --export=ALL packed_node.slurm"
+             "--job-name=${JOB_NAME}_packed --output=$PACKED_LOGS/%x_%A_%a.out --export=ALL" \
+             "$COMMON_PACKED/packed_node.slurm"
         packed_id=DRYRUN
     else
         packed_id=$(sbatch --parsable \
             --array="$array_spec" \
             --time="$NODE_TIME" \
             --job-name="${JOB_NAME}_packed" \
+            --output="$PACKED_LOGS/%x_%A_%a.out" \
             --export=ALL \
-            packed_node.slurm)
+            "$COMMON_PACKED/packed_node.slurm")
     fi
     echo "[$chain] packed array: $packed_id"
 
@@ -158,20 +163,23 @@ submit_chain() {
     if [ -n "$SKIP_MERGE" ]; then
         echo "[$chain] SKIP_MERGE set -- not submitting the merge. When every stage is done, run:"
         echo "  sbatch --dependency=afterok:<packed_id>[:<packed_id2>...] --time=$MERGE_TIME \\"
-        echo "         --job-name=$MERGE_JOB --export=ALL merge_node.slurm"
+        echo "         --job-name=$MERGE_JOB --output=$PACKED_LOGS/%x_%A.out --export=ALL \\"
+        echo "         $COMMON_PACKED/merge_node.slurm"
         return 0
     fi
     if [ -n "$DRY_RUN" ]; then
         echo "DRY RUN + sbatch --parsable --dependency=afterok:$packed_id --time=$MERGE_TIME" \
-             "--job-name=$MERGE_JOB --export=ALL merge_node.slurm"
+             "--job-name=$MERGE_JOB --output=$PACKED_LOGS/%x_%A.out --export=ALL" \
+             "$COMMON_PACKED/merge_node.slurm"
     else
         local merge_id
         merge_id=$(sbatch --parsable \
             --dependency="afterok:$packed_id" \
             --time="$MERGE_TIME" \
             --job-name="$MERGE_JOB" \
+            --output="$PACKED_LOGS/%x_%A.out" \
             --export=ALL \
-            merge_node.slurm)
+            "$COMMON_PACKED/merge_node.slurm")
         echo "[$chain] merge job: $merge_id (afterok:$packed_id)"
     fi
 }
