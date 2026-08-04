@@ -141,7 +141,7 @@ def main(indices, args):
 
     # general constants
     n_side = conf["analysis"]["n_side"]
-    n_pix = conf["analysis"]["n_pix"]
+    n_pix = hp.nside2npix(n_side)
 
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"][args.simset]["n_perms_per_cosmo"]
