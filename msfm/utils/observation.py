@@ -354,12 +354,10 @@ def forward_model_cosmogrid(
                     tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
                     dg = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
 
-                    # DES Y3 imaging systematics of the source density. This branch works on the full sky, so the
-                    # base patch correction is scattered into a map that is 1 (no correction) everywhere else
-                    contamination = files.get_metacal_systematics(conf, full_sky=True) if survey_systematics else None
-                    counts_map = clustering.galaxy_density_to_count(
-                        tomo_n_gal, dg, tomo_bg_metacal, contamination_map=contamination
-                    ).astype(int)
+                    # DES Y3 imaging systematics of the source density, in the base patch frame. The counts
+                    # themselves are built per patch further down, exactly like
+                    # postprocessing.postprocess_shape_noise does, so that the two agree
+                    contamination = files.get_metacal_systematics(conf) if survey_systematics else None
                 elif method == "in_place":
                     LOGGER.info("Rotating galaxies in place for shape noise")
                 elif method == "gatti":
@@ -436,7 +434,24 @@ def forward_model_cosmogrid(
                         w = gamma_cat[:, 2]
 
                         if method == "count":
-                            counts = counts_map[cutout_patch_pix, i_z]
+                            # expected counts of this patch, built exactly like postprocess_shape_noise does: the
+                            # LSS comes from the cut-out (aligned with the signal), the DES imprint is in the base
+                            # patch frame that the noise is written to, and the clip and renormalization of
+                            # galaxy_density_to_count act on the footprint rather than the full sky. For i_patch 0
+                            # this is bit-identical to source_clustering_bias.counts_from_bias
+                            ng = clustering.galaxy_density_to_count(
+                                tomo_n_gal[i_z],
+                                dg[cutout_patch_pix, i_z],
+                                tomo_bg_metacal[i_z],
+                                contamination_map=contamination[:, i_z] if contamination is not None else None,
+                            )
+
+                            # Poisson realization of the source counts, like postprocess_shape_noise. Unlike the
+                            # training set this is seeded, because an observation has to be reproducible. Passed as
+                            # a [noise_seed, i_z] pair rather than a sum: noise_seed already carries i_patch (see
+                            # run_single_postprocessing), so noise_seed + i_z would give patch p bin z and patch
+                            # p+1 bin z-1 the same stream
+                            counts = np.random.default_rng([noise_seed, i_z]).poisson(ng)
 
                             # create joint distribution, as this is faster than random indexing
                             cat_dist = tfp.distributions.Empirical(
