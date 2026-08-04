@@ -84,17 +84,19 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # source clustering with the DES Y3 imaging systematics imprinted on the source density, i.e. the v18
-# shape-noise model. configs/v18/baseline.yaml differs from configs/v17/baseline.yaml in nothing but
-# the shape noise (same maps, same channels, same normalization), so this is a clean systematics
-# shift test against the v17 training set. The bias table is the one fit against this same
-# contaminated model (metacal_biases_desy3_v2_sys.h5, enforced by configuration.py), so b is not
-# absorbing the systematics: bin 4 is 1.98 here against 3.06 in the clean fit
+# shape-noise model on the v17 lineage. configs/v17/mocks/sc_fixed_sys.yaml differs from
+# configs/v17/baseline.yaml in nothing but the shape noise (same maps, same channels, same
+# normalization), so this is a clean systematics shift test against the v17 training set. The bias
+# table is the one fit against this same contaminated model (metacal_biases_desy3_v2_sys.h5,
+# enforced by configuration.py), so b is not absorbing the systematics: bin 4 is 1.98 here against
+# 3.06 in the clean fit.
+# NOTE: configs/v18/default.yaml can NOT be used here -- it is delta-NLA and carries a ds channel.
 esub ../../msfm/apps/run_single_postprocessing.py \
     --dir_in=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/benchmarks/fiducial_bench \
     --dir_out=/pscratch/sd/a/athomsen/dlss/data/v17/baseline/obs \
     --suffix_out="_source_clustering_fixed_sys" \
     --with_lensing --with_clustering \
-    --msfm_config=../../configs/v18/baseline.yaml \
+    --msfm_config=../../configs/v17/mocks/sc_fixed_sys.yaml \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
     --job_name="postproc_v17_sc_fixed_sys" \
     --log_dir=/pscratch/sd/a/athomsen/run_files/v17/esub_logs \

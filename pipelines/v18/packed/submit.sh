@@ -28,7 +28,7 @@ cd "$(dirname "$0")"
 # the batch script into /var/spool/slurmd/<job>, so the executors cannot locate it themselves.
 DRIVER=$(pwd)/run_packed.py
 REPO=/global/homes/a/athomsen/multiprobe-simulation-forward-model
-CONFIG=$REPO/configs/v18/baseline.yaml
+CONFIG=$REPO/configs/v18/default.yaml
 DIR_IN=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary
 DATA_ROOT=/pscratch/sd/a/athomsen/v11desy3/v18/baseline/tfrecords
 PACKED_LOGS=/pscratch/sd/a/athomsen/run_files/v18/packed_logs

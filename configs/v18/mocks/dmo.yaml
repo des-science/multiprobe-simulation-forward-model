@@ -1,11 +1,4 @@
-# contains the configuration parameters of the forward model pipeline
-#
-# v18/baseline without the DES Y3 imaging systematics: the source counts are still Poisson resampled
-# from the source density, but the density is clean, and the bias table is the one fit against that
-# clean model (b bin 4 = 3.06 rather than 1.98, since a clean fit has nowhere to put the systematics
-# but into b). Only for mock observations: paired against a v18 obs product this isolates the imprint
-# alone, with everything else -- maps, channels, normalization, bias convention -- held fixed.
-# See dev/notebooks/source_clustering/bias_fit_desy3.ipynb for the two fits.
+# v18/default without baryonification, i.e. dark matter only.
 dirs:
   # absolute on Clariden
   catalog: /users/athomsen/scratch/deep_lss/data/y3-cats
@@ -19,19 +12,17 @@ files:
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
   peak_binning: data/peaks/binning/v11_extended.h5
-  # DES Y3 imaging systematics of the metacal sources, exported by the lss_sys repository. Unused
-  # here (survey_systematics is off below), kept so that flipping that flag is a one-line change
+  # DES Y3 imaging systematics of the metacal sources, exported by the lss_sys repository
   metacal_systematics: data/metacal_sources_STD32_512.h5
-  # source clustering bias, fit against the CLEAN forward model
-  metacal_bias: data/metacal_biases_desy3_v2.h5
+  # source clustering bias, fit against the CONTAMINATED forward model
+  metacal_bias: data/metacal_biases_desy3_v2_sys.h5
 
 survey:
   name: DESy3
   metacal:
     map_types:
-      # standard NLA, so no dg -> ds pair. dg is the source density that the count shape noise resamples
-      input: [kg, ia, dg]
-      output: [kg, ia, sn]
+      input: [kg, ia, dg, dg]
+      output: [kg, ia, sn, ds]
     z_bins: [metacal1, metacal2, metacal3, metacal4]
     # used in the forward model (in galaxies/deg^2, computed in notebooks/config.ipynb to respect masking)
     n_gal: [5505.792, 5585.636, 5498.44, 5578.685]
@@ -70,9 +61,10 @@ analysis:
     # same ordering as in the CosmoGrid
     cosmo: [Om, s8, Ob, H0, ns, w0]
     bary: [bary_Mc, bary_nu]
-    # standard NLA (no TATT cross term in v17)
+    # NLA model + first term of TATT (cross term)
     ia:
       nla: [Aia, n_Aia]
+      tatt: [bta]
     # galaxy biasing
     bg:
       linear: [bg1, bg2, bg3, bg4]
@@ -100,7 +92,7 @@ analysis:
       l_max: Null
       theta_fwhm: Null
   modelling:
-    baryonified: True
+    baryonified: False
     store_cross_maps: False
     # degrade the maps to Gaussian Random Fields for testing and comparison to the power spectra
     degrade_to_grf: False
@@ -113,9 +105,9 @@ analysis:
         # fixed (per-cosmology bias from files.metacal_bias) | prior (b_sc sampled from the Latin hypercube)
         bias: fixed
         # imprint files.metacal_systematics on the source density before the resampling
-        survey_systematics: False
-      # whether to include the TATT cross-term on top of NLA (off: standard NLA, no bta, no ds map)
-      extended_nla: False
+        survey_systematics: True
+      # whether to include the TATT cross-term on top of NLA
+      extended_nla: True
       nla:
         truncate_nz: True
         z_min_quantile: 0.05
@@ -132,8 +124,7 @@ analysis:
       # whether to include the survey systematics maps from https://arxiv.org/pdf/2105.13540 in the forward model.
       maglim_survey_systematics_map: False
   normalization:
-    # approximate per tomo bin standard deviation of the kg + ia + sn maps at the fiducial cosmology
-    lensing: [0.0086, 0.0137, 0.0174, 0.0229]
+    lensing: [1, 1, 1, 1]
     clustering: [1, 1, 1, 1]
   power_spectra:
     l_min: 30
@@ -159,6 +150,7 @@ analysis:
       # intrinsic alignment
       Aia: [-3, 3.0]
       n_Aia: [-4, 6.0]
+      bta: [0.0, 2.0]
       # galaxy clustering
       bg1: [0.8, 3.0]
       bg2: [0.8, 3.0]
@@ -193,6 +185,7 @@ analysis:
     # intrinsic alignment
     Aia: 0.5
     n_Aia: 1.5
+    bta: 0.0
     # galaxy clustering (corresponds to bg=1.5, n_bg=0.5)
     bg1: 1.3433586
     bg2: 1.4218498

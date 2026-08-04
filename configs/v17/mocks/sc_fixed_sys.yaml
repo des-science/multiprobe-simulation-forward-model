@@ -1,11 +1,6 @@
-# contains the configuration parameters of the forward model pipeline
-#
-# v18 = v17 (standard NLA, no bta) with source clustering back in the shape noise: the shear catalog
-# is Poisson resampled according to the source density, and the DES Y3 imaging systematics (depth,
-# seeing, stellar density) are imprinted on that density first. Without the imprint the source
-# clustering bias absorbs the systematics, which is what inflated tomo bin 4 to b ~ 3.
-# The bias table must be the one fit against this same forward model; configuration.py asserts that
-# via its systematics_label attribute. See dev/notebooks/source_clustering/bias_fit_desy3.ipynb.
+# v17/baseline with the v18 shape-noise model, i.e. count based Poisson resampling of a source
+# density carrying the DES Y3 imaging systematics. Differs from v17/baseline.yaml in nothing else,
+# so it is a clean systematics shift test against the v17 training set.
 dirs:
   # absolute on Clariden
   catalog: /users/athomsen/scratch/deep_lss/data/y3-cats
@@ -28,7 +23,8 @@ survey:
   name: DESy3
   metacal:
     map_types:
-      # standard NLA, so no dg -> ds pair. dg is the source density that the count shape noise resamples
+      # standard NLA: no dg -> ds pair (the dg input of sn is only used by density-modulated
+      # shape-noise methods and is ignored by in_place)
       input: [kg, ia, dg]
       output: [kg, ia, sn]
     z_bins: [metacal1, metacal2, metacal3, metacal4]
@@ -113,7 +109,8 @@ analysis:
         bias: fixed
         # imprint files.metacal_systematics on the source density before the resampling
         survey_systematics: True
-      # whether to include the TATT cross-term on top of NLA (off: standard NLA, no bta, no ds map)
+      # whether to include the TATT cross-term on top of NLA (v17: off, standard NLA -- bta does not
+      # exist in this config and no ds map is built)
       extended_nla: False
       nla:
         truncate_nz: True
