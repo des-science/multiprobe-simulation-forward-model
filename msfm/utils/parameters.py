@@ -11,6 +11,46 @@ import numpy as np
 
 from msfm.utils import files, redshift
 
+# Parameters stored in raw CosmoGrid units in the label tables / tfrecords (bary_Mc ~ 1e12-1e15)
+# but expressed as log10 in the config priors/fiducials and everywhere downstream (summary
+# training, inference). This tuple and raw_to_prior_units() below are the single source of truth
+# for the raw->prior-units conversion; the forward model deliberately *stores* raw, so the
+# conversion lives here as an offered utility rather than being baked into the write path.
+LOG10_PARAMS = ("bary_Mc",)
+
+# A raw Mc is > ~1e12 while a log10(Mc) is ~12, so this threshold cleanly separates the two and
+# catches a double conversion (log10 applied to an already-log10'd table).
+LOG10_RAW_MIN = 1e10
+
+
+def raw_to_prior_units(cosmos, params, copy=True):
+    """Convert label columns stored in raw CosmoGrid units to the config's prior units.
+
+    Currently this is the raw-Mc -> log10(Mc) conversion for every parameter in LOG10_PARAMS
+    that appears in ``params``. A sanity assert guards against converting an already-converted
+    table (a log10(Mc) ~ 12 would otherwise be log10'd again into ~1.1).
+
+    Args:
+        cosmos (np.ndarray): (..., n_params) label array whose last axis is ordered like ``params``.
+        params (sequence[str]): parameter name per column of the last axis.
+        copy (bool): if True (default) operate on a copy; otherwise modify ``cosmos`` in place.
+
+    Returns:
+        np.ndarray: the converted array (a copy unless copy=False).
+    """
+    cosmos = np.asarray(cosmos)
+    if copy:
+        cosmos = cosmos.copy()
+    params = list(params)
+    for name in LOG10_PARAMS:
+        if name in params:
+            i = params.index(name)
+            assert np.min(cosmos[..., i]) > LOG10_RAW_MIN, (
+                f"expected raw {name} labels (> {LOG10_RAW_MIN:g}), got log10 already?"
+            )
+            cosmos[..., i] = np.log10(cosmos[..., i])
+    return cosmos
+
 
 def get_parameters(params=None, conf=None):
     """Return the list of cosmological parameters. This is meant to handle the default case when params is set to None.
