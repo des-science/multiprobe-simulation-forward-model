@@ -1,35 +1,37 @@
 #!/bin/bash
 # Packed regular-QOS run of run_single_postprocessing.py over a small, fixed index range -- e.g.
 # an exploratory mock (one CosmoGrid permutation directory, tens of indices), not a full
-# grid/fiducial production chain. Sibling of ../packed/submit.sh, simplified to a single "chain"
-# and sized so everything fits on ONE node in ONE array element.
+# grid/fiducial production chain. Sibling of submit.sh in this directory, simplified to a single
+# "chain" and sized so everything fits on ONE node in ONE array element.
 #
-# Why not the default esub/shared chain: see ../packed/README.md -- shared QOS is a saturated
-# 70-node pool (ETA can be weeks), regular QOS has idle capacity but is node-exclusive, so we
-# hand-pack many tasks onto one node instead of burning a whole node per ~2 GB task.
+# Why not the default esub/shared chain: see ../../common/packed/README.md -- shared QOS is a
+# saturated 70-node pool (ETA can be weeks), regular QOS has idle capacity but is node-exclusive,
+# so we hand-pack many tasks onto one node instead of burning a whole node per ~2 GB task.
 #
-# Why a separate merge script from ../packed/merge_node.slurm: that script calls the app's
-# merge() with a dummy `--tasks=0`, which is fine for the grid/fiducial apps (their merge() globs
-# --dir_out and ignores `indices`). run_single_postprocessing.merge() does not glob -- it reads
-# exactly the {cosmo_name}{suffix_out}_obs_maps_{index:04}.h5 files named by the indices it is
-# given, so merge_single_node.slurm here is handed the FULL index range explicitly.
+# This duplicates exactly one arm also defined as an esub command in ../esub/obs_commands.sh
+# (job_name="postproc_v17_sc_fixed_sys", the "source clustering with the DES Y3 imaging
+# systematics" block) -- v17 keeps both forms deliberately (see ../packed/README.md), so if you
+# change dir_in/dir_out/suffix_out/msfm_config here, check that block too, and vice versa.
 #
 # Usage:
-#   DRY_RUN=1 ./submit_single_packed.sh        # print the sbatch calls, touch nothing
-#   ./submit_single_packed.sh                  # fresh run: submit every index
-#   ./submit_single_packed.sh --rerun          # submit only indices whose obs_maps file is missing
+#   DRY_RUN=1 ./submit_single_mock.sh        # print the sbatch calls, touch nothing
+#   ./submit_single_mock.sh                  # fresh run: submit every index
+#   ./submit_single_mock.sh --rerun          # submit only indices whose obs_maps file is missing
 #
-# Reuses ../packed/run_packed.py (generic main/merge driver) and ../packed/packed_node.slurm
-# (generic NUMA-pinned array executor) unchanged -- no msfm Python was touched.
+# Reuses ../../common/packed/{run_packed.py,packed_node.slurm,merge_node.slurm} unchanged -- no
+# msfm Python was touched. merge_node.slurm's merge() needs the FULL index range (not the dummy
+# --tasks=0 the grid/fiducial chains use), since run_single_postprocessing.merge() reads exactly
+# the {cosmo_name}{suffix_out}_obs_maps_{index:04}.h5 files named by the indices it is given (see
+# ../../common/packed/merge_node.slurm's header) -- so TASKS is exported explicitly below.
 
 set -euo pipefail
 cd "$(dirname "$0")"
 
 REPO=/global/homes/a/athomsen/multiprobe-simulation-forward-model
-PACKED_DIR=$REPO/pipelines/v17/packed
-DRIVER=$PACKED_DIR/run_packed.py
+COMMON_PACKED=$REPO/pipelines/common/packed
+DRIVER=$COMMON_PACKED/run_packed.py
 
-# --- this run's configuration (mirrors the esub command it replaces) -------------------------
+# --- this run's configuration (mirrors ../esub/obs_commands.sh's sc_fixed_sys block, see above) -
 APP=$REPO/msfm/apps/run_single_postprocessing.py
 JOB_NAME=postproc_v17_sc_fixed_sys
 DIR_IN=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/benchmarks/fiducial_bench
@@ -86,15 +88,17 @@ export APP_ARGS="--dir_in=$DIR_IN --dir_out=$DIR_OUT --suffix_out=$SUFFIX_OUT --
 array_spec="0-$((n_elements - 1))"
 if [ -n "$DRY_RUN" ]; then
     echo "DRY RUN + sbatch --parsable --array=$array_spec --time=$NODE_TIME" \
-         "--job-name=${JOB_NAME}_packed --export=ALL $PACKED_DIR/packed_node.slurm"
+         "--job-name=${JOB_NAME}_packed --output=$PACKED_LOGS/%x_%A_%a.out --export=ALL" \
+         "$COMMON_PACKED/packed_node.slurm"
     packed_id=DRYRUN
 else
     packed_id=$(sbatch --parsable \
         --array="$array_spec" \
         --time="$NODE_TIME" \
         --job-name="${JOB_NAME}_packed" \
+        --output="$PACKED_LOGS/%x_%A_%a.out" \
         --export=ALL \
-        "$PACKED_DIR/packed_node.slurm")
+        "$COMMON_PACKED/packed_node.slurm")
 fi
 echo "packed array: $packed_id"
 
@@ -105,13 +109,15 @@ export TASKS
 TASKS=$(seq -s, 0 $((N_TOTAL - 1)))
 if [ -n "$DRY_RUN" ]; then
     echo "DRY RUN + sbatch --parsable --dependency=afterok:$packed_id --time=$MERGE_TIME" \
-         "--job-name=$MERGE_JOB --export=ALL merge_single_node.slurm"
+         "--job-name=$MERGE_JOB --output=$PACKED_LOGS/%x_%A.out --export=ALL" \
+         "$COMMON_PACKED/merge_node.slurm"
 else
     merge_id=$(sbatch --parsable \
         --dependency="afterok:$packed_id" \
         --time="$MERGE_TIME" \
         --job-name="$MERGE_JOB" \
+        --output="$PACKED_LOGS/%x_%A.out" \
         --export=ALL \
-        merge_single_node.slurm)
+        "$COMMON_PACKED/merge_node.slurm")
     echo "merge job: $merge_id (afterok:$packed_id)"
 fi
