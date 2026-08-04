@@ -1,18 +1,18 @@
 #!/usr/bin/env python
-"""Minimal esub-free driver for the v17 postprocessing apps.
+"""Minimal esub-free driver for the msfm postprocessing apps, shared across pipeline versions.
 
 esub `--mode=run` ultimately does just two things with an app (see esub.py):
   - function main : consume the `main(indices, args)` generator
   - function merge : call `merge(indices, args)`
 plus a layer of done.dat bookkeeping and rerun_missing logic. That layer is what
 makes esub worth it for a farm of independent shared-QOS jobarray tasks, but it
-is pointless here: we pack whole nodes and track completion by the .tfrecord
-files themselves (a missing output file == a task to (re)run, see submit.sh).
+is pointless here: we pack whole nodes and track completion by the app's own
+output files (a missing/short output file == a task to (re)run, see submit.sh).
 
 So this script replicates only the two calls above and nothing else. The app is
 imported by path and handed the leftover CLI args verbatim -- exactly the arg
-list esub would forward -- so the forward model, filenames and tfrecord contents
-are bit-for-bit identical to the normal pipeline. No Python in msfm was changed.
+list esub would forward -- so the forward model, filenames and output contents
+are bit-for-bit identical to the esub pipeline. No Python in msfm was changed.
 """
 import argparse
 import importlib.util

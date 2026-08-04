@@ -4,8 +4,10 @@
 #SBATCH --qos=regular
 #SBATCH --nodes=1
 #SBATCH --licenses=cfs,scratch
-#SBATCH --output=/pscratch/sd/a/athomsen/run_files/v18/packed_logs/%x_%A_%a.out
-# Generic packed executor. --time, --array and --job-name are supplied by submit.sh,
+#SBATCH --output=/pscratch/sd/a/athomsen/run_files/packed_logs/%x_%A_%a.out
+# Shared across pipeline versions -- every submit.sh below passes --output=$PACKED_LOGS/... on
+# the sbatch command line, which overrides the fallback above, so this file needs no per-version
+# copy. Generic packed executor. --time, --array and --job-name are supplied by submit.sh,
 # along with every variable read below via --export=ALL. Each array element takes its own
 # SLOTS-sized slice of $INDEX_FILE and runs $SLOTS run_packed.py tasks in parallel, one per
 # index. No esub: run_packed.py imports the app and calls its main() directly.
