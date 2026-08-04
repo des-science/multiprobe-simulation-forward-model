@@ -158,10 +158,12 @@ def parse_inverse_grid(
             for i in noise_indices:
                 features[f"xg_{i}"] = tf.io.FixedLenFeature([], tf.string)
 
-    if with_lensing and (return_maps or return_cls):
+    # n_z_metacal and n_z_maglim are always needed when return_cls, since the stored Cls contain all
+    # pairs of the concatenated [lensing, clustering] alms regardless of which probes are active
+    if (with_lensing and return_maps) or return_cls:
         features["n_z_metacal"] = tf.io.FixedLenFeature([], tf.int64)
 
-    if with_clustering and (return_maps or return_cls):
+    if (with_clustering and return_maps) or return_cls:
         features["n_z_maglim"] = tf.io.FixedLenFeature([], tf.int64)
 
     if with_cross and return_maps:
@@ -197,8 +199,10 @@ def parse_inverse_grid(
                 )
 
         if return_cls:
-            n_z_mc = _parse_none_value(serialized_data, "n_z_metacal", n_z_metacal) if with_lensing else 0
-            n_z_ml = _parse_none_value(serialized_data, "n_z_maglim", n_z_maglim) if with_clustering else 0
+            # the stored Cls always contain all pairs of the concatenated [lensing, clustering] alms,
+            # so the selection indices must be computed in that full layout regardless of the probe flags
+            n_z_mc = _parse_none_value(serialized_data, "n_z_metacal", n_z_metacal)
+            n_z_ml = _parse_none_value(serialized_data, "n_z_maglim", n_z_maglim)
             bin_indices, _ = cross_statistics.get_cross_bin_indices(
                 n_z_mc,
                 n_z_ml,
@@ -512,9 +516,11 @@ def parse_inverse_fiducial(
     # output container
     output_data = {}
 
+    # the stored Cls always contain all pairs of the concatenated [lensing, clustering] alms,
+    # so the selection indices must be computed in that full layout regardless of the probe flags
     bin_indices, _ = cross_statistics.get_cross_bin_indices(
-        _parse_none_value(serialized_data, "n_z_metacal", n_z_metacal) if with_lensing else 0,
-        _parse_none_value(serialized_data, "n_z_maglim", n_z_maglim) if with_clustering else 0,
+        _parse_none_value(serialized_data, "n_z_metacal", n_z_metacal),
+        _parse_none_value(serialized_data, "n_z_maglim", n_z_maglim),
         with_lensing,
         with_clustering,
         with_cross_z=True,
