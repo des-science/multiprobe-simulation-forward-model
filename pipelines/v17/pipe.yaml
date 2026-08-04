@@ -24,7 +24,7 @@
     --max_njobs=1000 --tasks="0>2500" --keep_submit_files \
     --job_name=tfr_grid_v17 \
     --log_dir=/pscratch/sd/a/athomsen/run_files/v17/esub_logs --system=slurm \
-    --source_file=../../pipelines/v17/perlmutter_setup.sh \
+    --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=m5030,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # fiducial + finite-difference derivatives for the Fisher forecast (see header). 1000 permutations
@@ -38,7 +38,7 @@
     --max_njobs=1000 --tasks="0>1000" --keep_submit_files \
     --job_name=tfr_fidu_v17 \
     --log_dir=/pscratch/sd/a/athomsen/run_files/v17/esub_logs --system=slurm \
-    --source_file=../../pipelines/v17/perlmutter_setup.sh \
+    --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=m5030,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # noise generation for the Cls (config-identical to v16/rot_in_place -- reusable, see header)
