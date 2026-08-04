@@ -136,7 +136,11 @@ def main(indices, args):
     # constants
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
-    n_z_bins = len(conf["survey"]["metacal"]["z_bins"]) + len(conf["survey"]["maglim"]["z_bins"])
+    n_z_bins = 0
+    if conf.get("analysis", {}).get("modelling", {}).get("lensing", {}).get("store", True):
+        n_z_bins += len(conf["survey"]["metacal"]["z_bins"])
+    if conf.get("analysis", {}).get("modelling", {}).get("clustering", {}).get("store", True):
+        n_z_bins += len(conf["survey"]["maglim"]["z_bins"])
 
     # peaks
     n_bins = conf["analysis"]["peak_statistics"]["n_bins"]
@@ -148,8 +152,8 @@ def main(indices, args):
     # CosmoGrid
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"][args.simset]["n_perms_per_cosmo"]
-    n_noise_per_example = conf["analysis"][args.simset]["n_noise_per_example"]
-    n_examples_per_cosmo = n_patches * n_perms_per_cosmo * n_noise_per_example
+    n_noise_per_signal = conf["analysis"][args.simset]["n_noise_per_signal"]
+    n_examples_per_cosmo = n_patches * n_perms_per_cosmo * n_noise_per_signal
 
     def data_vector_to_peaks(data_vector, patch_pix):
         full_sky = np.full((n_pix, data_vector.shape[-1]), hp.UNSEEN)
@@ -183,7 +187,7 @@ def main(indices, args):
             dset = pipe.get_dset(
                 tfr_pattern=tfrecord,
                 local_batch_size="cosmo",
-                noise_indices=n_noise_per_example,
+                noise_indices=n_noise_per_signal,
                 n_readers=1,
                 n_prefetch=0,
             )
@@ -213,7 +217,7 @@ def main(indices, args):
                     f.create_dataset(name="peaks", data=peaks)
                     f.create_dataset(name="cosmo", data=cosmo)
                     f.create_dataset(name="i_sobol", data=i_sobol)
-                    f.create_dataset(name="i_example", data=i_examples)
+                    f.create_dataset(name="i_signal", data=i_examples)
                     f.create_dataset(name="i_noise", data=i_noises)
 
         elif args.simset == "fiducial":
@@ -231,7 +235,7 @@ def main(indices, args):
             dset = pipe.get_dset(
                 tfr_pattern=tfrecord,
                 local_batch_size=1,
-                noise_indices=n_noise_per_example,
+                noise_indices=n_noise_per_signal,
                 n_readers=1,
                 n_prefetch=0,
                 is_eval=True,
@@ -242,11 +246,11 @@ def main(indices, args):
             i_examples = []
             i_noises = []
             # loop over individual examples
-            for data_vector, (i_example, i_noise) in LOGGER.progressbar(
+            for data_vector, (i_signal, i_noise) in LOGGER.progressbar(
                 dset, total=n_examples_per_cosmo // len(tfrecords), desc="Loop over examples", at_level="info"
             ):
                 # get rid of the batch dimension
-                i_examples.append(i_example[0])
+                i_examples.append(i_signal[0])
                 i_noises.append(i_noise[0])
                 data_vector = np.squeeze(data_vector)
 
@@ -260,7 +264,7 @@ def main(indices, args):
             # save one .h5 file per input .tfrecord
             with h5py.File(os.path.join(args.dir_out, f"fiducial_peaks_{index:06}.h5"), "w") as f:
                 f.create_dataset(name="peaks", data=peaks)
-                f.create_dataset(name="i_example", data=i_examples)
+                f.create_dataset(name="i_signal", data=i_examples)
                 f.create_dataset(name="i_noise", data=i_noises)
 
         else:
@@ -282,7 +286,7 @@ def merge(indices, args):
     # determine the per cosmology shapes
     with h5py.File(h5_files[0], "r") as f:
         peaks_shape = f["peaks"].shape
-        i_example_shape = f["i_example"].shape
+        i_example_shape = f["i_signal"].shape
         i_noise_shape = f["i_noise"].shape
 
         if args.simset == "grid":
@@ -296,7 +300,7 @@ def merge(indices, args):
         if args.simset == "grid":
             # define the combined output shapes
             f_combined.create_dataset(name="peaks", shape=(n_files,) + peaks_shape)
-            f_combined.create_dataset(name="i_example", shape=(n_files,) + i_example_shape)
+            f_combined.create_dataset(name="i_signal", shape=(n_files,) + i_example_shape)
             f_combined.create_dataset(name="i_noise", shape=(n_files,) + i_noise_shape)
             f_combined.create_dataset(name="cosmo", shape=(n_files,) + cosmo_shape)
             f_combined.create_dataset(name="i_sobol", shape=(n_files,) + i_sobol_shape)
@@ -307,13 +311,13 @@ def merge(indices, args):
                     peaks = f["peaks"][:]
                     cosmo = f["cosmo"][:]
                     i_sobol = f["i_sobol"][()]
-                    i_example = f["i_example"][()]
+                    i_signal = f["i_signal"][()]
                     i_noise = f["i_noise"][()]
                 os.remove(h5_file)
 
                 # write to the combined .h5 file
                 f_combined["peaks"][i] = peaks
-                f_combined["i_example"][i] = i_example
+                f_combined["i_signal"][i] = i_signal
                 f_combined["i_noise"][i] = i_noise
                 f_combined["i_sobol"][i] = i_sobol
                 f_combined["cosmo"][i] = cosmo
@@ -321,20 +325,20 @@ def merge(indices, args):
         elif args.simset == "fiducial":
             # define the combined output shapes
             f_combined.create_dataset(name="peaks", shape=(n_files * peaks_shape[0],) + peaks_shape[1:])
-            f_combined.create_dataset(name="i_example", shape=(n_files * i_example_shape[0],) + i_example_shape[1:])
+            f_combined.create_dataset(name="i_signal", shape=(n_files * i_example_shape[0],) + i_example_shape[1:])
             f_combined.create_dataset(name="i_noise", shape=(n_files * i_noise_shape[0],) + i_noise_shape[1:])
 
             # loop over the per .tfrecord file .h5 files
             for i, h5_file in LOGGER.progressbar(enumerate(h5_files), desc="loop over files", at_level="info"):
                 with h5py.File(h5_file, "r") as f:
                     peaks = f["peaks"][:]
-                    i_example = f["i_example"][()]
+                    i_signal = f["i_signal"][()]
                     i_noise = f["i_noise"][()]
                 os.remove(h5_file)
 
                 # write to the combined .h5 file
                 f_combined["peaks"][i * peaks_shape[0] : (i + 1) * peaks_shape[0]] = peaks
-                f_combined["i_example"][i * i_example_shape[0] : (i + 1) * i_example_shape[0]] = i_example
+                f_combined["i_signal"][i * i_example_shape[0] : (i + 1) * i_example_shape[0]] = i_signal
                 f_combined["i_noise"][i * i_noise_shape[0] : (i + 1) * i_noise_shape[0]] = i_noise
 
         else:
