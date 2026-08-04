@@ -128,7 +128,7 @@ def mode_removal(
 
 
 # making this a tf.function doesn't speed things up because the seg_ids are always different
-def noise_gen(counts, cat_dist, n_noise_per_signal):
+def noise_gen(counts, cat_dist, n_noise_per_signal, seed=None):
     """Generates shape noise from a map of galaxy counts and joint distribution of absolute shear values and their
     weights.
 
@@ -137,6 +137,9 @@ def noise_gen(counts, cat_dist, n_noise_per_signal):
         cat_dist (tfp.distributions): Distribution with samples of length 2 that contains the absolute magnitudes and
             weights
         n_noise_per_signal (int): Number of noise realizations to create, this dimension is included for vectorization
+        seed (int, optional): Seed of the ellipticity and orientation draws. Defaults to None, which leaves the global
+            tensorflow RNG alone. When given, the realization becomes a deterministic function of the seed and of the
+            call itself, since tf.random.set_seed also resets the eager operation counter.
 
     Returns:
         np.ndarray: Arrays of shape (len(base_patch_pix, n_noise_per_signal) containing the two gamma components
@@ -144,61 +147,69 @@ def noise_gen(counts, cat_dist, n_noise_per_signal):
 
     import tensorflow as tf
 
-    # indices to sum over all of the galaxies in the individual pixels
-    seg_ids = []
-    for id, n_gals in enumerate(counts):
-        seg_ids.extend(n_gals * [id])
+    if seed is not None:
+        tf.random.set_seed(seed)
 
-    # make a tensor, this is important for performance
-    seg_ids = tf.constant(seg_ids, dtype=tf.int32)
+    # indices to sum over all of the galaxies in the individual pixels. np.repeat rather than a Python loop over
+    # ~23e6 galaxies, which dominated the runtime once the caller started drawing one count realization per noise
+    # realization instead of one per patch
+    seg_ids = np.repeat(np.arange(len(counts), dtype=np.int32), counts)
 
-    # total number of galaxies in the patch
-    n_gals_patch = len(seg_ids)
+    # This forward model runs on CPU nodes, so pin the ops there like noise_gen_in_place already does rather than
+    # letting an incidentally visible GPU pick them up. Beyond avoiding GPU OOM, it is what makes the seed above a
+    # real reproducibility guarantee: segment_sum accumulates with atomics on GPU, so the summation order -- and with
+    # it the float32 rounding -- varies from run to run even for identical draws.
+    with tf.device("/CPU:0"):
+        # make a tensor, this is important for performance
+        seg_ids = tf.constant(seg_ids, dtype=tf.int32)
 
-    # shape (n_gals_patch, n_noise_per_signal, 2)
-    cat_samples = cat_dist.sample(sample_shape=(n_gals_patch, n_noise_per_signal))
-    # shape (n_gals_patch, n_noise_per_signal)
-    phase_samples = tf.random.uniform(
-        shape=(
-            n_gals_patch,
-            n_noise_per_signal,
-        ),
-        minval=0,
-        maxval=2 * np.pi,
-    )
+        # total number of galaxies in the patch
+        n_gals_patch = len(seg_ids)
 
-    # shape (n_gals_patch, n_noise_per_signal)
-    g1_samples = tf.math.cos(phase_samples) * cat_samples[..., 0]
-    g2_samples = tf.math.sin(phase_samples) * cat_samples[..., 0]
-    w_samples = cat_samples[..., 1]
+        # shape (n_gals_patch, n_noise_per_signal, 2)
+        cat_samples = cat_dist.sample(sample_shape=(n_gals_patch, n_noise_per_signal))
+        # shape (n_gals_patch, n_noise_per_signal)
+        phase_samples = tf.random.uniform(
+            shape=(
+                n_gals_patch,
+                n_noise_per_signal,
+            ),
+            minval=0,
+            maxval=2 * np.pi,
+        )
 
-    # shape (n_gals_patch, n_noise_per_signal, 3)
-    weighted_gamma_samples = tf.stack([g1_samples * w_samples, g2_samples * w_samples, w_samples], axis=-1)
+        # shape (n_gals_patch, n_noise_per_signal)
+        g1_samples = tf.math.cos(phase_samples) * cat_samples[..., 0]
+        g2_samples = tf.math.sin(phase_samples) * cat_samples[..., 0]
+        w_samples = cat_samples[..., 1]
 
-    # len(base_patch_pix), unless the final pixels of the patch don't contain galaxies. Then, it's smaller
-    sum_per_pix = tf.math.segment_sum(weighted_gamma_samples, seg_ids)
+        # shape (n_gals_patch, n_noise_per_signal, 3)
+        weighted_gamma_samples = tf.stack([g1_samples * w_samples, g2_samples * w_samples, w_samples], axis=-1)
 
-    # normalize with weights, set 0/0 equal to 0 instead of nan
-    gamma_per_pix = tf.math.divide_no_nan(sum_per_pix[..., :2], tf.expand_dims(sum_per_pix[..., 2], axis=-1))
+        # len(base_patch_pix), unless the final pixels of the patch don't contain galaxies. Then, it's smaller
+        sum_per_pix = tf.math.segment_sum(weighted_gamma_samples, seg_ids)
 
-    # The condition means that the final pixel contains zero galaxies. Then, its index is not included in the seg_ids
-    # (multiplication with zero) and because it's the last, tensorflow has no way of knowing that it should still take
-    # the segmented_sum over this index, which evaluates to zero. The while loop allows more than one of the last
-    # pixels to be zero.
-    n_final_zero_pix = 0
-    while counts[-(n_final_zero_pix + 1)] == 0:
-        n_final_zero_pix += 1
+        # normalize with weights, set 0/0 equal to 0 instead of nan
+        gamma_per_pix = tf.math.divide_no_nan(sum_per_pix[..., :2], tf.expand_dims(sum_per_pix[..., 2], axis=-1))
 
-    if n_final_zero_pix > 0:
-        # There is no galaxy in the final pixels, so the shape noise there is equal to zero
-        zero_pix = tf.zeros((n_final_zero_pix, n_noise_per_signal, 2), dtype=tf.float32)
-        gamma_per_pix = tf.concat((gamma_per_pix, zero_pix), axis=0)
+        # The condition means that the final pixel contains zero galaxies. Then, its index is not included in the
+        # seg_ids (multiplication with zero) and because it's the last, tensorflow has no way of knowing that it
+        # should still take the segmented_sum over this index, which evaluates to zero. The while loop allows more
+        # than one of the last pixels to be zero.
+        n_final_zero_pix = 0
+        while counts[-(n_final_zero_pix + 1)] == 0:
+            n_final_zero_pix += 1
+
+        if n_final_zero_pix > 0:
+            # There is no galaxy in the final pixels, so the shape noise there is equal to zero
+            zero_pix = tf.zeros((n_final_zero_pix, n_noise_per_signal, 2), dtype=tf.float32)
+            gamma_per_pix = tf.concat((gamma_per_pix, zero_pix), axis=0)
 
     # shape (len(base_patch_pix), n_noise_per_signal)
     return gamma_per_pix[..., 0].numpy(), gamma_per_pix[..., 1].numpy()
 
 
-def noise_gen_in_place(gamma_abs, w, pix, base_patch_pix, n_pix, n_noise_per_signal):
+def noise_gen_in_place(gamma_abs, w, pix, base_patch_pix, n_pix, n_noise_per_signal, seed=None):
     """Generates shape noise by rotating galaxies from the catalog in-place.
 
     Args:
@@ -208,11 +219,16 @@ def noise_gen_in_place(gamma_abs, w, pix, base_patch_pix, n_pix, n_noise_per_sig
         base_patch_pix (np.ndarray): The pixels that make up the current footprint cutout
         n_pix (int): Total number of pixels in the healpy map
         n_noise_per_signal (int): Number of noise realizations
+        seed (int, optional): Seed of the orientation draws, see noise_gen. Defaults to None, which leaves the global
+            tensorflow RNG alone.
 
     Returns:
         np.ndarray: Arrays of shape (len(base_patch_pix), n_noise_per_signal) containing the two gamma components
     """
     import tensorflow as tf
+
+    if seed is not None:
+        tf.random.set_seed(seed)
 
     # Place operations on CPU to avoid GPU OOM on shared login nodes where GPU memory is highly restricted
     with tf.device("/CPU:0"):

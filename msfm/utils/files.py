@@ -223,17 +223,20 @@ def get_metacal_systematics(conf=None, full_sky=False, dataset="contamination"):
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
     sys_file = os.path.join(repo_dir, conf["files"]["metacal_systematics"])
 
-    _, patches_pix_dict, _, _ = load_pixel_file(conf)
-    base_patch_pix = patches_pix_dict["metacal"][0][0]
-
     cache_key = (sys_file, n_side, n_z, dataset)
     if cache_key not in _METACAL_SYSTEMATICS_CACHE:
+        # deliberately inside the cache guard: load_pixel_file has no cache of its own and reads a ~65 MB file, while
+        # postprocess_shape_noise calls this function once per (permutation, tomographic bin)
+        _, patches_pix_dict, _, _ = load_pixel_file(conf)
+        base_patch_pix = patches_pix_dict["metacal"][0][0]
+
         # the footprint rotation of notebooks/pixel_file.ipynb, which defines the frame of the mask and the patches
         y_rad = conf["analysis"]["footprint"]["rotation"]["y_rad"]
         z_rad = conf["analysis"]["footprint"]["rotation"]["z_rad"]
         rotator = hp.Rotator(rot=(0, -y_rad, z_rad), eulertype="Y", deg=False)
 
         tomo_sys = []
+        covered_ref = None
         with h5py.File(sys_file, "r") as f:
             assert str(f.attrs["ordering"]) == "RING", f"Expected RING ordered maps, got {f.attrs['ordering']!r}"
             assert int(f.attrs["n_bins"]) == n_z, f"Expected {n_z} tomographic bins, got {f.attrs['n_bins']}"
@@ -252,6 +255,16 @@ def get_metacal_systematics(conf=None, full_sky=False, dataset="contamination"):
                 covered = (sys_map != 0.0) if zero_off_footprint else ~hp.mask_bad(sys_map)
                 sys_map = np.where(covered, sys_map, 1.0)
 
+                # the footprint is a property of the lss_sys run rather than of the bin, so one coverage check below
+                # covers all of them -- as long as that actually holds
+                if covered_ref is None:
+                    covered_ref = covered
+                else:
+                    assert np.array_equal(covered, covered_ref), (
+                        f"Tomographic bin {i_z} of {sys_file} has a different footprint than bin 0, so the coverage "
+                        f"of the analysis mask has to be checked per bin"
+                    )
+
                 if n_side_sys != n_side:
                     sys_map = hp.ud_grade(sys_map, nside_out=n_side, order_in="RING", order_out="RING")
 
@@ -268,12 +281,34 @@ def get_metacal_systematics(conf=None, full_sky=False, dataset="contamination"):
                     f"[{sys_patch.min():.3f}, {sys_patch.max():.3f}], std {sys_patch.std():.4f}"
                 )
 
+        # Off the systematics footprint the correction is undefined and was set to 1 above, so any analysis pixel
+        # landing there would carry no imprint while still entering the unit-mean renormalization below. That the
+        # rotation puts the whole analysis mask inside the (wider) systematics footprint is the frame invariant that
+        # this function, postprocessing and the bias fit all rely on, and it is exactly the kind of thing that broke
+        # silently once already in the observation, so assert it rather than trust the pixel counts
+        covered_rot = covered_ref.astype(np.float64)
+        if n_side_sys != n_side:
+            covered_rot = hp.ud_grade(covered_rot, nside_out=n_side, order_in="RING", order_out="RING")
+        covered_rot = rotator.rotate_map_pixel(covered_rot)
+
+        n_uncovered = int(np.sum(covered_rot[base_patch_pix] < 0.5))
+        assert n_uncovered == 0, (
+            f"{n_uncovered} of the {len(base_patch_pix)} analysis footprint pixels fall outside the imaging "
+            f"systematics footprint of {sys_file} once rotated into the forward model frame. Those pixels would go "
+            f"uncorrected and dilute the renormalization"
+        )
+        LOGGER.debug(f"The rotated systematics footprint covers all {len(base_patch_pix)} analysis mask pixels")
+
         # shape (len(base_patch_pix), n_z_metacal)
         _METACAL_SYSTEMATICS_CACHE[cache_key] = np.stack(tomo_sys, axis=-1)
 
     tomo_sys = _METACAL_SYSTEMATICS_CACHE[cache_key]
 
     if full_sky:
+        # the only consumer that still needs the pixel file on a cache hit
+        _, patches_pix_dict, _, _ = load_pixel_file(conf)
+        base_patch_pix = patches_pix_dict["metacal"][0][0]
+
         sys_full = np.ones((n_pix, n_z))
         sys_full[base_patch_pix] = tomo_sys
         return sys_full

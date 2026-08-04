@@ -13,12 +13,38 @@ TODO the function argument orders in this file aren't consistent, this should be
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-import os, time, h5py, copy_guardian, pickle
+import os, time, hashlib, h5py, copy_guardian, pickle
 from msfm.utils import logger, filenames, imports, lensing, clustering, maps, input_output, files
 
 hp = imports.import_healpy()
 
 LOGGER = logger.get_logger(__file__)
+
+
+def _shape_noise_seed(simset, bgs_key, i_perm, i_patch, i_z, i_noise):
+    """Deterministic seed for one shape-noise realization of the training set.
+
+    The shape noise used to be drawn from the unseeded global numpy and tensorflow RNGs, so a .tfrecord could not be
+    regenerated -- in contrast to the observation path, which has always seeded (see observation.forward_model_
+    cosmogrid) and to the multiplicative shear bias, which is baked into the .tfrecords for exactly this reason. The
+    key is spelled out and hashed rather than summed, so that neighbouring (permutation, patch, bin, noise) tuples
+    cannot land on the same stream the way i_sobol + i_signal would.
+
+    Args:
+        simset (str): "grid" or "fiducial", so that the two do not share streams.
+        bgs_key (str): Cosmology key of the bias table, i.e. "cosmo_%06d" or "fiducial".
+        i_perm (int): Permutation (simulation run) index.
+        i_patch (int): Footprint cut-out index.
+        i_z (int): Tomographic bin index.
+        i_noise (int): Noise realization index.
+
+    Returns:
+        int: 63 bit seed, accepted by both np.random.default_rng and tf.random.set_seed.
+    """
+    key = f"{simset}/{bgs_key}/{i_perm}/{i_patch}/{i_z}/{i_noise}"
+
+    return int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big") >> 1
+
 
 # fiducial ############################################################################################################
 
@@ -78,6 +104,8 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
                         noise_file,
                         full_maps_file,
                         bgs_key="fiducial",
+                        # only used to seed the shape noise, the fiducial has a single bias row and no bsc samples
+                        i_perm=i_perm,
                         keep_b_mode=keep_b_mode,
                     )
                 elif sample == "maglim":
@@ -409,6 +437,9 @@ def postprocess_shape_noise(
     method, bias, fixed_bsc, survey_systematics = files.get_shape_noise(conf)
     n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
 
+    # every draw below is keyed on it, see _shape_noise_seed
+    assert i_perm is not None, "i_perm is required to seed the shape noise reproducibly"
+
     if method == "count" and bias == "fixed":
         # per-cosmology metacal source-clustering bias from files.metacal_bias
         count_bias = files.read_metacal_bias(bgs_key, conf)[i_z]
@@ -428,12 +459,16 @@ def postprocess_shape_noise(
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
     hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
 
-    gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
-    w = gamma_cat[:, 2]
+    # the catalog is ~25e6 galaxies per bin and this forward model runs on CPU nodes, so keep it off an incidentally
+    # visible GPU, like the noise generators it feeds (see lensing.noise_gen)
+    with tf.device("/CPU:0"):
+        gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
+        w = gamma_cat[:, 2]
 
     if method == "count":
         # create joint distribution, as this is faster than random indexing
-        cat_dist = tfp.distributions.Empirical(samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1)
+        with tf.device("/CPU:0"):
+            cat_dist = tfp.distributions.Empirical(samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1)
 
         # normalize to number density contrast
         delta_full_sky_norm = (delta_full_sky - np.mean(delta_full_sky)) / np.mean(delta_full_sky)
@@ -455,6 +490,9 @@ def postprocess_shape_noise(
         np.zeros((n_patches, n_noise_per_signal, data_vec_len), dtype=np.float32) if keep_b_mode else None
     )
     for i_patch, patch_pix in enumerate(patches_pix):
+        # one seed per noise realization of this patch, so that the training set is reproducible
+        seeds = [_shape_noise_seed(simset, bgs_key, i_perm, i_patch, i_z, i) for i in range(n_noise_per_signal)]
+
         if method == "count":
             bias_patch = bsc_samples[(i_perm * n_patches) + i_patch] if bias == "prior" else count_bias
 
@@ -467,14 +505,24 @@ def postprocess_shape_noise(
                 n_bar, delta_full_sky_norm[patch_pix], bias_patch, contamination_map=sys_patch
             )
 
-            # the rate is not truncated to integers, matching the fit (a 0.5 count deficit at n_bar ~ 72 otherwise)
-            counts = np.random.poisson(ng).astype(int)
+            # One Poisson realization of the source positions per noise realization, like the maglim Poisson noise
+            # (clustering.galaxy_count_to_noise). Drawing the counts once per patch and reusing them across the
+            # realizations would leave the per-pixel noise amplitude -- which is exactly where the source clustering
+            # and the DES imprint live -- perfectly correlated between the noise realizations of one signal
+            gamma1 = np.zeros((len(ng), n_noise_per_signal), dtype=np.float32)
+            gamma2 = np.zeros_like(gamma1)
+            for i_noise, seed in enumerate(seeds):
+                # the rate is not truncated to integers, matching the fit (a 0.5 count deficit at n_bar ~ 72)
+                counts = np.random.default_rng(seed).poisson(ng).astype(int)
 
-            # vectorized sampling, shape (len(counts), n_noise_per_signal)
-            gamma1, gamma2 = lensing.noise_gen(counts, cat_dist, n_noise_per_signal)
+                # the same seed drives an independent generator here, the tensorflow one
+                gamma1_noise, gamma2_noise = lensing.noise_gen(counts, cat_dist, 1, seed=seed)
+                gamma1[:, i_noise] = gamma1_noise[:, 0]
+                gamma2[:, i_noise] = gamma2_noise[:, 0]
         else:
+            # rotating in place draws all realizations in one call, so a single seed fixes the whole block
             gamma1, gamma2 = lensing.noise_gen_in_place(
-                gamma_abs, w, pix_cat, base_patch_pix, n_pix, n_noise_per_signal
+                gamma_abs, w, pix_cat, base_patch_pix, n_pix, n_noise_per_signal, seed=seeds[0]
             )
 
             if method == "gatti":

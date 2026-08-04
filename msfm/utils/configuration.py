@@ -25,9 +25,11 @@ def _check_metacal_bias_matches_forward_model(conf, survey_systematics):
         # tables predating this attribute were all fit against a clean forward model
         table_label = str(f.attrs.get("systematics_label", "none"))
 
+    status = ""
     if survey_systematics:
         with h5py.File(os.path.join(repo_dir, conf["files"]["metacal_systematics"]), "r") as f:
             conf_label = str(f.attrs["label"])
+            status = str(f.attrs.get("status", ""))
     else:
         conf_label = "none"
 
@@ -37,6 +39,11 @@ def _check_metacal_bias_matches_forward_model(conf, survey_systematics):
         f"was fit with the same shape_noise.survey_systematics setting"
     )
     LOGGER.info(f"Metacal source clustering bias table fit against the imaging systematics {table_label!r}")
+
+    # the label is free text, so it says which lss_sys run was meant, not what the maps contain. The export carries
+    # its own caveats and they belong in the run log rather than only in an attribute nobody reads
+    if status:
+        LOGGER.warning(f"Imaging systematics {conf_label!r} self-reports: {status}")
 
 
 def print_and_check_modeling_in_config(conf):
@@ -69,8 +76,17 @@ def print_and_check_modeling_in_config(conf):
             "shape_noise bias 'prior' requires analysis.params.sc (e.g. [bsc]) to sample b_sc from the "
             "Latin hypercube"
         )
-    if sn_method == "count" and sn_bias == "fixed":
-        _check_metacal_bias_matches_forward_model(conf, sn_survey_sys)
+    if sn_method == "count":
+        if sn_bias == "fixed":
+            _check_metacal_bias_matches_forward_model(conf, sn_survey_sys)
+        else:
+            # the bias comes from the Latin hypercube and files.metacal_bias is never read, so there is no table
+            # whose provenance could be checked -- the prior interval itself has to match the forward model
+            LOGGER.warning(
+                "count shape noise with bias 'prior' does not read files.metacal_bias, so the systematics "
+                "consistency of the source clustering bias cannot be checked here. Make sure that "
+                f"analysis.grid.priors.bsc was chosen for survey_systematics={sn_survey_sys}"
+            )
 
     # clustering
     bg_params = conf["analysis"]["params"]["bg"]["linear"]

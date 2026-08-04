@@ -351,6 +351,18 @@ def forward_model_cosmogrid(
                                 "bias: fixed) to determine the metacal source-clustering bias"
                             )
 
+                    # bias: prior samples a single b_sc per patch (see run_single_postprocessing), which applies to
+                    # every tomographic bin. Broadcast it here, like the gatti branch below does, because the per-bin
+                    # loop indexes this per bin and a scalar is not subscriptable
+                    n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
+                    tomo_bg_metacal = np.atleast_1d(np.asarray(tomo_bg_metacal, dtype=float))
+                    if tomo_bg_metacal.size == 1:
+                        tomo_bg_metacal = np.full(n_z_metacal, tomo_bg_metacal[0])
+                    assert tomo_bg_metacal.size == n_z_metacal, (
+                        f"Expected a scalar or {n_z_metacal} metacal source-clustering biases, got "
+                        f"{tomo_bg_metacal.size}"
+                    )
+
                     tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
                     dg = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
 
