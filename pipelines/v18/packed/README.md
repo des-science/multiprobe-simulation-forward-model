@@ -78,7 +78,7 @@ truncate on open). Prefer this after a cancelled run.
   ```
 - Sanity check the output count before merging — normally 2500 (grid) / 1000 (fiducial):
   ```bash
-  ls /pscratch/sd/a/athomsen/v11desy3/v18/baseline/tfrecords/grid/*_grid_*.tfrecord | wc -l
+  ls /pscratch/sd/a/athomsen/dlss/data/v18/baseline/tfrecords/grid/*_grid_*.tfrecord | wc -l
   ```
 - If fiducial index 209 fails the same way it did in v17 (see "Sizing" above), the fiducial
   `merge()` tolerates a missing file — it globs whatever is present, sorts by stored `i_signal`,

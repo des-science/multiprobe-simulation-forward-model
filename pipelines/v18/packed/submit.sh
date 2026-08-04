@@ -36,7 +36,7 @@ COMMON_PACKED=$REPO/pipelines/common/packed
 DRIVER=$COMMON_PACKED/run_packed.py
 CONFIG=$REPO/configs/v18/default.yaml
 DIR_IN=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary
-DATA_ROOT=/pscratch/sd/a/athomsen/v11desy3/v18/baseline/tfrecords
+DATA_ROOT=/pscratch/sd/a/athomsen/dlss/data/v18/baseline/tfrecords
 PACKED_LOGS=/pscratch/sd/a/athomsen/run_files/v18/packed_logs
 
 # --- per-chain configuration (single source of truth) ---------------------------------------
