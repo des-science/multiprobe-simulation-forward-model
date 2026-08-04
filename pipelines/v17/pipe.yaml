@@ -5,8 +5,8 @@
 #
 # For training, only the grid needs regeneration: at the fiducial the v16 and v17 forward models are
 # bit-identical (bta = 0 there), so the fiducial tfrecords, the obs/ benchmark products, and the
-# white-noise Cls of v16/rot_in_place can be reused/symlinked (see baseline/obs_commands.sh). The
-# white-noise step is still listed below for a fully self-contained v17 dataset.
+# white-noise Cls of v16/rot_in_place can be reused/symlinked (see baseline/obs_commands.sh), so no
+# white-noise step is needed here.
 #
 # The fiducial_tfrecords step below is NOT a reuse of the v16 fiducial: it runs WITH the derivatives
 # (no --no_derivatives) directly on baseline.yaml to enable a Fisher forecast of the WL constraining
@@ -39,13 +39,4 @@
     --job_name=tfr_fidu_v17 \
     --log_dir=/pscratch/sd/a/athomsen/run_files/v17/esub_logs --system=slurm \
     --source_file=../../pipelines/common/perlmutter_setup.sh \
-    --additional_slurm_args="--account=m5030,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
-
-# noise generation for the Cls (config-identical to v16/rot_in_place -- reusable, see header)
-- name: cl_white_noise
-  cmd: esub ../../msfm/apps/run_power_spectra_noise.py --n_noise=1000000 \
-    --n_noise_per_index=1000 --config=../../configs/v17/baseline.yaml \
-    --dir_out=/pscratch/sd/a/athomsen/v11desy3/v17/baseline/cls \
-    --mode=jobarray --function=all --system=slurm --job_name=white_noise_v17 \
-    --log_dir=/pscratch/sd/a/athomsen/run_files/v17/esub_logs \
     --additional_slurm_args="--account=m5030,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
