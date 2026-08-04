@@ -32,12 +32,14 @@ import healpy as hp
 import pyccl as ccl
 
 METACAL_BINS = ["metacal1", "metacal2", "metacal3", "metacal4"]
-GRID_ROOT = "/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/grid"
-METAINFO = "/global/homes/a/athomsen/multiprobe-simulation-forward-model/data/CosmoGridV1_metainfo.h5"
+# Clariden copy of the full-sky grid maps (originally run on Perlmutter CFS:
+# /global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/grid)
+GRID_ROOT = "/iopsstor/scratch/cscs/athomsen/CosmoGrid/v11desy3/bary/grid"
+METAINFO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../..", "data/CosmoGridV1_metainfo.h5")
 MAP_FILE = "projected_probes_maps_v11dmb.h5"
 
 # Selected grid cosmologies, keyed by SOBOL INDEX (the CosmoGrid directory index = path_par =
-# cosmo_{sobol_index:06d}; note sobol_index != id_param). See scan_cosmos.json for the selection.
+# cosmo_{sobol_index:06d}; note sobol_index != id_param).
 S8_SCAN = [194878, 168548, 82075]  # S8 ~ 0.58, 0.79, 0.98 at w0 ~ -1
 W0_SCAN = [2, 16147, 964]          # w0 ~ -1.58, -1.24, -0.56 at S8 ~ 0.75-0.85
 
@@ -45,7 +47,8 @@ W0_SCAN = [2, 16147, 964]          # w0 ~ -1.58, -1.24, -0.56 at S8 ~ 0.75-0.85
 def setup(args=None):
     p = argparse.ArgumentParser(description="cosmology scan of the input-map vs CCL theory check")
     p.add_argument("--n_perms", type=int, default=3)
-    p.add_argument("--out_dir", default="/pscratch/sd/a/athomsen/deep_lss/runs/wl_audit")
+    p.add_argument("--grid_root", default=GRID_ROOT)
+    p.add_argument("--out_dir", default="/iopsstor/scratch/cscs/athomsen/deep_lss/runs/wl_audit")
     return p.parse_args(args)
 
 
@@ -61,6 +64,8 @@ def grid_params(sobol):
     return dict(
         sobol=int(sobol), path=r["path_par"].decode().rstrip("/"),
         Omega_c=float(r["O_cdm"]), Omega_b=float(r["Ob"]), h=h_, sigma8=float(r["s8"]),
+        # CosmoGrid V1 fixes Sum m_nu ~ 0.06 eV, so the floor is a guard that never binds here; it
+        # would silently clamp a future variable-m_nu grid, so revisit if O_nu ever varies
         n_s=float(r["ns"]), m_nu=max(m_nu_tot, 0.06), w0=float(r["w0"]), Om=float(r["Om"]),
         S8=S8, log10Mc=float(np.log10(r["bary_Mc"])), bnu=float(r["bary_nu"]),
     )
@@ -178,6 +183,8 @@ def plot_scan(results, scan_name, out_dir):
 
 def main(args=None):
     args = setup(args)
+    global GRID_ROOT
+    GRID_ROOT = args.grid_root
     os.makedirs(args.out_dir, exist_ok=True)
     for scan_name, sobols in [("S8_scan", S8_SCAN), ("w0_scan", W0_SCAN)]:
         print(f"\n========== {scan_name} ==========", flush=True)

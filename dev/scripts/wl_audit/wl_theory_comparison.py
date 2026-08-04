@@ -57,7 +57,9 @@ COSMO = dict(
     w0=-1.0,
 )
 METACAL_BINS = ["metacal1", "metacal2", "metacal3", "metacal4"]
-MAP_DIR = "/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/fiducial/cosmo_fiducial"
+# Clariden copy of the full-sky maps (originally run on Perlmutter CFS:
+# /global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/fiducial/cosmo_fiducial)
+MAP_DIR = "/iopsstor/scratch/cscs/athomsen/CosmoGrid/v11desy3/bary/fiducial/cosmo_fiducial"
 MAP_FILE = {"dmb": "projected_probes_maps_v11dmb.h5", "dmo": "projected_probes_maps_v11dmo.h5"}
 
 # NLA normalisation cross-check (verified numerically, 2026-07-13): CCL's use_A_ia=True applies
@@ -75,8 +77,9 @@ def setup(args=None):
     p.add_argument("--n_perms", type=int, default=8, help="number of permutations to average the measured Cls over")
     p.add_argument("--matter_power", default="halofit", choices=["halofit", "camb"])
     p.add_argument("--transfer", default="boltzmann_camb")
+    p.add_argument("--map_dir", type=str, default=MAP_DIR)
     p.add_argument("--out_dir", type=str,
-                   default="/pscratch/sd/a/athomsen/deep_lss/runs/wl_audit")
+                   default="/iopsstor/scratch/cscs/athomsen/deep_lss/runs/wl_audit")
     return p.parse_args(args)
 
 
@@ -107,12 +110,12 @@ def theory_cls(ell, z, nz, args):
 
 def measure_map_cls(variant, args):
     """Full-sky auto/cross pseudo-Cls of kg and ia, averaged over perms, pixel-window deconvolved."""
-    perm_dirs = sorted(d for d in os.listdir(MAP_DIR) if d.startswith("perm_"))[: args.n_perms]
+    perm_dirs = sorted(d for d in os.listdir(args.map_dir) if d.startswith("perm_"))[: args.n_perms]
     nside = None
     acc = None
     n_used = 0
     for pd in perm_dirs:
-        path = os.path.join(MAP_DIR, pd, MAP_FILE[variant])
+        path = os.path.join(args.map_dir, pd, MAP_FILE[variant])
         if not os.path.exists(path):
             continue
         with h5py.File(path, "r") as h:
@@ -132,7 +135,7 @@ def measure_map_cls(variant, args):
                 acc["cross"][i_b] += hp.anafast(kg, map2=ia, lmax=lmax) / pw2
         n_used += 1
     if not n_used:
-        raise FileNotFoundError(f"no {MAP_FILE[variant]} found under {MAP_DIR} (checked {len(perm_dirs)} perms)")
+        raise FileNotFoundError(f"no {MAP_FILE[variant]} found under {args.map_dir} (checked {len(perm_dirs)} perms)")
     for k in acc:
         acc[k] /= n_used
     return ell, acc, n_used, nside
@@ -143,7 +146,7 @@ def main(args=None):
     os.makedirs(args.out_dir, exist_ok=True)
     variants = ["dmb", "dmo"] if args.variant == "both" else [args.variant]
 
-    z, nz = load_nz(os.path.join(MAP_DIR, "perm_0000", MAP_FILE[variants[0]]))
+    z, nz = load_nz(os.path.join(args.map_dir, "perm_0000", MAP_FILE[variants[0]]))
 
     results = {}
     for variant in variants:
