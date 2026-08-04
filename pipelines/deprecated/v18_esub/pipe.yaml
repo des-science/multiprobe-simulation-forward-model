@@ -1,3 +1,8 @@
+# DEPRECATED: v18 moved to packed-only submission (regular QOS, no esub) -- see
+# ../../v18/packed/submit.sh for grid_tfrecords/fiducial_tfrecords. cl_white_noise below has no
+# packed port and is not needed anymore (the Cls scale cut is now hard_rebinned); kept here purely
+# as historical record.
+#
 # this is meant for Perlmutter, not Euler
 #
 # v18 baseline = v17 (standard NLA, no bta, no ds map) with count based shape noise and the DES Y3
@@ -26,7 +31,7 @@
     --max_njobs=1000 --tasks="0>2500" --keep_submit_files \
     --job_name=tfr_grid_v18 \
     --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs --system=slurm \
-    --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=m5030,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # fiducial + finite-difference derivatives for the Fisher forecast (see header). 1000 permutations
@@ -40,7 +45,7 @@
     --max_njobs=1000 --tasks="0>1000" --keep_submit_files \
     --job_name=tfr_fidu_v18 \
     --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs --system=slurm \
-    --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=m5030,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # noise generation for the Cls (independent of the shape-noise model -- reusable, see header)

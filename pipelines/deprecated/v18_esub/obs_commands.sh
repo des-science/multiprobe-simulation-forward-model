@@ -1,3 +1,6 @@
+# DEPRECATED: v18 moved to packed-only submission (regular QOS, no esub) -- every arm below has a
+# packed equivalent in ../../v18/packed/submit_obs.sh. Kept here purely as historical record.
+#
 # this is meant for Perlmutter, not Euler
 #
 # NOTE: unlike v17, these obs products CANNOT be reused from v16/rot_in_place -- v18 changes the
@@ -15,7 +18,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --msfm_config=../../configs/v18/default.yaml \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
     --job_name="postproc_v18_bench_fidu" --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs \
-    --system=slurm --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --system=slurm --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # dark matter only
@@ -27,7 +30,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --msfm_config=../../configs/v18/mocks/dmo.yaml \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
     --job_name="postproc_v18_bench_fidu_dmo" --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs \
-    --system=slurm --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --system=slurm --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # N-body benchmark runs
@@ -40,7 +43,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --msfm_config=../../configs/v18/default.yaml \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
     --job_name="postproc_v18_bench_box" --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs \
-    --system=slurm --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --system=slurm --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # particle count
@@ -51,7 +54,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --msfm_config=../../configs/v18/default.yaml \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
     --job_name="postproc_v18_bench_particle" --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs \
-    --system=slurm --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --system=slurm --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # redshift resolution
@@ -62,7 +65,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --msfm_config=../../configs/v18/default.yaml \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
     --job_name="postproc_v18_bench_redshift" --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs \
-    --system=slurm --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --system=slurm --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # forward model modifications
@@ -82,7 +85,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
     --job_name="postproc_v18_sc_in_place" \
     --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs \
-    --system=slurm --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --system=slurm --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 esub ../../msfm/apps/run_single_postprocessing.py \
@@ -94,7 +97,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
     --job_name="postproc_v18_sc_no_sys" \
     --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs \
-    --system=slurm --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --system=slurm --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # the Gatti calibrated density modulation, a different shape-noise model entirely. Its bias is
@@ -109,7 +112,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
     --job_name="postproc_v18_sc_gatti" \
     --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs \
-    --system=slurm --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --system=slurm --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # eta in shells, for comparison with the fiducial
@@ -122,7 +125,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --msfm_config=../../configs/v18/default.yaml \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
     --job_name="postproc_v18_Aia=0.5,eta=1_shell" --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs \
-    --system=slurm --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --system=slurm --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 # debug ###############################################################################################################
@@ -136,5 +139,5 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --msfm_config=../../configs/v18/default.yaml \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
     --job_name="postproc_v18_grid" --log_dir=/pscratch/sd/a/athomsen/run_files/v18/esub_logs \
-    --system=slurm --source_file=../../pipelines/v18/perlmutter_setup.sh \
+    --system=slurm --source_file=../../pipelines/common/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"

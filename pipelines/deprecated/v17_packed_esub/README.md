@@ -1,3 +1,8 @@
+> **DEPRECATED.** Superseded by `../../v17/packed/` (adds mandatory `numactl` NUMA pinning,
+> discovered after this was written to matter ~4x, plus bandwidth-knee sizing instead of the
+> memory-capacity sizing below) and by the version-agnostic `../../common/packed/`. Kept here for
+> historical reference only -- do not use for new runs.
+
 # Packed regular-QOS run of the v17 baseline postprocessing
 
 Clean-start submission of the v17 baseline dataset (grid + fiducial) on `--qos=regular`
