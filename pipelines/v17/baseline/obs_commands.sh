@@ -5,7 +5,8 @@
 # /pscratch/sd/a/athomsen/dlss/data/v16/rot_in_place/obs (Clariden: data/v16/rot_in_place/obs)
 # instead of being regenerated. The commands below produce a self-contained v17 dataset; the
 # variant-forward-model benchmarks (dmo, source clustering) keep their v16 configs, since no v17
-# variants of those configs exist -- their outputs are bta-independent as well.
+# variants of those configs exist -- their outputs are bta-independent as well. The one exception is
+# the _source_clustering_fixed_sys arm below, which is new and has nothing to reuse.
 
 # systematics shift tests #############################################################################################
 
@@ -78,6 +79,24 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --msfm_config=../../configs/v16/sc_fixed.yaml \
     --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
     --job_name="postproc_v17_sc_fixed" \
+    --log_dir=/pscratch/sd/a/athomsen/run_files/v17/esub_logs \
+    --system=slurm --source_file=../../pipelines/v17/perlmutter_setup.sh \
+    --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
+
+# source clustering with the DES Y3 imaging systematics imprinted on the source density, i.e. the v18
+# shape-noise model. configs/v18/baseline.yaml differs from configs/v17/baseline.yaml in nothing but
+# the shape noise (same maps, same channels, same normalization), so this is a clean systematics
+# shift test against the v17 training set. The bias table is the one fit against this same
+# contaminated model (metacal_biases_desy3_v2_sys.h5, enforced by configuration.py), so b is not
+# absorbing the systematics: bin 4 is 1.98 here against 3.06 in the clean fit
+esub ../../msfm/apps/run_single_postprocessing.py \
+    --dir_in=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/benchmarks/fiducial_bench \
+    --dir_out=/pscratch/sd/a/athomsen/dlss/data/v17/baseline/obs \
+    --suffix_out="_source_clustering_fixed_sys" \
+    --with_lensing --with_clustering \
+    --msfm_config=../../configs/v18/baseline.yaml \
+    --mode=jobarray --function=all --tasks="0>20" --n_jobs=20 \
+    --job_name="postproc_v17_sc_fixed_sys" \
     --log_dir=/pscratch/sd/a/athomsen/run_files/v17/esub_logs \
     --system=slurm --source_file=../../pipelines/v17/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
