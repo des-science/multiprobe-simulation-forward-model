@@ -217,7 +217,6 @@ def main(indices, args):
     assert not conf["analysis"]["modelling"]["store_cross_maps"], "Cross maps are not implemented for the fiducial"
 
     extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
-    assert not extended_nla, "The extension to NLA has not been implemented yet"
 
     # B-mode information-loss study: additionally carry the metacal B-mode convergence through the lensing forward
     # model and store the extra cross-spectra that involve a B channel (see run_tfrecords_alm_to_cl_bmode)
@@ -271,7 +270,10 @@ def main(indices, args):
     LOGGER.info(f"There's {len(cosmo_pert_labels)} cosmological labels = {cosmo_pert_labels}")
 
     # separate label lists for astrophysics perturbations
-    ia_pert_labels = parameters.get_fiducial_perturbation_labels(conf["analysis"]["params"]["ia"]["nla"])[1:]
+    ia_params = list(conf["analysis"]["params"]["ia"]["nla"])
+    if extended_nla:
+        ia_params += conf["analysis"]["params"]["ia"]["tatt"]
+    ia_pert_labels = parameters.get_fiducial_perturbation_labels(ia_params)[1:]
     LOGGER.info(f"There's {len(ia_pert_labels)} intrinsic alignment labels = {ia_pert_labels}")
 
     bg_params = list(conf["analysis"]["params"]["bg"]["linear"])
@@ -370,6 +372,12 @@ def main(indices, args):
                     )
                     all_i_example = np.zeros((n_patches,), dtype=np.int32)
 
+                    # delta-NLA cross-term map: only ever nonzero at the true-fiducial cosmo dir (see
+                    # postprocessing.postprocess_fiducial_permutations), captured there and reused for every
+                    # cosmological perturbation, like tomo_m_bias and the shape noise
+                    all_ds = [None] * n_patches
+                    all_ds_b = [None] * n_patches
+
                     # power spectra
                     n_bins = n_metacal_bins + n_maglim_bins
                     n_cross_bins = n_bins * (n_bins + 1) // 2
@@ -450,6 +458,15 @@ def main(indices, args):
                             else:
                                 kg_b_in = ia_b_in = None
 
+                            # delta-NLA cross-term input; only populated by postprocess_fiducial_permutations at the
+                            # true-fiducial cosmo dir, captured into all_ds below and reused for other cosmo dirs
+                            if extended_nla and is_fiducial:
+                                ds_in = data_vec_container["ds"][i_patch]
+                                ds_b_in = data_vec_container["ds_b"][i_patch] if keep_b_mode else None
+                            else:
+                                ds_in = all_ds[i_patch]
+                                ds_b_in = all_ds_b[i_patch]
+
                             # astrophysics perturbations are calculated with respect to the fiducial cosmo params
                             if is_fiducial:
                                 # shape (n_noise_per_signal, n_pix, n_z_bins) load the shape noise realization
@@ -468,7 +485,11 @@ def main(indices, args):
                                     kg_b=kg_b_in,
                                     ia_b=ia_b_in,
                                     sn_b_samples=sn_b_samples_in,
+                                    ds=ds_in,
+                                    ds_b=ds_b_in,
                                 )
+                                all_ds[i_patch] = ds_in
+                                all_ds_b[i_patch] = ds_b_in
 
                                 # convert dg to galaxy number and draw the poisson noise realization
                                 dg, pn_samples, alm_dg, alm_pn = clustering_transform(
@@ -486,7 +507,7 @@ def main(indices, args):
                                 for i_ia, ia_pert_label in enumerate(ia_pert_labels):
                                     ia_perts[i_patch, i_ia], alm_ia, alm_ia_b = lensing_transform(
                                         kg_in, ia_in, ia_label=ia_pert_label, m_bias=tomo_m_bias[i_patch], np_seed=i_signal,
-                                        kg_b=kg_b_in, ia_b=ia_b_in,
+                                        kg_b=kg_b_in, ia_b=ia_b_in, ds=ds_in, ds_b=ds_b_in,
                                     )
                                     cl_ia_perts[i_patch, i_ia] = power_spectra.run_tfrecords_alm_to_cl(
                                         alm_ia, alm_sn, alm_dg, alm_pn
@@ -515,7 +536,7 @@ def main(indices, args):
                             else:
                                 kg, alm_kg, alm_kg_b = lensing_transform(
                                     kg_in, ia_in, ia_label="fiducial", m_bias=tomo_m_bias[i_patch], np_seed=i_signal,
-                                    kg_b=kg_b_in, ia_b=ia_b_in,
+                                    kg_b=kg_b_in, ia_b=ia_b_in, ds=ds_in, ds_b=ds_b_in,
                                 )
                                 dg, alm_dg = clustering_transform(dg_in, dg2_in, bg_label="fiducial", np_seed=i_signal)
 
@@ -623,8 +644,29 @@ def _data_vector_smoothing(dv, l_min, l_max, theta_fwhm, np_seed, conf, pixel_fi
 
 
 def _get_lensing_transform(conf, pixel_file):
+    extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
     tomo_Aia_perts_dict = parameters.get_tomo_amplitude_perturbations_dict("Aia", conf)
     metacal_mask = files.get_tomo_dv_masks(conf)["metacal"]
+
+    if extended_nla:
+        bta_fid = conf["analysis"]["fiducial"]["bta"]
+        delta_bta = conf["analysis"]["fiducial"]["perturbations"]["bta"]
+
+        # bta value per IA perturbation label; fiducial unless the label perturbs bta itself
+        bta_perts_dict = {label: bta_fid for label in tomo_Aia_perts_dict}
+        bta_perts_dict["delta_bta_m"] = bta_fid - delta_bta
+        bta_perts_dict["delta_bta_p"] = bta_fid + delta_bta
+
+        # Aia/n_Aia stay at their fiducial tomo-amplitude for the new bta perturbation labels
+        tomo_Aia_perts_dict["delta_bta_m"] = tomo_Aia_perts_dict["fiducial"]
+        tomo_Aia_perts_dict["delta_bta_p"] = tomo_Aia_perts_dict["fiducial"]
+
+        if conf["analysis"]["modelling"]["lensing"].get("b_mode_cls", False):
+            LOGGER.warning(
+                "b_mode_cls + extended_nla together is untested (no grid-side precedent); proceeding anyway"
+            )
+    else:
+        bta_perts_dict = None
 
     def lensing_smoothing(kg, np_seed):
         kg, alm = _data_vector_smoothing(
@@ -640,10 +682,14 @@ def _get_lensing_transform(conf, pixel_file):
 
         return kg, alm
 
-    def _lensing_channel(kg, ia, ia_label, m_bias):
+    def _lensing_channel(kg, ia, ia_label, m_bias, ds=None):
         """The IA combination + m-bias + mask applied identically to an E- or B-mode convergence data vector."""
         # important not to use +=, since then the array is transformed in place
-        kg = kg + tomo_Aia_perts_dict[ia_label] * ia
+        if extended_nla:
+            # first term of TATT (cross term), see run_grid_postprocessing.py; ds already contains the ia map
+            kg = kg + tomo_Aia_perts_dict[ia_label] * (ia + bta_perts_dict[ia_label] * ds)
+        else:
+            kg = kg + tomo_Aia_perts_dict[ia_label] * ia
 
         # multiplicative shear bias like on the grid; drawn once per example in main so that the fiducial and the
         # perturbations share the same value (the noise is not m-biased)
@@ -657,16 +703,18 @@ def _get_lensing_transform(conf, pixel_file):
         kg, ia, ia_label, m_bias, is_true_fiducial=False, sn_samples=None, np_seed=None,
         # B-mode convergence channel (B-mode Cls study); when kg_b is None the B outputs are returned as None
         kg_b=None, ia_b=None, sn_b_samples=None,
+        # delta-NLA cross-term maps (extended_nla only); ds_b parallels kg_b/ia_b for the B-mode study
+        ds=None, ds_b=None,
     ):
         assert bool(not is_true_fiducial) != bool(sn_samples is not None)
         keep_b_mode = kg_b is not None
         if keep_b_mode:
             assert (ia_b is not None) and (bool(not is_true_fiducial) != bool(sn_b_samples is not None))
 
-        kg = _lensing_channel(kg, ia, ia_label, m_bias)
+        kg = _lensing_channel(kg, ia, ia_label, m_bias, ds=ds)
         if keep_b_mode:
             # the B-mode convergence goes through the exact same IA combination + m-bias + mask (by linearity)
-            kg_b = _lensing_channel(kg_b, ia_b, ia_label, m_bias)
+            kg_b = _lensing_channel(kg_b, ia_b, ia_label, m_bias, ds=ds_b)
 
         # only smooth the shape noise and return the alms for the fiducial, not the perturbations
         if is_true_fiducial:

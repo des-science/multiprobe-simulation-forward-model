@@ -210,6 +210,7 @@ analysis:
       bary_nu: 0.1
       Aia: 0.1
       n_Aia: 0.2
+      bta: 0.1
       bg1: 0.1
       bg2: 0.1
       bg3: 0.1
