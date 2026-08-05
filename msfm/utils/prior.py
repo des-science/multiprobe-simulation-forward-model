@@ -13,7 +13,7 @@ from scipy.spatial import Delaunay, ConvexHull
 from scipy.optimize import fsolve
 from scipy.stats import norm
 
-from msfm.utils import files, parameters, logger, parameters
+from msfm.utils import files, parameters, logger
 
 LOGGER = logger.get_logger(__file__)
 
@@ -54,7 +54,7 @@ def in_grid_prior(cosmos, conf=None, params=None):
         i_Om = params.index("Om")
         i_s8 = params.index("s8")
     except ValueError:
-        LOGGER.debug(f"The hull prior is only checked when Om and s8 are included as parameters")
+        LOGGER.debug("The hull prior is only checked when Om and s8 are included as parameters")
     else:
         hull = Delaunay(conf["analysis"]["grid"]["priors"]["Om_s8_border_points"])
 
@@ -69,7 +69,7 @@ def in_grid_prior(cosmos, conf=None, params=None):
         i_Om = params.index("Om")
         i_w0 = params.index("w0")
     except ValueError:
-        LOGGER.debug(f"The w0 threshold is only checked if Om and w0 are included as parameters")
+        LOGGER.debug("The w0 threshold is only checked if Om and w0 are included as parameters")
     else:
         # check if we are above the w0 threshold (same as get_min_w0 with margin = 0.01)
         in_prior[in_prior] = 1.0 / (cosmos[in_prior, i_Om] - 1.0) + 0.01 <= cosmos[in_prior, i_w0]

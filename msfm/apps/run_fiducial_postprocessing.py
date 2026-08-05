@@ -1093,4 +1093,4 @@ def merge(indices, args):
         f.create_dataset("i_signal", data=i_examples)
         f.create_dataset("i_noise", data=i_noise)
 
-    LOGGER.info(f"Done with merging of the fiducial power spectra")
+    LOGGER.info("Done with merging of the fiducial power spectra")

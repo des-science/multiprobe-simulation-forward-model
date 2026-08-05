@@ -247,7 +247,7 @@ def run_tfrecords_alm_to_cl(alm_kg, alm_sn_realz, alm_dg, alm_pn_realz):
         raise ValueError("Both alm_sn_realz and alm_pn_realz are None")
 
     if alm_sn_realz is not None and alm_pn_realz is not None:
-        assert alm_sn_realz.shape[0] == alm_pn_realz.shape[0], f"alm_sn_realz and alm_pn_realz have different lengths"
+        assert alm_sn_realz.shape[0] == alm_pn_realz.shape[0], "alm_sn_realz and alm_pn_realz have different lengths"
 
     cls = []
     for i_noise in range(n_noise_per_signal):

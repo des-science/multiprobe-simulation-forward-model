@@ -232,7 +232,7 @@ def main(indices, args):
                 i_sobol = int(match.group(1))
                 tomo_bg_metacal = files.read_metacal_bias(f"cosmo_{i_sobol:06}", conf=msfm_conf)
             elif "/fiducial/" in perm_dir or "benchmark" in perm_dir:
-                tomo_bg_metacal = files.read_metacal_bias(f"fiducial", conf=msfm_conf)
+                tomo_bg_metacal = files.read_metacal_bias("fiducial", conf=msfm_conf)
             else:
                 raise ValueError(
                     f"Cannot determine metacal bias key from perm_dir={perm_dir!r}: expected '/grid/' or '/fiducial/'/'benchmark' in path"
@@ -250,7 +250,7 @@ def main(indices, args):
         obs_maps = []
         obs_cls_raw = []
         for i_patch in LOGGER.progressbar(
-            range(msfm_conf["analysis"]["n_patches"]), desc=f"loop through patches\n", at_level="info"
+            range(msfm_conf["analysis"]["n_patches"]), desc="loop through patches\n", at_level="info"
         ):
             if args.debug and i_patch > 0:
                 LOGGER.warning("Debug mode: only processing the first patch")
@@ -346,4 +346,4 @@ def merge(indices, args):
     for index in indices:
         in_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps_{index:04}.h5")
         os.remove(in_file)
-    LOGGER.info(f"Removed temporary files")
+    LOGGER.info("Removed temporary files")

@@ -399,7 +399,7 @@ def main(indices, args):
                             tomo_qbg = None
                         tomo_bg = np.array([bg1, bg2, bg3, bg4])
                     else:
-                        raise ValueError(f"Unsupported configuration of clustering bias")
+                        raise ValueError("Unsupported configuration of clustering bias")
 
                     kg, sn_samples, alm_kg, alm_sn_samples = (
                         lensing_transform(kg, ia, ds, sn_samples, Aia, n_Aia, bta, np_seed=i_sobol + i_signal)
@@ -615,7 +615,7 @@ def _get_clustering_transform(conf, pixel_file):
     ):
         assert (not quadratic_biasing and ((qdg is None) or (tomo_qdg is None))) or (
             quadratic_biasing and (qdg is not None) and (tomo_qdg is not None)
-        ), f"The galaxy biasing setup must be consistent"
+        ), "The galaxy biasing setup must be consistent"
         LOGGER.debug(f"Per z bin linear bias = {tomo_bg}")
 
         if quadratic_biasing:
@@ -838,4 +838,4 @@ def merge(indices, args):
             f["i_signal"][i] = i_signal
             f["i_noise"][i] = i_noise
 
-    LOGGER.info(f"Done with merging of the grid power spectra")
+    LOGGER.info("Done with merging of the grid power spectra")

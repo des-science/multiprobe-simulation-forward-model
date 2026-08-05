@@ -110,7 +110,7 @@ def mode_removal(
     # kappa: alm -> map
     if apply_smoothing:
         assert not keep_b_mode, "keep_b_mode is not supported with the deprecated in-mode-removal smoothing"
-        LOGGER.warning(f"Double check what you're doing, smoothing within the mode removal has been deprecated")
+        LOGGER.warning("Double check what you're doing, smoothing within the mode removal has been deprecated")
         if make_grf:
             kappa_patch = scales.alm_to_grf_map(kappa_alm, l_min, l_max, n_side, np_seed)
         else:

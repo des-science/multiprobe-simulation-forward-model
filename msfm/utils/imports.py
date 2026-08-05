@@ -27,7 +27,7 @@ def import_healpy(parallel=False):
         try:
             n_cpus = len(os.sched_getaffinity(0))
         except AttributeError:
-            LOGGER.debug(f"os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
+            LOGGER.debug("os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
             n_cpus = os.cpu_count()
 
         os.environ["OMP_NUM_THREADS"] = str(n_cpus)

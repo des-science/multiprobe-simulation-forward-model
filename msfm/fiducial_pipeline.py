@@ -66,7 +66,7 @@ class FiducialPipeline(MSFMpipeline):
                 tf.Variable to change it according to a schedule during training. Set to None to not include any shape
                 noise. Defaults to 1.0.
             poisson_noise_scale (float, optional): Factor by which to multiply the Poisson noise. This could also be a
-                tf.Variable to change it according to a schedule during training. Set to None to not include any 
+                tf.Variable to change it according to a schedule during training. Set to None to not include any
                 Poisson noise. Defaults to 1.0.
         """
         super().__init__(
@@ -178,13 +178,13 @@ class FiducialPipeline(MSFMpipeline):
             examples_shuffle_seed = None
 
             LOGGER.warning(
-                f"Evaluation mode is activated: the random seed is fixed, the shuffle arguments ignored, and the "
-                f"dataset is not repeated"
+                "Evaluation mode is activated: the random seed is fixed, the shuffle arguments ignored, and the "
+                "dataset is not repeated"
             )
 
         # parallelization
         if n_workers is None:
-            LOGGER.info(f"n_workers is not set, using tf.data.AUTOTUNE. This might produce unexpected RAM usage.")
+            LOGGER.info("n_workers is not set, using tf.data.AUTOTUNE. This might produce unexpected RAM usage.")
             n_file_workers = tf.data.AUTOTUNE
             n_parse_workers = tf.data.AUTOTUNE
             n_augment_workers = tf.data.AUTOTUNE
@@ -229,7 +229,7 @@ class FiducialPipeline(MSFMpipeline):
 
             # Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2
             dset = dset.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
-            LOGGER.info(f"Sharding the dataset over the .tfrecord files according to the input context")
+            LOGGER.info("Sharding the dataset over the .tfrecord files according to the input context")
 
         # repeat and shuffle the files
         if not is_eval and not is_cached:
@@ -274,9 +274,9 @@ class FiducialPipeline(MSFMpipeline):
         if is_cached:
             dset = dset.cache()
             dset = dset.repeat()
-            LOGGER.warning(f"Caching the dataset")
+            LOGGER.warning("Caching the dataset")
             # TODO
-            LOGGER.error(f"CACHING SEEMS TO PRODUCE BUGGY BEHAVIOR")
+            LOGGER.error("CACHING SEEMS TO PRODUCE BUGGY BEHAVIOR")
 
         # map a single example to len(noise_indices) examples corresponding to different noise realizations
         # NOTE that interleaving with cycle_lengths > 1 doesn't improve performance, so we use flat_map
@@ -383,7 +383,7 @@ class FiducialPipeline(MSFMpipeline):
         Returns:
             tuple: (out_tensor, index) the elements of the dataset, where index is a tuple (i_example, i_noise).
         """
-        LOGGER.warning(f"Tracing _augmentations")
+        LOGGER.warning("Tracing _augmentations")
         LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
 
         # to be explicit
@@ -405,10 +405,10 @@ class FiducialPipeline(MSFMpipeline):
                     map_tensor = self._clustering_augmentations(data_vectors)
 
                 else:
-                    raise ValueError(f"At least one of 'lensing' or 'clustering' maps need to be selected")
+                    raise ValueError("At least one of 'lensing' or 'clustering' maps need to be selected")
 
                 if not self.with_padding:
-                    LOGGER.info(f"Removing the padding")
+                    LOGGER.info("Removing the padding")
                     map_tensor = tf.boolean_mask(map_tensor, self.mask_total, axis=1)
 
                 # potentially discard the unwanted redshift bins
@@ -452,7 +452,7 @@ class FiducialPipeline(MSFMpipeline):
                 correspond to the fiducial value, the second to the first perturbation, the third to the second
                 perturbation, etc. (for compatibility with the delta loss).
         """
-        LOGGER.warning(f"Tracing _lensing_augmentations")
+        LOGGER.warning("Tracing _lensing_augmentations")
 
         # shape noise
         sn = data_vectors.pop("sn")
@@ -462,7 +462,7 @@ class FiducialPipeline(MSFMpipeline):
             # galaxy bias perturbations
             if "bg" in label:
                 # doesn't affect the convergence map
-                data_vector = data_vectors[f"kg_fiducial"]
+                data_vector = data_vectors["kg_fiducial"]
 
             # cosmology + intrinsic alignment perturbations
             else:
@@ -478,13 +478,13 @@ class FiducialPipeline(MSFMpipeline):
                 # broadcast axis 0 of size n_pix
                 data_vector *= 1.0 + m_bias
             else:
-                LOGGER.warning(f"No multiplicative shear bias is applied")
+                LOGGER.warning("No multiplicative shear bias is applied")
 
             # shape noise
             if self.shape_noise_scale is not None:
                 data_vector += self.shape_noise_scale * sn
             else:
-                LOGGER.warning(f"No shape noise is added to the lensing maps")
+                LOGGER.warning("No shape noise is added to the lensing maps")
 
             # normalization
             if self.apply_norm:
@@ -513,7 +513,7 @@ class FiducialPipeline(MSFMpipeline):
                 correspond to the fiducial value, the second to the first perturbation, the third to the second
                 perturbation, etc. (for compatibility with the delta loss).
         """
-        LOGGER.warning(f"Tracing _clustering_augmentations")
+        LOGGER.warning("Tracing _clustering_augmentations")
 
         # poisson noise
         pn = data_vectors.pop("pn")
@@ -523,7 +523,7 @@ class FiducialPipeline(MSFMpipeline):
             # intrinsic alignemnt perturbations
             if "Aia" in label:
                 # doesn't affect the clustering map
-                data_vector = data_vectors[f"dg_fiducial"]
+                data_vector = data_vectors["dg_fiducial"]
             # cosmology perturbations
             else:
                 data_vector = data_vectors[f"dg_{label}"]
@@ -532,7 +532,7 @@ class FiducialPipeline(MSFMpipeline):
             if self.poisson_noise_scale is not None:
                 data_vector += self.poisson_noise_scale * pn
             else:
-                LOGGER.warning(f"No poisson noise is added to the clustering maps")
+                LOGGER.warning("No poisson noise is added to the clustering maps")
 
             # normalization
             if self.apply_norm:

@@ -57,7 +57,7 @@ def print_and_check_modeling_in_config(conf):
             LOGGER.info(f"{key} = {value}")
 
     if conf["analysis"]["modelling"]["degrade_to_grf"]:
-        LOGGER.warning(f"Degrading to Gaussian Random Field")
+        LOGGER.warning("Degrading to Gaussian Random Field")
 
     # lensing
     conf_lensing = conf["analysis"]["modelling"]["lensing"]

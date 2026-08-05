@@ -93,7 +93,7 @@ def get_peaks(
         ), f"For per tomographic bin smoothing scales, the length of theta_fwhm must be {n_z_bins}."
         assert all(
             len(theta_fwhm[0]) == len(sublist) for sublist in theta_fwhm
-        ), f"For per tomographic bin smoothing scales, all bins need the same number of scales."
+        ), "For per tomographic bin smoothing scales, all bins need the same number of scales."
 
     peaks = []
     for i in range(n_z_bins):
@@ -156,7 +156,7 @@ def get_peaks(
                     bin_centers = bins_centers[f"{i}x{j}"]
 
                 else:
-                    raise ValueError(f"either binning_file or bins_centers and bins_edges must be provided.")
+                    raise ValueError("either binning_file or bins_centers and bins_edges must be provided.")
 
                 # result
                 summary.set_binning_scheme(bin_centers, bin_edges, statistic="CrossPeaks", bin=n_bins)

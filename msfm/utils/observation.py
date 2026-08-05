@@ -20,7 +20,6 @@ from msfm.utils import (
     filenames,
     redshift,
     clustering,
-    lensing,
 )
 from typing import Union
 
@@ -87,7 +86,7 @@ def forward_model_observation_map(
             2,
         ), f"Expected shape {(n_pix, n_z_metacal, 2)}, got {wl_gamma_map.shape}"
 
-        LOGGER.info(f"Forward modeling the weak lensing map")
+        LOGGER.info("Forward modeling the weak lensing map")
 
         wl_gamma_map *= masks_metacal[:, :, np.newaxis]
 
@@ -137,7 +136,7 @@ def forward_model_observation_map(
             n_z_maglim,
         ), f"Expected shape {(n_pix, n_z_maglim)}, got {gc_count_map.shape}"
 
-        LOGGER.info(f"Forward modeling the galaxy clustering map")
+        LOGGER.info("Forward modeling the galaxy clustering map")
 
         gc_count_map *= masks_maglim
 
@@ -263,7 +262,7 @@ def forward_model_cosmogrid(
     LOGGER.info(f"Loading the full-sky map from {map_file}")
     with h5py.File(map_file, "r") as f:
         if with_lensing:
-            LOGGER.info(f"Starting with the weak lensing map")
+            LOGGER.info("Starting with the weak lensing map")
             LOGGER.timer.start("weak_lensing")
 
             metacal_mask = files.get_tomo_dv_masks(conf)["metacal"]
@@ -537,7 +536,7 @@ def forward_model_cosmogrid(
             wl_gamma_patch = None
 
         if with_clustering:
-            LOGGER.info(f"Starting with the galaxy clustering map")
+            LOGGER.info("Starting with the galaxy clustering map")
             LOGGER.timer.start("galaxy_clustering")
 
             maglim_bins = conf["survey"]["maglim"]["z_bins"]

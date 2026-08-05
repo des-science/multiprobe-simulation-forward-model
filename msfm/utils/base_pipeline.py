@@ -50,7 +50,7 @@ class MSFMpipeline:
             params (list): List of the cosmological parameters of interest. Fiducial: perturbations, grid: labels.
             with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
             with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
-            with_cross (bool, optional): Whether to include the cross-correlation between lensing and clustering. 
+            with_cross (bool, optional): Whether to include the cross-correlation between lensing and clustering.
                 Defaults to False.
             apply_norm (bool, optional): Whether to rescale the maps to approximate unit range. Defaults to True.
             with_padding (bool, optional): Whether to include the padding of the data vectors (the healpy DeepSphere \
@@ -65,7 +65,7 @@ class MSFMpipeline:
                 tf.Variable to change it according to a schedule during training. Set to None to not include any shape
                 noise. Defaults to 1.0.
             poisson_noise_scale (float, optional): Factor by which to multiply the Poisson noise. This could also be a
-                tf.Variable to change it according to a schedule during training. Set to None to not include any 
+                tf.Variable to change it according to a schedule during training. Set to None to not include any
                 Poisson noise. Defaults to 1.0.
         """
         # general constants
@@ -77,7 +77,7 @@ class MSFMpipeline:
         self.shape_noise_scale = shape_noise_scale
         self.poisson_noise_scale = poisson_noise_scale
         if self.shape_noise_scale != 1.0 or self.poisson_noise_scale != 1.0:
-            LOGGER.warning(f"The noise scaling is only implemented for the maps, not the power spectra")
+            LOGGER.warning("The noise scaling is only implemented for the maps, not the power spectra")
         self.with_padding = with_padding
         if isinstance(z_bin_inds, (list, np.ndarray, tf.Tensor)):
             self.z_bin_inds = tf.constant(z_bin_inds, dtype=tf.int32)

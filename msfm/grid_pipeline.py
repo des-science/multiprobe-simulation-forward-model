@@ -50,7 +50,7 @@ class GridPipeline(MSFMpipeline):
             params (list): List of the cosmological parameters of interest. Fiducial: perturbations, grid: labels.
             with_lensing (bool, optional): Whether to include the kappa maps. Defaults to True.
             with_clustering (bool, optional): Whether to include the delta maps. Defaults to True.
-            with_cross (bool, optional): Whether to include the cross-correlation between lensing and clustering. 
+            with_cross (bool, optional): Whether to include the cross-correlation between lensing and clustering.
                 Defaults to False.
             apply_norm (bool, optional): Whether to rescale the maps to approximate unit range. Defaults to True.
             with_padding (bool, optional): Whether to include the padding of the data vectors (the healpy DeepSphere \
@@ -198,7 +198,7 @@ class GridPipeline(MSFMpipeline):
 
         # parallelization
         if n_workers is None:
-            LOGGER.info(f"n_workers is not set, using tf.data.AUTOTUNE. This might produce unexpected RAM usage.")
+            LOGGER.info("n_workers is not set, using tf.data.AUTOTUNE. This might produce unexpected RAM usage.")
             n_file_workers = tf.data.AUTOTUNE
             n_parse_workers = tf.data.AUTOTUNE
             n_augment_workers = tf.data.AUTOTUNE
@@ -236,7 +236,7 @@ class GridPipeline(MSFMpipeline):
 
             # Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2
             dset = dset.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
-            LOGGER.info(f"Sharding the dataset over the .tfrecord files according to the input context")
+            LOGGER.info("Sharding the dataset over the .tfrecord files according to the input context")
 
         # repeat and shuffle the files
         if not is_eval:
@@ -246,8 +246,8 @@ class GridPipeline(MSFMpipeline):
 
         # interleave, block_length is the number of files every reader reads
         if local_batch_size == "cosmo":
-            assert n_readers == 1, f"Can only read from a single file concurrently when local_batch_size = 'cosmo'"
-            assert is_eval, f"The 'cosmo' batching is only for validation"
+            assert n_readers == 1, "Can only read from a single file concurrently when local_batch_size = 'cosmo'"
+            assert is_eval, "The 'cosmo' batching is only for validation"
 
         if signal_indices is not None:
 
@@ -307,7 +307,7 @@ class GridPipeline(MSFMpipeline):
         # batch (first, for vectorization)
         if local_batch_size == "cosmo":
             local_batch_size = len(signal_indices) * len(noise_indices)
-            LOGGER.info(f"The dset is batched by cosmology")
+            LOGGER.info("The dset is batched by cosmology")
         dset = dset.batch(local_batch_size, drop_remainder=drop_remainder)
         LOGGER.info(f"Batching into {local_batch_size} elements locally")
 
@@ -424,7 +424,7 @@ class GridPipeline(MSFMpipeline):
             (batch_size, n_pix, n_z_metacal + n_z_maglim), cosmo is a label distributed on the Sobol sequence and index
             is a tuple containing (i_sobol, i_signal, i_noise).
         """
-        LOGGER.warning(f"Tracing _augmentations")
+        LOGGER.warning("Tracing _augmentations")
         LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
 
         # to be explicit
@@ -471,7 +471,7 @@ class GridPipeline(MSFMpipeline):
                     map_tensor = tf.concat([data_vectors["kg"], data_vectors["dg"]], axis=-1)
 
                 if not self.with_padding:
-                    LOGGER.info(f"Removing the padding")
+                    LOGGER.info("Removing the padding")
                     map_tensor = tf.boolean_mask(map_tensor, self.mask_total, axis=1)
 
                 # potentially discard the unwanted redshift bins

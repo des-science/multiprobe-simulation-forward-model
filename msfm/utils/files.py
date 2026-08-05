@@ -424,7 +424,7 @@ def load_noise_file(conf=None):
             gamma_cat = f[f"{z_bin}/cat"][:]
 
             tomo_gamma_cat.append(gamma_cat)
-    LOGGER.info(f"Loaded the noise file")
+    LOGGER.info("Loaded the noise file")
 
     return tomo_gamma_cat
 

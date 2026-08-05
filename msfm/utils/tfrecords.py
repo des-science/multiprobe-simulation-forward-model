@@ -215,7 +215,7 @@ def parse_inverse_grid(
             _parse_and_reshape_cls(
                 output_data,
                 serialized_data,
-                f"cls",
+                "cls",
                 f"cl_{i}",
                 n_noise,
                 n_cls,

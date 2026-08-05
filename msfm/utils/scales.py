@@ -290,7 +290,7 @@ def map_to_smoothed_map(
         elif isinstance(l_min, list) and isinstance(theta_fwhm, list):
             assert n_z == len(l_min) == len(theta_fwhm)
         else:
-            raise ValueError(f"For tomographic inputs, l_min and l_max or theta_fwhm must be lists of length n_z_bins")
+            raise ValueError("For tomographic inputs, l_min and l_max or theta_fwhm must be lists of length n_z_bins")
 
         alms = []
         for i_z in range(n_z):
@@ -471,7 +471,7 @@ def data_vector_to_grf_data_vector(
         elif isinstance(l_min, list) and isinstance(theta_fwhm, list):
             assert n_z == len(l_min) == len(theta_fwhm)
         else:
-            raise ValueError(f"For tomographic inputs, l_min and l_max or theta_fwhm must be lists of length n_z_bins")
+            raise ValueError("For tomographic inputs, l_min and l_max or theta_fwhm must be lists of length n_z_bins")
 
         alms = []
         for i_z in range(n_z):
