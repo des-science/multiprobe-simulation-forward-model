@@ -308,7 +308,15 @@ def postprocess_metacal_bin(
     elif in_map_type == "dg" and out_map_type == "sn":
         # shape (n_patches, n_noise_per_signal, data_vec_len)
         kappa_dvs = postprocess_shape_noise(
-            full_sky_map, conf, simset, pixel_file, noise_file, i_z, bgs_key, i_perm, bsc_samples,
+            full_sky_map,
+            conf,
+            simset,
+            pixel_file,
+            noise_file,
+            i_z,
+            bgs_key,
+            i_perm,
+            bsc_samples,
             keep_b_mode=keep_b_mode,
         )
     elif in_map_type == "dg" and out_map_type == "ds":
@@ -412,7 +420,16 @@ def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z, keep_b_mode=False
 
 
 def postprocess_shape_noise(
-    delta_full_sky, conf, simset, pixel_file, noise_file, i_z, bgs_key, i_perm=None, bsc_samples=None, keep_b_mode=False
+    delta_full_sky,
+    conf,
+    simset,
+    pixel_file,
+    noise_file,
+    i_z,
+    bgs_key,
+    i_perm=None,
+    bsc_samples=None,
+    keep_b_mode=False,
 ):
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
@@ -486,9 +503,7 @@ def postprocess_shape_noise(
             var_ref = lensing.shape_noise_variance_map(gamma_abs_np, w, pix_cat, n_pix)
 
     kappa_dvs = np.zeros((n_patches, n_noise_per_signal, data_vec_len), dtype=np.float32)
-    kappa_dvs_b = (
-        np.zeros((n_patches, n_noise_per_signal, data_vec_len), dtype=np.float32) if keep_b_mode else None
-    )
+    kappa_dvs_b = np.zeros((n_patches, n_noise_per_signal, data_vec_len), dtype=np.float32) if keep_b_mode else None
     for i_patch, patch_pix in enumerate(patches_pix):
         # one seed per noise realization of this patch, so that the training set is reproducible
         seeds = [_shape_noise_seed(simset, bgs_key, i_perm, i_patch, i_z, i) for i in range(n_noise_per_signal)]
@@ -534,9 +549,9 @@ def postprocess_shape_noise(
                 f_sc = lensing.source_clustering_factor(delta_full_sky_norm[patch_pix], b_sc)
 
                 # per metacal bin (corr_variance, A_corr, coeff_kurtosis), no-op (1, 1, 0) by default
-                corr_variance, A_corr, coeff_kurtosis = files.read_sc_calibration(
-                    conf, np.full(n_z_metacal, b_sc)
-                )[i_z]
+                corr_variance, A_corr, coeff_kurtosis = files.read_sc_calibration(conf, np.full(n_z_metacal, b_sc))[
+                    i_z
+                ]
                 mod = f_sc / np.sqrt(A_corr * corr_variance)
                 if coeff_kurtosis != 0:
                     # a negative coeff_kurtosis can drive (1 + coeff_kurtosis * var_ref) below zero on

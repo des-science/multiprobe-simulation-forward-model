@@ -9,7 +9,6 @@ import os, sys, logging, time, datetime
 
 from tqdm import tqdm
 
-
 logging_levels = {
     "critical": logging.CRITICAL,
     "error": logging.ERROR,

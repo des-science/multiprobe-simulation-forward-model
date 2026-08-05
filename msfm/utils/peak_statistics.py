@@ -2,7 +2,7 @@
 Created in December 2023
 Author: Arne Thomsen
 
-Tools to handle the calculate peaks consistent with the forward modeled maps. These are based off 
+Tools to handle the calculate peaks consistent with the forward modeled maps. These are based off
 https://github.com/des-science/y3-combined-peaks
 By Virginia Ajani. The two classes from estats by Dominik Zürcher can be found in
 https://cosmo-gitlab.phys.ethz.ch/cosmo_public/estats/-/blob/master/estats/map.py

@@ -234,7 +234,9 @@ def main(indices, args):
             elif "/fiducial/" in perm_dir or "benchmark" in perm_dir:
                 tomo_bg_metacal = files.read_metacal_bias(f"fiducial", conf=msfm_conf)
             else:
-                raise ValueError(f"Cannot determine metacal bias key from perm_dir={perm_dir!r}: expected '/grid/' or '/fiducial/'/'benchmark' in path")
+                raise ValueError(
+                    f"Cannot determine metacal bias key from perm_dir={perm_dir!r}: expected '/grid/' or '/fiducial/'/'benchmark' in path"
+                )
         elif bias == "prior":
             # count+prior or gatti+prior: sample bsc from the prior (assigned per patch below)
             sc_prior = parameters.get_prior_intervals(["bsc"], conf=msfm_conf)

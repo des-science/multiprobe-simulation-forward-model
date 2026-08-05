@@ -506,15 +506,27 @@ def main(indices, args):
                                 # intrinsic alignment perturbations
                                 for i_ia, ia_pert_label in enumerate(ia_pert_labels):
                                     ia_perts[i_patch, i_ia], alm_ia, alm_ia_b = lensing_transform(
-                                        kg_in, ia_in, ia_label=ia_pert_label, m_bias=tomo_m_bias[i_patch], np_seed=i_signal,
-                                        kg_b=kg_b_in, ia_b=ia_b_in, ds=ds_in, ds_b=ds_b_in,
+                                        kg_in,
+                                        ia_in,
+                                        ia_label=ia_pert_label,
+                                        m_bias=tomo_m_bias[i_patch],
+                                        np_seed=i_signal,
+                                        kg_b=kg_b_in,
+                                        ia_b=ia_b_in,
+                                        ds=ds_in,
+                                        ds_b=ds_b_in,
                                     )
                                     cl_ia_perts[i_patch, i_ia] = power_spectra.run_tfrecords_alm_to_cl(
                                         alm_ia, alm_sn, alm_dg, alm_pn
                                     )
                                     if keep_b_mode:
                                         cl_bmode_ia_perts[i_patch, i_ia] = power_spectra.run_tfrecords_alm_to_cl_bmode(
-                                            alm_ia, alm_sn, alm_dg, alm_pn, alm_ia_b, alm_sn_b,
+                                            alm_ia,
+                                            alm_sn,
+                                            alm_dg,
+                                            alm_pn,
+                                            alm_ia_b,
+                                            alm_sn_b,
                                             cl_reference=cl_ia_perts[i_patch, i_ia],
                                         )
 
@@ -528,15 +540,27 @@ def main(indices, args):
                                     )
                                     if keep_b_mode:
                                         cl_bmode_bg_perts[i_patch, i_bg] = power_spectra.run_tfrecords_alm_to_cl_bmode(
-                                            alm_kg, alm_sn, alm_bg, alm_pn, alm_kg_b, alm_sn_b,
+                                            alm_kg,
+                                            alm_sn,
+                                            alm_bg,
+                                            alm_pn,
+                                            alm_kg_b,
+                                            alm_sn_b,
                                             cl_reference=cl_bg_perts[i_patch, i_bg],
                                         )
 
                             # cosmological perturbations
                             else:
                                 kg, alm_kg, alm_kg_b = lensing_transform(
-                                    kg_in, ia_in, ia_label="fiducial", m_bias=tomo_m_bias[i_patch], np_seed=i_signal,
-                                    kg_b=kg_b_in, ia_b=ia_b_in, ds=ds_in, ds_b=ds_b_in,
+                                    kg_in,
+                                    ia_in,
+                                    ia_label="fiducial",
+                                    m_bias=tomo_m_bias[i_patch],
+                                    np_seed=i_signal,
+                                    kg_b=kg_b_in,
+                                    ia_b=ia_b_in,
+                                    ds=ds_in,
+                                    ds_b=ds_b_in,
                                 )
                                 dg, alm_dg = clustering_transform(dg_in, dg2_in, bg_label="fiducial", np_seed=i_signal)
 
@@ -547,8 +571,12 @@ def main(indices, args):
                             )
                             if keep_b_mode:
                                 cl_bmode_perts[i_patch, i_cosmo] = power_spectra.run_tfrecords_alm_to_cl_bmode(
-                                    alm_kg, all_alm_sn[i_patch], alm_dg, all_alm_pn[i_patch],
-                                    alm_kg_b, all_alm_sn_b[i_patch],
+                                    alm_kg,
+                                    all_alm_sn[i_patch],
+                                    alm_dg,
+                                    all_alm_pn[i_patch],
+                                    alm_kg_b,
+                                    all_alm_sn_b[i_patch],
                                     cl_reference=cl_perts[i_patch, i_cosmo],
                                 )
 
@@ -700,11 +728,20 @@ def _get_lensing_transform(conf, pixel_file):
         return kg
 
     def lensing_transform(
-        kg, ia, ia_label, m_bias, is_true_fiducial=False, sn_samples=None, np_seed=None,
+        kg,
+        ia,
+        ia_label,
+        m_bias,
+        is_true_fiducial=False,
+        sn_samples=None,
+        np_seed=None,
         # B-mode convergence channel (B-mode Cls study); when kg_b is None the B outputs are returned as None
-        kg_b=None, ia_b=None, sn_b_samples=None,
+        kg_b=None,
+        ia_b=None,
+        sn_b_samples=None,
         # delta-NLA cross-term maps (extended_nla only); ds_b parallels kg_b/ia_b for the B-mode study
-        ds=None, ds_b=None,
+        ds=None,
+        ds_b=None,
     ):
         assert bool(not is_true_fiducial) != bool(sn_samples is not None)
         keep_b_mode = kg_b is not None
@@ -907,7 +944,9 @@ def _serialize_and_verify(
 
     # verify
     inv_tfr = tfrecords.parse_inverse_fiducial(
-        serialized, cosmo_pert_labels + ia_pert_labels + bg_pert_labels, range(n_noise_per_signal),
+        serialized,
+        cosmo_pert_labels + ia_pert_labels + bg_pert_labels,
+        range(n_noise_per_signal),
         with_bmode=keep_b_mode,
     )
 
@@ -937,15 +976,9 @@ def _serialize_and_verify(
 
     # B-mode power spectra (parallel field, plain reshape, no cross-bin gather)
     if keep_b_mode:
-        inv_cl_bmode_perts = tf.stack(
-            [inv_tfr[f"cl_bmode_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0
-        )
-        inv_cl_bmode_ia_perts = tf.stack(
-            [inv_tfr[f"cl_bmode_{pert_label}"] for pert_label in ia_pert_labels], axis=0
-        )
-        inv_cl_bmode_bg_perts = tf.stack(
-            [inv_tfr[f"cl_bmode_{pert_label}"] for pert_label in bg_pert_labels], axis=0
-        )
+        inv_cl_bmode_perts = tf.stack([inv_tfr[f"cl_bmode_{pert_label}"] for pert_label in cosmo_pert_labels], axis=0)
+        inv_cl_bmode_ia_perts = tf.stack([inv_tfr[f"cl_bmode_{pert_label}"] for pert_label in ia_pert_labels], axis=0)
+        inv_cl_bmode_bg_perts = tf.stack([inv_tfr[f"cl_bmode_{pert_label}"] for pert_label in bg_pert_labels], axis=0)
         assert np.allclose(inv_cl_bmode_perts, cl_bmode_perts)
         assert np.allclose(inv_cl_bmode_ia_perts, cl_bmode_ia_perts)
         assert np.allclose(inv_cl_bmode_bg_perts, cl_bmode_bg_perts)

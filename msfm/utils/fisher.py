@@ -30,11 +30,11 @@ All the linear-algebra choices (Hartlap debiasing, correlation-matrix-normalized
 S8/FoM error propagation, Gaussian priors) live here; the `run_fisher_forecast` app is a thin driver
 over a YAML spec.
 """
+
 import numpy as np
 import h5py
 
 from msfm.utils import parameters
-
 
 # Block registry: block name -> (covariance dataset in fiducial_cls.h5, jacobian dataset in inputs.h5).
 # A block's covariance dataset has shape (n_real, n_bins, n_col); its jacobian dataset (n_lab, n_bins,
@@ -145,7 +145,7 @@ def s8_propagation(cov_param, params, fiducials, om_name="Om", s8_name="s8", om_
     """sigma(S8) and the Om-S8 FoM from the marginalized (Om, s8) block. S8 = s8 * (Om/0.3)^0.5."""
     iOm, is8 = params.index(om_name), params.index(s8_name)
     Om, s8 = fiducials[iOm], fiducials[is8]
-    dS8_dOm = 0.5 * s8 * om_pivot ** -0.5 * Om ** -0.5
+    dS8_dOm = 0.5 * s8 * om_pivot**-0.5 * Om**-0.5
     dS8_ds8 = (Om / om_pivot) ** 0.5
     C2 = cov_param[np.ix_([iOm, is8], [iOm, is8])]
     g = np.array([dS8_dOm, dS8_ds8])
@@ -156,8 +156,9 @@ def s8_propagation(cov_param, params, fiducials, om_name="Om", s8_name="s8", om_
     return np.sqrt(var_S8), fom, np.sqrt(C2[0, 0]), np.sqrt(C2[1, 1])
 
 
-def run_forecast(cov_h5, jac_h5, blocks, conf=None, priors=False, hartlap=True, normalize=True,
-                 block_defs=BLOCKS_DEFAULT):
+def run_forecast(
+    cov_h5, jac_h5, blocks, conf=None, priors=False, hartlap=True, normalize=True, block_defs=BLOCKS_DEFAULT
+):
     """End-to-end single forecast -> dict of Fisher matrix, marginalized sigmas, S8/FoM, diagnostics.
 
     conf is only needed when priors=True (for the flat-prior widths). params/labels/offsets/fiducials
@@ -179,7 +180,18 @@ def run_forecast(cov_h5, jac_h5, blocks, conf=None, priors=False, hartlap=True, 
     sig = np.sqrt(np.diag(Cp))
     sS8, fom, sOm, ss8 = s8_propagation(Cp, params, fiducials)
     return dict(
-        blocks=list(blocks), p=D.shape[1], n_real=n_real, cond=cond, priors=priors,
-        params=params, fiducials=np.asarray(fiducials), F=F, cov_param=Cp,
-        sigma=sig, sigma_Om=sOm, sigma_s8=ss8, sigma_S8=sS8, fom_Om_S8=fom,
+        blocks=list(blocks),
+        p=D.shape[1],
+        n_real=n_real,
+        cond=cond,
+        priors=priors,
+        params=params,
+        fiducials=np.asarray(fiducials),
+        F=F,
+        cov_param=Cp,
+        sigma=sig,
+        sigma_Om=sOm,
+        sigma_s8=ss8,
+        sigma_S8=sS8,
+        fom_Om_S8=fom,
     )

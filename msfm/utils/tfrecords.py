@@ -397,9 +397,7 @@ def parse_forward_fiducial(
     # intrinsic alignment perturbations (kappa)
     if not keep_b_mode:
         cl_bmode_ia_perts = [None] * len(ia_pert_labels)
-    for label, ia_pert, cl_ia_pert, cl_bmode_ia_pert in zip(
-        ia_pert_labels, ia_perts, cl_ia_perts, cl_bmode_ia_perts
-    ):
+    for label, ia_pert, cl_ia_pert, cl_bmode_ia_pert in zip(ia_pert_labels, ia_perts, cl_ia_perts, cl_bmode_ia_perts):
         features[f"kg_{label}"] = _bytes_feature(tf.io.serialize_tensor(ia_pert))
         features[f"cl_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_ia_pert))
         if keep_b_mode:
@@ -412,9 +410,7 @@ def parse_forward_fiducial(
     # galaxy biasing (delta)
     if not keep_b_mode:
         cl_bmode_bg_perts = [None] * len(bg_pert_labels)
-    for label, bg_pert, cl_bg_pert, cl_bmode_bg_pert in zip(
-        bg_pert_labels, bg_perts, cl_bg_perts, cl_bmode_bg_perts
-    ):
+    for label, bg_pert, cl_bg_pert, cl_bmode_bg_pert in zip(bg_pert_labels, bg_perts, cl_bg_perts, cl_bmode_bg_perts):
         features[f"dg_{label}"] = _bytes_feature(tf.io.serialize_tensor(bg_pert))
         features[f"cl_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_bg_pert))
         if keep_b_mode:

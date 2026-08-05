@@ -38,6 +38,7 @@ Usage:
     python -m msfm.apps.run_fisher_forecast --spec ... --only bmode_E bmode_EB   # subset
     python -m msfm.apps.run_fisher_forecast --spec ... --no-priors               # override options
 """
+
 import argparse
 
 from msfm.utils import files, fisher, input_output, logger
@@ -71,35 +72,40 @@ def resolve(spec):
 
 def print_forecast(name, r):
     tag = " + priors" if r["priors"] else ""
-    print(f"\n=== {name}  [blocks={'+'.join(r['blocks'])}]{tag} ===  "
-          f"(p={r['p']}, n_real={r['n_real']}, cov cond={r['cond']:.2e})")
-    print(f"  sigma(Om) = {r['sigma_Om']:.5f}   sigma(s8) = {r['sigma_s8']:.5f}   "
-          f"sigma(S8) = {r['sigma_S8']:.5f}   FoM(Om,S8) = {r['fom_Om_S8']:.2f}")
+    print(
+        f"\n=== {name}  [blocks={'+'.join(r['blocks'])}]{tag} ===  "
+        f"(p={r['p']}, n_real={r['n_real']}, cov cond={r['cond']:.2e})"
+    )
+    print(
+        f"  sigma(Om) = {r['sigma_Om']:.5f}   sigma(s8) = {r['sigma_s8']:.5f}   "
+        f"sigma(S8) = {r['sigma_S8']:.5f}   FoM(Om,S8) = {r['fom_Om_S8']:.2f}"
+    )
 
 
 def print_comparison(name_a, ra, name_b, rb):
-    print(f"\n  --> {name_a} -> {name_b}:  "
-          f"sigma(S8) {ra['sigma_S8']:.5f} -> {rb['sigma_S8']:.5f}  "
-          f"({100*(rb['sigma_S8']/ra['sigma_S8']-1):+.2f} %),   "
-          f"FoM {ra['fom_Om_S8']:.2f} -> {rb['fom_Om_S8']:.2f}  "
-          f"({100*(rb['fom_Om_S8']/ra['fom_Om_S8']-1):+.2f} %)")
+    print(
+        f"\n  --> {name_a} -> {name_b}:  "
+        f"sigma(S8) {ra['sigma_S8']:.5f} -> {rb['sigma_S8']:.5f}  "
+        f"({100*(rb['sigma_S8']/ra['sigma_S8']-1):+.2f} %),   "
+        f"FoM {ra['fom_Om_S8']:.2f} -> {rb['fom_Om_S8']:.2f}  "
+        f"({100*(rb['fom_Om_S8']/ra['fom_Om_S8']-1):+.2f} %)"
+    )
     if ra["params"] == rb["params"]:
         print("  per-param sigma ratio (to/from):")
         for i, p in enumerate(ra["params"]):
-            print(f"    {p:10s} {ra['sigma'][i]:.4e} -> {rb['sigma'][i]:.4e}  "
-                  f"({rb['sigma'][i]/ra['sigma'][i]:.3f})")
+            print(
+                f"    {p:10s} {ra['sigma'][i]:.4e} -> {rb['sigma'][i]:.4e}  " f"({rb['sigma'][i]/ra['sigma'][i]:.3f})"
+            )
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--spec", required=True, help="YAML forecast spec")
-    ap.add_argument("--only", nargs="+", default=None,
-                    help="run only these named forecasts (still honours --compare among them)")
-    ap.add_argument("--no-priors", dest="no_priors", action="store_true",
-                    help="override options.priors -> False")
-    ap.add_argument("--priors", dest="force_priors", action="store_true",
-                    help="override options.priors -> True")
+    ap.add_argument(
+        "--only", nargs="+", default=None, help="run only these named forecasts (still honours --compare among them)"
+    )
+    ap.add_argument("--no-priors", dest="no_priors", action="store_true", help="override options.priors -> False")
+    ap.add_argument("--priors", dest="force_priors", action="store_true", help="override options.priors -> True")
     ap.add_argument("-v", "--verbosity", default="warning")
     args = ap.parse_args()
     logger.set_all_loggers_level(args.verbosity)
@@ -122,8 +128,13 @@ def main():
         src = sources[fc["source"]]
         LOGGER.info(f"running forecast '{name}' (source={fc['source']}, blocks={fc['blocks']})")
         results[name] = fisher.run_forecast(
-            cov_h5=src["cov"], jac_h5=src["jac"], blocks=fc["blocks"], conf=conf,
-            priors=options["priors"], hartlap=options["hartlap"], normalize=options["normalize"],
+            cov_h5=src["cov"],
+            jac_h5=src["jac"],
+            blocks=fc["blocks"],
+            conf=conf,
+            priors=options["priors"],
+            hartlap=options["hartlap"],
+            normalize=options["normalize"],
             block_defs=block_defs,
         )
         print_forecast(name, results[name])

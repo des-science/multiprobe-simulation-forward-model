@@ -296,7 +296,9 @@ def bmode_column_masks(n_e_g, n_b):
     return np.array(touches_b), np.array(both_e_g)
 
 
-def run_tfrecords_alm_to_cl_bmode(alm_kg, alm_sn_realz, alm_dg, alm_pn_realz, alm_kg_b, alm_sn_b_realz, cl_reference=None):
+def run_tfrecords_alm_to_cl_bmode(
+    alm_kg, alm_sn_realz, alm_dg, alm_pn_realz, alm_kg_b, alm_sn_b_realz, cl_reference=None
+):
     """B-mode extension of ``run_tfrecords_alm_to_cl``: build the 12-channel ``[metacal-E, maglim, metacal-B]`` alm
     stack and return only the cross-spectra that involve a metacal B-mode channel (42 columns for the fiducial
     config). Clustering (maglim) is spin-0 and has no B-mode, so only the metacal channels are doubled.

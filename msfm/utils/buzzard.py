@@ -4,21 +4,22 @@ import healpy as hp
 
 from msfm.utils import files, parameters
 
+
 def get_cosmo(conf=None, params=None):
     conf = files.load_config(conf)
     params = parameters.get_parameters(params, conf)
 
     buzzard_cosmo = {
-        "Om": 0.286, 
-        "s8": 0.82, 
-        "w0": -1, 
-        "Aia": 0.0, 
-        "n_Aia": np.nan, 
-        "bta": 0.0, 
-        "bg1": np.nan, 
-        "bg2": np.nan, 
-        "bg3": np.nan, 
-        "bg4": np.nan
+        "Om": 0.286,
+        "s8": 0.82,
+        "w0": -1,
+        "Aia": 0.0,
+        "n_Aia": np.nan,
+        "bta": 0.0,
+        "bg1": np.nan,
+        "bg2": np.nan,
+        "bg3": np.nan,
+        "bg4": np.nan,
     }
 
     cosmo = {}
@@ -26,6 +27,7 @@ def get_cosmo(conf=None, params=None):
         cosmo[param] = buzzard_cosmo[param]
 
     return cosmo
+
 
 def get_filenames(base_dir="/pscratch/sd/j/jbucko/DESY3/mock_observations/lensing/buzzard_flock"):
     # TODO move hardcoded definitions to the config?
@@ -75,6 +77,3 @@ def get_clustering_map(clustering_file, nest_in=False, plot_diagnostics=False):
         hp.mollview(gc_count_map[:, 0], nest=nest_in, title="Buzzard galaxy counts")
 
     return gc_count_map
-
-
-

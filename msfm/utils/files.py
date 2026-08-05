@@ -525,9 +525,7 @@ def get_shape_noise(conf=None):
     bias = sn_conf.get("bias")
     valid_biases = ("fixed", "prior")
     if bias not in valid_biases:
-        raise ValueError(
-            f"shape_noise bias must be one of {valid_biases} for method {method!r}, got {bias!r}"
-        )
+        raise ValueError(f"shape_noise bias must be one of {valid_biases} for method {method!r}, got {bias!r}")
 
     fixed_bsc = None
     if method == "gatti" and bias == "fixed":
@@ -590,9 +588,7 @@ def read_sc_calibration(conf, b_sc):
     sc_calib_file = os.path.join(repo_dir, sc_calib_path)
 
     if not os.path.exists(sc_calib_file):
-        LOGGER.warning(
-            f"sc_calibration file {sc_calib_file} not found, using no-op source-clustering calibration"
-        )
+        LOGGER.warning(f"sc_calibration file {sc_calib_file} not found, using no-op source-clustering calibration")
         return [(1.0, 1.0, 0.0)] * n_z
 
     fits = np.load(sc_calib_file, allow_pickle=True).item()

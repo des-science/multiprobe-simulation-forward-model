@@ -45,9 +45,9 @@ def raw_to_prior_units(cosmos, params, copy=True):
     for name in LOG10_PARAMS:
         if name in params:
             i = params.index(name)
-            assert np.min(cosmos[..., i]) > LOG10_RAW_MIN, (
-                f"expected raw {name} labels (> {LOG10_RAW_MIN:g}), got log10 already?"
-            )
+            assert (
+                np.min(cosmos[..., i]) > LOG10_RAW_MIN
+            ), f"expected raw {name} labels (> {LOG10_RAW_MIN:g}), got log10 already?"
             cosmos[..., i] = np.log10(cosmos[..., i])
     return cosmos
 
