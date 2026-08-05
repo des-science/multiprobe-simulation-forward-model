@@ -18,19 +18,19 @@ def get_kaiser_squires_factors(l_max):
     """Factors for a spherical Kaiser Squires transformation
     from eq. (11) in https://academic.oup.com/mnras/article/505/3/4626/6287258
     """
-    l = hp.Alm.getlm(l_max)[0]
+    ell = hp.Alm.getlm(l_max)[0]
 
     kappa2gamma_fac = np.where(
-        np.logical_and(l != 1, l != 0),
-        -np.sqrt(((l + 2.0) * (l - 1)) / ((l + 1) * l)),
+        np.logical_and(ell != 1, ell != 0),
+        -np.sqrt(((ell + 2.0) * (ell - 1)) / ((ell + 1) * ell)),
         0,
     )
     gamma2kappa_fac = np.where(
-        np.logical_and(l != 1, l != 0),
+        np.logical_and(ell != 1, ell != 0),
         1 / kappa2gamma_fac,
         0,
     )
-    l_mask_fac = np.where(np.logical_and(l != 1, l != 0), 1.0, 0.0)
+    l_mask_fac = np.where(np.logical_and(ell != 1, ell != 0), 1.0, 0.0)
 
     return kappa2gamma_fac, gamma2kappa_fac, l_mask_fac
 

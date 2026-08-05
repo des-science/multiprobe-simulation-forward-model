@@ -203,7 +203,10 @@ def get_min_w0(Om, margin=0.01):
     Returns:
         float: The minimum w0
     """
-    f = lambda w: 1.0 - ((Om - 1.0) / Om * (1.0 + w)) ** (1.0 / (3.0 * w))
+
+    def f(w):
+        return 1.0 - ((Om - 1.0) / Om * (1.0 + w)) ** (1.0 / (3.0 * w))
+
     w0 = fsolve(f, -1.05)[0]
     return w0 + margin
 

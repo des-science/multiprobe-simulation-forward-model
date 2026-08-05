@@ -32,20 +32,20 @@ def get_cosmo(conf=None, params=None):
 
 def get_filenames(base_dir="/pscratch/sd/j/jbucko/DESY3/mock_observations/lensing/buzzard_flock"):
     # TODO move hardcoded definitions to the config?
-    I = [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-    J = [0, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 11, 11]
-    K = ["a"] + 7 * ["a", "b"]
+    i_vals = [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    j_vals = [0, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 11, 11]
+    k_vals = ["a"] + 7 * ["a", "b"]
 
     lensing_files = []
     clustering_files = []
-    for i, j, k in zip(I, J, K):
+    for i, j, k in zip(i_vals, j_vals, k_vals):
         lensing_file = f"{i}/DESY3_mock_observation_buzzard_flock_v14_shear_noise+WL_iseed_42_varied.h5"
         clustering_file = f"{i}/DESY3_mock_observation_Buzzard_{j}_Y3{k}.h5"
 
         lensing_files.append(os.path.join(base_dir, lensing_file))
         clustering_files.append(os.path.join(base_dir, clustering_file))
 
-    return I, lensing_files, clustering_files
+    return i_vals, lensing_files, clustering_files
 
 
 def get_lensing_map(lensing_file, nest_in=False, plot_diagnostics=False):

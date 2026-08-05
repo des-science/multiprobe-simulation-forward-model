@@ -77,7 +77,7 @@ def load_jacobian_source(jac_h5, blocks, block_defs=BLOCKS_DEFAULT):
         offsets = f["offsets"][:]
         fiducials = f["fiducials"][:]
         params = [p.decode() for p in f["params"][:]]
-        labels = [l.decode() for l in f["labels"][:]]
+        labels = [label.decode() for label in f["labels"][:]]
         for b in blocks:
             ds = block_defs[b]["jac"]
             if ds not in f:

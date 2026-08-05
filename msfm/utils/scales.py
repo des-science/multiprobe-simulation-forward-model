@@ -176,11 +176,11 @@ def cls_to_smoothed_cls(
         ndarray: Smoothed power spectrum.
     """
 
-    l = np.arange(cls.shape[-1])
+    ell = np.arange(cls.shape[-1])
 
     # extra square because we're smoothing Cls, not alms
-    high_pass_fac = gaussian_high_pass_factor_alm(l, l_min, hard_cut=hard_cut) ** 2
-    low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin, hard_cut=hard_cut) ** 2
+    high_pass_fac = gaussian_high_pass_factor_alm(ell, l_min, hard_cut=hard_cut) ** 2
+    low_pass_fac = gaussian_low_pass_factor_alm(ell, l_max, theta_fwhm, arcmin, hard_cut=hard_cut) ** 2
 
     if cls.ndim == 1:
         cls = cls * high_pass_fac * low_pass_fac
@@ -219,13 +219,13 @@ def alm_to_smoothed_map(
     """
 
     # alm are computed for the standard l_max = 3 * n_side - 1
-    l = hp.Alm.getlm(3 * n_side - 1)[0]
+    ell = hp.Alm.getlm(3 * n_side - 1)[0]
 
     # remove large scales (map - Gaussian smoothing)
-    high_pass_fac = gaussian_high_pass_factor_alm(l, l_min, hard_cut=hard_cut)
+    high_pass_fac = gaussian_high_pass_factor_alm(ell, l_min, hard_cut=hard_cut)
 
     # remove small scales (Gaussian smoothing), this produces identical results as hp.smoothalm(fwhm=theta_fwhm)
-    low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin, hard_cut=hard_cut)
+    low_pass_fac = gaussian_low_pass_factor_alm(ell, l_max, theta_fwhm, arcmin, hard_cut=hard_cut)
 
     alm = alm * high_pass_fac * low_pass_fac
 
@@ -447,7 +447,7 @@ def data_vector_to_grf_data_vector(
         data_vector *= mask
 
     # alm are computed for the standard l_max = 3 * n_side - 1
-    l = hp.Alm.getlm(3 * n_side - 1)[0]
+    ell = hp.Alm.getlm(3 * n_side - 1)[0]
 
     # healpy path
     conf = files.load_config()
@@ -482,8 +482,8 @@ def data_vector_to_grf_data_vector(
             alm = hp.map2alm(full_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
 
             # smoothing
-            high_pass_fac = gaussian_high_pass_factor_alm(l, l_min[i_z], hard_cut=hard_cut)
-            low_pass_fac = gaussian_low_pass_factor_alm(l, l_max[i_z], theta_fwhm[i_z], arcmin, hard_cut=hard_cut)
+            high_pass_fac = gaussian_high_pass_factor_alm(ell, l_min[i_z], hard_cut=hard_cut)
+            low_pass_fac = gaussian_low_pass_factor_alm(ell, l_max[i_z], theta_fwhm[i_z], arcmin, hard_cut=hard_cut)
             alm = alm * high_pass_fac * low_pass_fac
 
             # make a Gaussian Random Field
@@ -512,8 +512,8 @@ def data_vector_to_grf_data_vector(
         alm = hp.map2alm(full_map, pol=False, use_pixel_weights=True, datapath=hp_datapath)
 
         # smoothing
-        high_pass_fac = gaussian_high_pass_factor_alm(l, l_min, hard_cut=hard_cut)
-        low_pass_fac = gaussian_low_pass_factor_alm(l, l_max, theta_fwhm, arcmin, hard_cut=hard_cut)
+        high_pass_fac = gaussian_high_pass_factor_alm(ell, l_min, hard_cut=hard_cut)
+        low_pass_fac = gaussian_low_pass_factor_alm(ell, l_max, theta_fwhm, arcmin, hard_cut=hard_cut)
         alm = alm * high_pass_fac * low_pass_fac
 
         # make a Gaussian Random Field
