@@ -12,4 +12,7 @@ exclude =
     build,
     dist,
     *.egg-info,
-    .ipynb_checkpoints
+    .ipynb_checkpoints,
+    # Retired code, kept for reference only. It does not even import cleanly
+    # (run_grid_tfrecords.py references an undefined n_noise_per_example).
+    msfm/apps/deprecated
