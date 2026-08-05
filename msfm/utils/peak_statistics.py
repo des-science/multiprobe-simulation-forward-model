@@ -10,7 +10,7 @@ https://cosmo-gitlab.phys.ethz.ch/cosmo_public/estats/-/blob/master/estats/summa
 """
 
 import numpy as np
-import os, h5py
+import h5py
 
 from estats.map import map as estats_map
 from estats.summary import summary as estats_summary

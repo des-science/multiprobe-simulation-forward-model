@@ -217,7 +217,7 @@ def gaussian_prior(cosmos, conf=None, params=None, std_fac=0.01, params_unaffect
 
     log_prior = np.zeros(cosmos.shape[0])
     for i, param in enumerate(params):
-        if not param in params_unaffected:
+        if param not in params_unaffected:
             log_prior += norm(loc=fiducials[i], scale=std_fac * prior_size[i]).logpdf(cosmos[:, i])
 
     return log_prior

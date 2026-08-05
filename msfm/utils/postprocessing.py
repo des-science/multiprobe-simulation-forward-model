@@ -13,7 +13,11 @@ TODO the function argument orders in this file aren't consistent, this should be
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-import os, time, hashlib, h5py, copy_guardian, pickle
+import os
+import time
+import hashlib
+import h5py
+import copy_guardian
 from msfm.utils import logger, filenames, imports, lensing, clustering, maps, input_output, files
 
 hp = imports.import_healpy()

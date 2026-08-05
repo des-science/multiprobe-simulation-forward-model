@@ -22,7 +22,12 @@ esub ../../msfm/apps/run_single_postprocessing.py \
 """
 
 import numpy as np
-import os, argparse, warnings, h5py, time, re
+import os
+import argparse
+import warnings
+import h5py
+import time
+import re
 
 from msfm.utils import files, logger, input_output, imports, observation, parameters, configuration
 

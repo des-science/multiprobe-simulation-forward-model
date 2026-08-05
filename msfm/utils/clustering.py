@@ -11,7 +11,7 @@ import numpy as np
 
 from sobol_seq import i4_sobol
 
-from msfm.utils import files, imports, logger, parameters
+from msfm.utils import imports, logger, parameters
 
 hp = imports.import_healpy()
 LOGGER = logger.get_logger(__file__)

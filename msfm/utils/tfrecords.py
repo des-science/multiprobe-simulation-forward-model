@@ -485,11 +485,11 @@ def parse_inverse_fiducial(
     for label in pert_labels:
         if return_maps:
             # kappa: cosmological + intrinsic alignment parameters
-            if with_lensing and (not "bg" in label):
+            if with_lensing and ("bg" not in label):
                 features[f"kg_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
             # delta: cosmological + galaxy clustering parameters
-            if with_clustering and (not "Aia" in label):
+            if with_clustering and ("Aia" not in label):
                 features[f"dg_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
         features[f"cl_{label}"] = tf.io.FixedLenFeature([], tf.string)
@@ -527,13 +527,13 @@ def parse_inverse_fiducial(
     for label in pert_labels:
         if return_maps:
             # kappa: cosmological + intrinsic alignment parameters
-            if with_lensing and (not "bg" in label):
+            if with_lensing and ("bg" not in label):
                 output_data = _parse_and_reshape_data_vector(
                     output_data, serialized_data, f"kg_{label}", f"kg_{label}", n_pix, n_z_metacal, "n_z_metacal"
                 )
 
             # delta: cosmological + galaxy clustering parameters
-            if with_clustering and (not "Aia" in label):
+            if with_clustering and ("Aia" not in label):
                 output_data = _parse_and_reshape_data_vector(
                     output_data, serialized_data, f"dg_{label}", f"dg_{label}", n_pix, n_z_maglim, "n_z_maglim"
                 )

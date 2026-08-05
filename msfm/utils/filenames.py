@@ -1,4 +1,4 @@
-import os, sys
+import os
 
 
 def get_filename_data_vectors(out_dir, with_bary=False):

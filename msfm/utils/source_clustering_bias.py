@@ -30,7 +30,9 @@ dev/scripts/source_galaxy_clustering_bias/jozef_code/optimize_biases_parallel_de
 unchanged as the reference. The deliberate deviations from it are marked with "deviation:" comments below.
 """
 
-import os, warnings, multiprocessing
+import os
+import warnings
+import multiprocessing
 
 import numpy as np
 import h5py

@@ -1,4 +1,5 @@
-import os, h5py
+import os
+import h5py
 import numpy as np
 import healpy as hp
 

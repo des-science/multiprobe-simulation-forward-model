@@ -7,7 +7,8 @@ Author: Arne Thomsen
 Utilities to forward model (mock) observations to be consistent with the CosmoGrid maps.
 """
 
-import os, h5py, pickle
+import os
+import h5py
 import numpy as np
 from msfm.utils import (
     files,

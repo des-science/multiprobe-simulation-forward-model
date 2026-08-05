@@ -19,7 +19,14 @@ Meant for
 
 import numpy as np
 import tensorflow as tf
-import os, argparse, warnings, time, yaml, h5py, pickle, glob
+import os
+import argparse
+import warnings
+import time
+import yaml
+import h5py
+import pickle
+import glob
 
 from scipy.stats import qmc
 from sobol_seq import i4_sobol

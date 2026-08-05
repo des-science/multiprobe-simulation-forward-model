@@ -1,4 +1,5 @@
-import os, h5py
+import os
+import h5py
 
 from msfm.utils import logger, files
 

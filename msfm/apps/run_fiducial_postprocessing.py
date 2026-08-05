@@ -25,7 +25,13 @@ Meant for
 
 import numpy as np
 import tensorflow as tf
-import os, argparse, warnings, time, yaml, h5py, pickle
+import os
+import argparse
+import warnings
+import time
+import yaml
+import h5py
+import pickle
 
 from msfm.utils import (
     logger,
@@ -240,7 +246,7 @@ def main(indices, args):
         cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs]
         LOGGER.info(f"Using the baryonified inputs, then there's {len(cosmo_dirs) - 1} fiducial perturbations")
     else:
-        cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs if not "bary" in cosmo_dir]
+        cosmo_dirs = [cosmo_dir for cosmo_dir in cosmo_dirs if "bary" not in cosmo_dir]
         LOGGER.info(f"Using the dark matter only inputs, then there's {len(cosmo_dirs) - 1} fiducial perturbations")
     cosmo_dirs_in = [os.path.join(args.dir_in, "fiducial", cosmo_dir) for cosmo_dir in cosmo_dirs]
 

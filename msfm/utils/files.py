@@ -7,7 +7,9 @@ Author: Arne Thomsen
 Functions to handle the configuration and read in the survey files on the data vector pixels, masks and noise
 """
 
-import os, h5py, warnings
+import os
+import h5py
+import warnings
 import numpy as np
 
 from msfm.utils import logger, input_output, filenames, scales, maps, imports
@@ -379,7 +381,7 @@ def get_tomo_masks(conf=None, nest_out=True):
         masks = np.zeros((n_pix, dv_masks.shape[-1]))
         masks[data_vec_pix] = dv_masks
 
-        if nest_out == False:
+        if not nest_out:
             masks = maps.tomographic_reorder(masks, n2r=True)
 
         masks_dict[sample] = masks

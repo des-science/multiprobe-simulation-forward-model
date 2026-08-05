@@ -354,7 +354,7 @@ class FiducialPipeline(MSFMpipeline):
         # repeat the signal as often as there are different noise realizations
         for key in data_vectors.keys():
             # no action is necessary for the cls. They're already in this format right out of the .tfrecords
-            if not "cl" in key:
+            if "cl" not in key:
                 data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), len(noise_indices), axis=0)
 
         if self.return_maps:

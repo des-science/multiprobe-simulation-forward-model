@@ -5,7 +5,8 @@ Author: Arne Thomsen
 Handle some peculiarities around importing healpy.
 """
 
-import os, logging
+import os
+import logging
 from msfm.utils import logger
 
 LOGGER = logger.get_logger(__file__)
