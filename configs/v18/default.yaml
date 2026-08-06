@@ -18,7 +18,6 @@ files:
   noise: data/DESY3_noise_v11.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
-  peak_binning: data/peaks/binning/v11_extended.h5
   # DES Y3 imaging systematics of the metacal sources, exported by the lss_sys repository
   metacal_systematics: data/metacal_sources_STD32_512.h5
   # source clustering bias, fit against the CONTAMINATED forward model

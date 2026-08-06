@@ -12,7 +12,6 @@ files:
   noise: data/DESY3_noise_v11.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
-  peak_binning: data/peaks/binning/v11_extended.h5
   # linear-fit calibration factors for the Gatti source-clustering model (see read_sc_calibration)
   sc_calibration: data/sc_calibration_desy3.npy
 
