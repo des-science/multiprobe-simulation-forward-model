@@ -27,3 +27,20 @@ only. Nothing here should be used for new runs — see `../README.md` for the ac
 - **`v18_esub/`** — v18's esub/shared-QOS definitions (`pipe.yaml`, `obs_commands.sh`), retired
   when v18 moved to packed-only submission. Every job they defined has a packed equivalent in
   `../v18/packed/`.
+
+## Abandoned port: grid postprocessing on Clariden
+
+Grid postprocessing runs on **Perlmutter**. The four `v1N_packed_clariden*` directories are a
+port to Clariden (CSCS Grace-Hopper) that was written, sized against measured timings, and then
+never adopted — no production grid was produced with them. They are kept only for the sizing
+reasoning, which is genuinely Clariden-specific (no shared QOS, so every allocation is a whole
+288-core node, forcing ~36 cosmologies to be hand-packed per node).
+
+- **`v17_packed_clariden_esub/`, `v18_packed_clariden_esub/`** — first attempt, routing each
+  packed task through `esub --mode=run` plus a `_done.dat` barrier.
+- **`v17_packed_clariden/`, `v18_packed_clariden/`** — esub-free rewrite of the above: SLURM does
+  the intra-node fan-out and core pinning (`--ntasks=36 --cpus-per-task=8`) and `run_cosmo.py`
+  calls the app's `main()` directly. `run_cosmo.py` is identical between v17 and v18; the READMEs,
+  `packed_node.slurm` and `run_slot.sh` differ only in version paths and config.
+
+Paths inside these directories still name their pre-move locations (`pipelines/vNN/packed_clariden*/`).
