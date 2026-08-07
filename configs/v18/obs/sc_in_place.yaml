@@ -7,8 +7,8 @@ dirs:
 
 files:
   # relative to the root of this repository
-  pixels: data/DESY3_pixels_v11_fiducial_512.h5
-  noise: data/DESY3_noise_v11.h5
+  pixels: data/desy3_pixels_fiducial_512.h5
+  noise: data/desy3_noise_512.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
 

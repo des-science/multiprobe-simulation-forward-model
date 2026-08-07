@@ -8,6 +8,26 @@ from msfm.utils import logger, files
 LOGGER = logger.get_logger(__file__)
 
 
+def _cache_file(name):
+    """Resolve a catalog-derived cache map to data/cache/, creating the directory if needed.
+
+    data/cache/ is gitignored, so it is absent in a fresh clone, a new worktree and after a
+    git clean. Creating it here rather than relying on it existing means the np.save at the end of
+    an hours-long catalog pass cannot fail on a missing directory.
+
+    Args:
+        name (str): Basename of the cache file, including the .npy suffix.
+
+    Returns:
+        str: Absolute path to the cache file.
+    """
+    file_dir = os.path.dirname(__file__)
+    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
+    cache_dir = os.path.join(repo_dir, "data", "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, name)
+
+
 def _get_rot_x(ang):
     return np.array(
         [[1.0, 0.0, 0.0], [0.0, np.cos(ang), -np.sin(ang)], [0.0, np.sin(ang), np.cos(ang)]]
@@ -143,12 +163,10 @@ def build_metacal_map_from_cat(
 ):
     conf = files.load_config(conf)
 
-    file_dir = os.path.dirname(__file__)
-    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
     rot_suffix = "" if apply_shear_rotation else "_no_psi_rot"
     sign_suffix = f"_e1{'m' if sign_e1 < 0 else 'p'}_e2{'m' if sign_e2 < 0 else 'p'}"
-    gamma_cache_dir = f"{repo_dir}/data/metacal_wl_gamma_map{rot_suffix}{sign_suffix}.npy"
-    count_cache_dir = f"{repo_dir}/data/metacal_wl_count_map.npy"
+    gamma_cache_dir = _cache_file(f"desy3_metacal_gamma{rot_suffix}{sign_suffix}.npy")
+    count_cache_dir = _cache_file("desy3_metacal_count.npy")
 
     # load from cache if available and not forcing recompute
     if not force_recompute:
@@ -267,14 +285,12 @@ def build_full_metacal_map_from_cat(
     """Build a full (non-tomographic) metacal shear map by combining all tomographic bins."""
     conf = files.load_config(conf)
 
-    file_dir = os.path.dirname(__file__)
-    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
     rot_suffix = "" if apply_shear_rotation else "_no_psi_rot"
     sign_suffix = (
         "" if (sign_e1 == 1 and sign_e2 == 1) else f"_e1{'m' if sign_e1 < 0 else 'p'}_e2{'m' if sign_e2 < 0 else 'p'}"
     )
-    gamma_cache_dir = f"{repo_dir}/data/metacal_wl_gamma_map_full{rot_suffix}{sign_suffix}.npy"
-    count_cache_dir = f"{repo_dir}/data/metacal_wl_count_map_full.npy"
+    gamma_cache_dir = _cache_file(f"desy3_metacal_gamma_full{rot_suffix}{sign_suffix}.npy")
+    count_cache_dir = _cache_file("desy3_metacal_count_full.npy")
 
     if not force_recompute:
         try:
@@ -348,9 +364,7 @@ def build_full_metacal_map_from_cat(
 def build_maglim_map_from_cat(conf, debug=True, force_recompute=False):
     conf = files.load_config(conf)
 
-    file_dir = os.path.dirname(__file__)
-    repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
-    cache_dir = f"{repo_dir}/data/maglim_gc_count_map.npy"
+    cache_dir = _cache_file("desy3_maglim_count.npy")
 
     # load from cache if available and not forcing recompute
     if not force_recompute:

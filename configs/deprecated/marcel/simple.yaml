@@ -15,12 +15,12 @@ dirs:
 
 files:
   # relative to the root of this repository
-  pixels: data/nside256/DESY3_pixels_256.h5
-  noise: data/nside256/DESY3_noise.h5
+  pixels: data/deprecated/nside256/DESY3_pixels_256.h5
+  noise: data/deprecated/nside256/DESY3_noise.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
   peak_binning: data/peaks/binning/v11_extended.h5
-  metacal_bias: data/metacal_biases_buzzard_0.h5
+  metacal_bias: data/deprecated/metacal_biases_buzzard_0.h5
 
 survey:
   name: DESy3

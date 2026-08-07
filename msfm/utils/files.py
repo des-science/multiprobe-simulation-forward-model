@@ -590,8 +590,12 @@ def read_sc_calibration(conf, b_sc):
     sc_calib_file = os.path.join(repo_dir, sc_calib_path)
 
     if not os.path.exists(sc_calib_file):
-        LOGGER.warning(f"sc_calibration file {sc_calib_file} not found, using no-op source-clustering calibration")
-        return [(1.0, 1.0, 0.0)] * n_z
+        # a configured-but-absent file used to degrade to the no-op calibration above, which is
+        # indistinguishable downstream from a correctly calibrated run -- fail loudly instead
+        raise FileNotFoundError(
+            f"sc_calibration file {sc_calib_file} is configured in files.sc_calibration but does not exist. "
+            f"Regenerate it with notebooks/sc_calibration_gatti.ipynb, or drop the key to run uncalibrated"
+        )
 
     fits = np.load(sc_calib_file, allow_pickle=True).item()
     LOGGER.info(f"Loaded source-clustering calibration from {sc_calib_file}")

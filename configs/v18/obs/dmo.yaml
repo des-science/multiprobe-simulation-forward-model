@@ -7,14 +7,14 @@ dirs:
 
 files:
   # relative to the root of this repository
-  pixels: data/DESY3_pixels_v11_fiducial_512.h5
-  noise: data/DESY3_noise_v11.h5
+  pixels: data/desy3_pixels_fiducial_512.h5
+  noise: data/desy3_noise_512.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
   # DES Y3 imaging systematics of the metacal sources, exported by the lss_sys repository
-  metacal_systematics: data/metacal_sources_STD32_512.h5
+  metacal_systematics: data/desy3_metacal_systematics_STD32_512.h5
   # source clustering bias, fit against the CONTAMINATED forward model
-  metacal_bias: data/metacal_biases_desy3_v2_sys.h5
+  metacal_bias: data/desy3_metacal_bias_sys.h5
 
 survey:
   name: DESy3

@@ -87,7 +87,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
 # shape-noise model on the v17 lineage. configs/v17/mocks/sc_fixed_sys.yaml differs from
 # configs/v17/baseline.yaml in nothing but the shape noise (same maps, same channels, same
 # normalization), so this is a clean systematics shift test against the v17 training set. The bias
-# table is the one fit against this same contaminated model (metacal_biases_desy3_v2_sys.h5,
+# table is the one fit against this same contaminated model (desy3_metacal_bias_sys.h5,
 # enforced by configuration.py), so b is not absorbing the systematics: bin 4 is 1.98 here against
 # 3.06 in the clean fit.
 # NOTE: configs/v18/default.yaml can NOT be used here -- it is delta-NLA and carries a ds channel.

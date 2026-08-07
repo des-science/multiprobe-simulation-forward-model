@@ -38,10 +38,10 @@ Use the first option when TensorFlow is available via system modules (e.g., `mod
 Configuration files for cosmological and astrophysical paremeter priors, fixed survey properties, forward-modeling choices, and other analysis settings.
 
 ### `data`
-CosmoGridV1 properties, survey masks, and catalog ellipticities used in the shape noise generation. Note: `DESY3_noise_v11.h5` exceeds the repo's file size limit and must be generated from the source galaxy catalog via `notebooks/noise_file.ipynb`.
+CosmoGridV1 properties, survey masks, and catalog ellipticities used in the shape noise generation. The top level is exactly the set of inputs the current production config reads; `data/cache/` holds regenerable catalog-derived maps and `data/deprecated/` frozen superseded ones. [`data/README.md`](data/README.md) documents where every file comes from and which notebook produces it. Note: `desy3_noise_512.h5` exceeds the repo's file size limit and must be generated from the source galaxy catalog via `notebooks/noise_file.ipynb`.
 
 ### `notebooks`
-Notebooks for generating contents of the `data` directory.
+Notebooks that generate the contents of the `data` directory, one per product — see the table in [`data/README.md`](data/README.md). This is the production set; the analysis and comparison notebooks that *consume* those products live in `dev/notebooks` instead.
 
 ### `pipelines`
 Submission commands for distributed HPC execution via [`esub-epipe`](https://cosmo-gitlab.phys.ethz.ch/cosmo_public/esub-epipe).

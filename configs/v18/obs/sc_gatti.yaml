@@ -8,12 +8,12 @@ dirs:
 
 files:
   # relative to the root of this repository
-  pixels: data/DESY3_pixels_v11_fiducial_512.h5
-  noise: data/DESY3_noise_v11.h5
+  pixels: data/desy3_pixels_fiducial_512.h5
+  noise: data/desy3_noise_512.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
   # linear-fit calibration factors for the Gatti source-clustering model (see read_sc_calibration)
-  sc_calibration: data/sc_calibration_desy3.npy
+  sc_calibration: data/desy3_sc_calibration_gatti.npy
 
 survey:
   name: DESy3
