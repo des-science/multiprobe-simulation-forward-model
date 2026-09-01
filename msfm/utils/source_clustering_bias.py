@@ -61,6 +61,12 @@ L_MAX_2PT = (589, 863, 1159, 1382)
 # deterministic in the bias, without which the Nelder-Mead simplex cannot converge
 DEFAULT_SEED = 42
 
+# additional Nelder-Mead starting points tried alongside b_init, see fit_bias: a single start from b_init=1.0 was
+# found to get trapped away from the true optimum for some low-sigma_8, high-contamination cosmologies in the
+# highest tomographic bin, where b is largest -- the existing cost-profile sanity check in the notebook only ever
+# scanned b up to 4.0 and never actually covered that regime
+EXTRA_B_INITS = (0.5, 2.0, 4.0, 8.0)
+
 # the per cosmology fit diagnostics stored alongside the biases, which no consumer of the table reads
 _DIAGNOSTIC_COMPRESSION = {"compression": "gzip", "compression_opts": 4}
 
@@ -320,6 +326,9 @@ def _cost(bias, delta_z, n_bar_z, target_z, kind, i_z, mask, seed, contamination
 def fit_bias(delta, target, n_bar, mask=None, kind="1pt", b_init=1.0, seed=DEFAULT_SEED, contamination=None):
     """Fit the linear source clustering bias of every tomographic bin of a single cosmology.
 
+    Each bin is fit with Nelder-Mead started from b_init and, to guard against trapping (see EXTRA_B_INITS),
+    from every value in EXTRA_B_INITS; the run with the lowest cost is kept.
+
     Args:
         delta (np.ndarray): (n_pix, n_z) normalized density contrast, as returned by read_density_contrast.
         target (list): Per tomographic bin target statistics, as returned by build_target.
@@ -327,7 +336,7 @@ def fit_bias(delta, target, n_bar, mask=None, kind="1pt", b_init=1.0, seed=DEFAU
         mask (np.ndarray, optional): (n_pix,) boolean footprint mask. Required for kind "1pt", where the fit is
             restricted to the footprint pixels, and for kind "2pt", where the count maps are masked. Defaults to None.
         kind (str, optional): Either "1pt" or "2pt". Defaults to "1pt".
-        b_init (float, optional): Initial guess of the bias. Defaults to 1.0.
+        b_init (float, optional): Initial guess of the bias, tried alongside EXTRA_B_INITS. Defaults to 1.0.
         seed (int, optional): Seed of the Poisson realizations. Defaults to DEFAULT_SEED.
         contamination (np.ndarray, optional): (n_fp, n_z) DES Y3 imaging systematics contamination factor of the
             footprint pixels, as returned by files.get_metacal_systematics. Its pixel ordering is the base patch,
@@ -360,10 +369,17 @@ def fit_bias(delta, target, n_bar, mask=None, kind="1pt", b_init=1.0, seed=DEFAU
                 contamination_z = np.ones(len(delta))
                 contamination_z[mask] = contamination[:, i_z]
 
-        result = minimize(
-            lambda b: _cost(b[0], delta_z, n_bar[i_z], target[i_z], kind, i_z, mask, seed, contamination_z),
-            x0=[b_init],
-            method="Nelder-Mead",
+        cost = lambda b: _cost(  # noqa: E731
+            b[0], delta_z, n_bar[i_z], target[i_z], kind, i_z, mask, seed, contamination_z
+        )
+        # multi-start: a single run from b_init can get trapped, see EXTRA_B_INITS. bounds=[(0, None)] excludes
+        # b < 0: the fit only matches the marginal (1pt) count distribution, which a negative bias can mirror
+        # almost as well as the true positive one once the clip-and-renormalize transform is folded in -- widening
+        # the search to fix the trapping above exposed exactly that degenerate solution for ~30% of contam bin-4
+        # cosmologies. b_g,s is not physically expected to be negative, and no other bin or arm ever fits negative
+        result = min(
+            (minimize(cost, x0=[b0], method="Nelder-Mead", bounds=[(0, None)]) for b0 in {b_init, *EXTRA_B_INITS}),
+            key=lambda r: r.fun,
         )
         biases[i_z] = result.x[0]
         losses[i_z] = result.fun
@@ -455,6 +471,8 @@ def fit_bias_table(
     seed=DEFAULT_SEED,
     contamination=None,
     systematics_label=None,
+    group=None,
+    mode="w",
 ):
     """Fit the source clustering biases of many cosmologies in parallel and store them as an h5 bias table.
 
@@ -467,7 +485,7 @@ def fit_bias_table(
         conf (str, dict): Configuration, see files.load_config.
         cosmo_dirs (dict): Mapping of the h5 key (e.g. "cosmo_000001" or "fiducial") to the directory of the
             corresponding CosmoGrid cosmology.
-        out_file (str): Path of the h5 file to write. Any existing file is overwritten.
+        out_file (str): Path of the h5 file to write.
         target (list, optional): Target statistics, see build_target. Defaults to None, in which case build_target is
             called.
         n_bar (np.ndarray, optional): Mean galaxy counts per pixel, see build_target. Defaults to None.
@@ -484,6 +502,12 @@ def fit_bias_table(
         systematics_label (str, optional): Name of the imaging systematics run that contamination came from, stored
             as a root attribute so that a bias table records which forward model it was fit against. Defaults to
             None, which is stored as "none".
+        group (str, optional): If given, everything below is written under this top-level HDF5 group instead of at
+            the file root -- e.g. to store more than one arm (clean/contam) of the same fit in a single file, one
+            group per arm. files.metacal_bias_arm then selects which group files.read_metacal_bias reads. Defaults
+            to None, i.e. the file root, which is what files.read_metacal_bias reads absent that config field.
+        mode (str, optional): h5py.File mode for out_file. Use "a" for a second call writing another group into a
+            file already written by a previous call. Defaults to "w", which overwrites any existing file.
 
     Returns:
         dict: Mapping of the h5 key to the (n_z,) best fit biases.
@@ -516,38 +540,41 @@ def fit_bias_table(
 
     LOGGER.info(f"Fitted {len(biases)} cosmologies after {LOGGER.timer.elapsed('fit_bias_table')}")
 
-    with h5py.File(out_file, "w") as f:
+    with h5py.File(out_file, mode) as f:
+        root = f.create_group(group) if group is not None else f
+
         # which forward model the biases were fit against. The consumer asserts that this matches its own config,
         # since a table fit against a clean model absorbs the imaging systematics into b and must not be combined
         # with a contaminated forward model, nor the other way around
-        f.attrs["systematics_label"] = systematics_label if systematics_label is not None else "none"
-        f.attrs["kind"] = kind
+        root.attrs["systematics_label"] = systematics_label if systematics_label is not None else "none"
+        root.attrs["kind"] = kind
 
         keys = list(cosmo_dirs)
         # the row order of the stacked diagnostics below
-        f.create_dataset("keys", data=np.array(keys, dtype=object), dtype=h5py.string_dtype())
+        root.create_dataset("keys", data=np.array(keys, dtype=object), dtype=h5py.string_dtype())
 
         for key in keys:
-            # one dataset per cosmology at the top level, such that files.read_metacal_bias(key, conf) works unchanged
-            f.create_dataset(key, data=biases[key])
+            # one dataset per cosmology, such that files.read_metacal_bias(key, conf) works unchanged (at the file
+            # root when group is None, or via files.metacal_bias_arm selecting this group otherwise)
+            root.create_dataset(key, data=biases[key])
 
         # the diagnostics are STACKED instead of written per cosmology: 2500 tiny HDF5 datasets cost several times
         # more in object metadata than the data itself (measured 14.5 -> 4.4 MB for the full table), and the table has
         # to be small enough to live in the repository
-        f.create_dataset("loss", data=np.array([losses[key] for key in keys]), **_DIAGNOSTIC_COMPRESSION)
+        root.create_dataset("loss", data=np.array([losses[key] for key in keys]), **_DIAGNOSTIC_COMPRESSION)
 
         if all(isinstance(stats[key], np.ndarray) for key in keys):
             stat = np.array([stats[key] for key in keys])
             # the one-point statistic is a histogram of pixel counts, which fits comfortably into int32
             if np.issubdtype(stat.dtype, np.integer):
                 stat = stat.astype(np.int32)
-            f.create_dataset("stat", data=stat, **_DIAGNOSTIC_COMPRESSION)
+            root.create_dataset("stat", data=stat, **_DIAGNOSTIC_COMPRESSION)
         else:
             # the two-point statistics are ragged across the tomographic bins, so they cannot be stacked
-            stat_group = f.create_group("stat")
+            stat_group = root.create_group("stat")
             for key in keys:
                 for i_z, stat in enumerate(stats[key]):
                     stat_group.create_dataset(f"{key}/bin_{i_z}", data=stat, **_DIAGNOSTIC_COMPRESSION)
-    LOGGER.info(f"Stored the bias table of {len(biases)} cosmologies in {out_file}")
+    LOGGER.info(f"Stored the bias table of {len(biases)} cosmologies in {out_file}" + (f"[{group}]" if group else ""))
 
     return biases

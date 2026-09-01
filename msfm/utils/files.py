@@ -471,8 +471,11 @@ def read_metacal_bias(key, conf=None):
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
     metacal_bias_file = os.path.join(repo_dir, conf["files"]["metacal_bias"])
+    # files.metacal_bias_arm selects a group within the file (e.g. "clean"/"contam" of a combined table written by
+    # source_clustering_bias.fit_bias_table with group=<arm>); absent, the table is read at its root as before
+    arm = conf["files"].get("metacal_bias_arm")
     with h5py.File(metacal_bias_file, "r") as f:
-        metacal_bias = f[key][:]
+        metacal_bias = (f[arm] if arm else f)[key][:]
 
     return np.array(metacal_bias)
 

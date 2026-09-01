@@ -47,6 +47,10 @@ EXPECTED_MISSING = {
     "data/peaks/binning/v11_extended.h5",
 }
 
+# files: keys whose value is not a repo-relative path -- metacal_bias_arm selects an HDF5 group
+# within files.metacal_bias (see source_clustering_bias.fit_bias_table), it does not name a file
+NON_PATH_KEYS = {"metacal_bias_arm"}
+
 
 def iter_path_entries(conf):
     """Yield (section, key, value) for every path-like entry of a config.
@@ -65,6 +69,8 @@ def iter_path_entries(conf):
         if not isinstance(block, dict):
             continue
         for key, value in block.items():
+            if key in NON_PATH_KEYS:
+                continue
             if isinstance(value, str):
                 yield section, key, value
             elif isinstance(value, dict):

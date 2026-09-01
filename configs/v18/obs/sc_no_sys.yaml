@@ -14,8 +14,9 @@ files:
   healpy_data: data/healpy_data
   # DES Y3 imaging systematics of the metacal sources, exported by the lss_sys repository
   metacal_systematics: data/desy3_metacal_systematics_STD32_512.h5
-  # source clustering bias, fit against the CLEAN forward model
-  metacal_bias: data/desy3_metacal_bias_clean.h5
+  # source clustering bias, fit against the CLEAN forward model (arm "clean" of the combined table)
+  metacal_bias: data/desy3_metacal_bias.h5
+  metacal_bias_arm: clean
 
 survey:
   name: DESy3

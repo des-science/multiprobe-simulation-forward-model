@@ -22,9 +22,12 @@ def _check_metacal_bias_matches_forward_model(conf, survey_systematics):
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
 
+    # files.metacal_bias_arm selects a group within the file, see files.read_metacal_bias
+    arm = conf["files"].get("metacal_bias_arm")
     with h5py.File(os.path.join(repo_dir, conf["files"]["metacal_bias"]), "r") as f:
+        root = f[arm] if arm else f
         # tables predating this attribute were all fit against a clean forward model
-        table_label = str(f.attrs.get("systematics_label", "none"))
+        table_label = str(root.attrs.get("systematics_label", "none"))
 
     status = ""
     if survey_systematics:

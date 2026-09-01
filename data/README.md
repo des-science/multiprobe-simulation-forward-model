@@ -31,11 +31,12 @@ files:
   meta_info:           data/CosmoGridV1_metainfo.h5
   healpy_data:         data/healpy_data
   metacal_systematics: data/desy3_metacal_systematics_STD32_512.h5
-  metacal_bias:        data/desy3_metacal_bias_sys.h5
+  metacal_bias:        data/desy3_metacal_bias.h5
+  metacal_bias_arm:    contam
 ```
 
-`configs/v18/obs/*.yaml` vary only the shape-noise model, which swaps `metacal_bias` for
-`desy3_metacal_bias_clean.h5` (`sc_no_sys`) or replaces it with
+`configs/v18/obs/*.yaml` vary only the shape-noise model, which swaps `metacal_bias_arm` for
+`clean` (`sc_no_sys`) or replaces the two `metacal_bias*` keys with
 `sc_calibration: data/desy3_sc_calibration_gatti.npy` (`sc_gatti`).
 
 ## Where every file comes from
@@ -51,8 +52,7 @@ notebook belongs.
 |---|---|---|---|---|
 | `desy3_pixels_fiducial_512.h5` | 63 M | `notebooks/pixel_file.ipynb` | yes | `files.pixels` |
 | `desy3_noise_512.h5` | 1.5 G | `notebooks/noise_file.ipynb` | **no** — too large for git, regenerate it | `files.noise` |
-| `desy3_metacal_bias_sys.h5` | 4.3 M | `notebooks/sc_bias_fit_count.ipynb` (`contam` arm) | yes | `files.metacal_bias` |
-| `desy3_metacal_bias_clean.h5` | 4.3 M | `notebooks/sc_bias_fit_count.ipynb` (`clean` arm) | yes | `files.metacal_bias` |
+| `desy3_metacal_bias.h5` | 8.5 M | `notebooks/sc_bias_fit_count.ipynb` (`clean`/`contam` HDF5 groups) | yes | `files.metacal_bias` + `files.metacal_bias_arm` |
 | `desy3_sc_calibration_gatti.npy` | 1 K | `notebooks/sc_calibration_gatti.ipynb` | yes | `files.sc_calibration` |
 | `cache/desy3_metacal_gamma_e1p_e2m.npy` | 193 M | `notebooks/build_des.ipynb` → `catalog.build_metacal_map_from_cat` | no | `msi/utils/ppc.py` |
 | `cache/desy3_metacal_count.npy` | 49 M | as above | no | `source_clustering_bias.py`, `msi/utils/ppc.py` |
@@ -115,10 +115,13 @@ actually distinguishes the files.
 | `metacal_biases_desy3.h5` | `deprecated/metacal_biases_desy3.h5` |
 | `CosmoGridV1_original_metainfo.h5`, `DESY3_pixels_512.h5`, `DESY3_pixels_v11_512.h5`, `DESY3_pixels_v11_octant_512.h5`, `metacal_biases_buzzard_0.{h5,pkl}`, `y3_gold_*_mask.fits.gz`, `nside256/`, `mock_observations/` | moved to `deprecated/`, names unchanged |
 
-`clean` vs `sys` is the forward model the bias table was fit against: `sys` against the model that
-imprints the DES Y3 imaging systematics on the source density, `clean` against the one that does
-not. Mixing them up double counts the systematics or drops them entirely, and shows up as an error
-nowhere downstream — which is why `configuration.py` asserts on it.
+`clean` vs `contam` is the forward model the bias table was fit against: `contam` against the model
+that imprints the DES Y3 imaging systematics on the source density, `clean` against the one that
+does not. Since 2026-09-01 both arms live in `desy3_metacal_bias.h5` as top-level HDF5 groups of
+that name (`files.metacal_bias_arm` selects one); before that they were two separate files,
+`desy3_metacal_bias_sys.h5` (`contam`) and `desy3_metacal_bias_clean.h5` (`clean`). Mixing the arms
+up double counts the systematics or drops them entirely, and shows up as an error nowhere
+downstream — which is why `configuration.py` asserts on it.
 
 ## Traps
 
