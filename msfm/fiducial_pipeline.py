@@ -14,7 +14,7 @@ import warnings
 from typing import Union
 
 from msfm.utils import logger, tfrecords, parameters
-from msfm.utils.base_pipeline import MSFMpipeline
+from msfm.utils.base_pipeline import MSFMpipeline, apply_autotune_ram_budget
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -320,6 +320,8 @@ class FiducialPipeline(MSFMpipeline):
                 n_prefetch = tf.data.AUTOTUNE
             dset = dset.prefetch(n_prefetch)
             LOGGER.info(f"Prefetching {n_prefetch} elements")
+
+        dset = apply_autotune_ram_budget(dset)
 
         LOGGER.info(f"Successfully generated the fiducial training set with element_spec {dset.element_spec}")
         return dset

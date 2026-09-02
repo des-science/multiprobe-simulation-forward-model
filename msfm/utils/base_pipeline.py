@@ -7,6 +7,7 @@ Author: Arne Thomsen
 Parent class of the fiducial and grid pipelines
 """
 
+import os
 import tensorflow as tf
 import numpy as np
 import healpy as hp
@@ -152,3 +153,68 @@ class MSFMpipeline:
         )
 
         return nest_patch
+
+
+# tf.data's autotuner defaults its RAM budget to half of "available RAM", which it takes from the
+# NODE. On a GH200 that figure is the UNIFIED pool (4 x ~120 GB Grace + 4 x 96 GB HBM = 870 GB), so
+# it budgets ~425 GiB against a cgroup granting only 450 GiB of Grace-side memory. Nothing is left
+# for the model and the job is OOM-killed hours in -- four bench_v12 GCNN jobs died exactly so.
+AUTOTUNE_RAM_FRACTION = 0.5
+
+
+def resolve_autotune_ram_budget():
+    """Bytes tf.data's autotuner may use, taken from the JOB's memory limit rather than the node's.
+
+    Returns None when no limit can be determined, which leaves TensorFlow's own default in place.
+    """
+    limit_bytes = None
+    source = None
+
+    # SLURM states the allocation directly, in MB. It is set even when the job never passes --mem,
+    # because Clariden's 450 GiB comes from the partition's DefMemPerNode.
+    slurm_mb = os.environ.get("SLURM_MEM_PER_NODE")
+    if slurm_mb and slurm_mb.isdigit() and int(slurm_mb) > 0:
+        limit_bytes = int(slurm_mb) * 1024**2
+        source = f"SLURM_MEM_PER_NODE={slurm_mb} MB"
+    else:
+        # Outside SLURM, or when memory was requested per-CPU, ask the cgroup the process sits in.
+        for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+            try:
+                with open(path) as f:
+                    raw = f.read().strip()
+            except OSError:
+                continue
+            # "max" (cgroup v2) and a sentinel near 2**63 (v1) both mean unlimited
+            if raw == "max" or not raw.isdigit() or int(raw) > 2**62:
+                continue
+            limit_bytes = int(raw)
+            source = f"cgroup {path}"
+            break
+
+    if limit_bytes is None:
+        LOGGER.warning(
+            "Could not determine this job's memory limit, so tf.data's autotune ram_budget keeps "
+            "its default of half the NODE's memory. On a unified-memory node that over-budgets."
+        )
+        return None
+
+    budget = int(AUTOTUNE_RAM_FRACTION * limit_bytes)
+    LOGGER.info(
+        f"tf.data autotune ram_budget = {budget / 1024**3:.1f} GiB "
+        f"({AUTOTUNE_RAM_FRACTION:.0%} of {limit_bytes / 1024**3:.1f} GiB, from {source})"
+    )
+    return budget
+
+
+def apply_autotune_ram_budget(dset):
+    """Cap tf.data's autotuner at a fraction of the job's memory limit; a no-op if that is unknown.
+
+    Applied regardless of n_workers, since prefetch and the shuffle buffers autotune independently.
+    """
+    budget = resolve_autotune_ram_budget()
+    if budget is None:
+        return dset
+
+    options = tf.data.Options()
+    options.autotune.ram_budget = budget
+    return dset.with_options(options)
