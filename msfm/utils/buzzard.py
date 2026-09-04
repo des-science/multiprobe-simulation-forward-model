@@ -1,4 +1,3 @@
-import os
 import h5py
 import numpy as np
 import healpy as hp
@@ -7,13 +6,26 @@ from msfm.utils import files, parameters
 
 
 def get_cosmo(conf=None, params=None):
+    """The Buzzard truth cosmology, as a dict over the parameters of conf (or of params).
+
+    NaN marks a parameter the simulation has no single value for, rather than a value of zero:
+    the flock is dark-matter-only (no baryonification), and its galaxies are populated with
+    ADDGALS rather than a linear bias, so no bg_i exists. A KeyError here means a config asks
+    for a parameter this table has not been extended to.
+    """
     conf = files.load_config(conf)
     params = parameters.get_parameters(params, conf)
 
+    # Buzzard v2.0, i.e. the Chinchilla N-body cosmology of https://arxiv.org/pdf/1901.02401
     buzzard_cosmo = {
         "Om": 0.286,
         "s8": 0.82,
+        "Ob": 0.047,
+        "H0": 70.0,
+        "ns": 0.96,
         "w0": -1,
+        "bary_Mc": np.nan,
+        "bary_nu": np.nan,
         "Aia": 0.0,
         "n_Aia": np.nan,
         "bta": 0.0,
@@ -23,29 +35,7 @@ def get_cosmo(conf=None, params=None):
         "bg4": np.nan,
     }
 
-    cosmo = {}
-    for param in params:
-        cosmo[param] = buzzard_cosmo[param]
-
-    return cosmo
-
-
-def get_filenames(base_dir="/pscratch/sd/j/jbucko/DESY3/mock_observations/lensing/buzzard_flock"):
-    # TODO move hardcoded definitions to the config?
-    i_vals = [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-    j_vals = [0, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 11, 11]
-    k_vals = ["a"] + 7 * ["a", "b"]
-
-    lensing_files = []
-    clustering_files = []
-    for i, j, k in zip(i_vals, j_vals, k_vals):
-        lensing_file = f"{i}/DESY3_mock_observation_buzzard_flock_v14_shear_noise+WL_iseed_42_varied.h5"
-        clustering_file = f"{i}/DESY3_mock_observation_Buzzard_{j}_Y3{k}.h5"
-
-        lensing_files.append(os.path.join(base_dir, lensing_file))
-        clustering_files.append(os.path.join(base_dir, clustering_file))
-
-    return i_vals, lensing_files, clustering_files
+    return {param: buzzard_cosmo[param] for param in params}
 
 
 def get_lensing_map(lensing_file, nest_in=False, plot_diagnostics=False):
@@ -65,6 +55,18 @@ def get_lensing_map(lensing_file, nest_in=False, plot_diagnostics=False):
         hp.mollview(gamma2[:, 0], nest=nest_in, title="Buzzard gamma2")
 
     return wl_gamma_map
+
+
+def get_metacal_counts(lensing_file):
+    """Read the metacal (source) galaxy count map from a raw Buzzard lensing file, full sky.
+
+    This is the true N-body source clustering, used as the expected-count map for the "count"
+    shape-noise model (see observation.make_shape_noise_map).
+    """
+    with h5py.File(lensing_file, "r") as f_in:
+        counts = [f_in[f"metacal/galaxy_counts_bin{j}"][:] for j in range(1, 5)]
+
+    return np.stack(counts, axis=-1)
 
 
 def get_clustering_map(clustering_file, nest_in=False, plot_diagnostics=False):

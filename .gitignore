@@ -18,6 +18,9 @@
 # too large for git, regenerate with notebooks/noise_file.ipynb
 data/desy3_noise_512.h5
 data/DESY3_noise.h5
+# 220 MB, built by notebooks/build_buzzard_flock.ipynb and then copied into the deep_lss data dir.
+# Needs to be named: the !data/**/*.h5 above would otherwise un-ignore it.
+data/obs/
 # catalog-derived maps, rebuilt on demand by msfm/utils/catalog.py. The "/*" form (not "cache/")
 # is deliberate: an excluded directory cannot have its contents re-included by a negation
 data/cache/*
