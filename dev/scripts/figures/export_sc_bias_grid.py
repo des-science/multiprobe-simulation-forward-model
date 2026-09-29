@@ -9,6 +9,11 @@ cosmology and metacal tomographic bin, for both the "clean" and "contam" arms of
 notebooks/sc_bias_fit_count.ipynb -- together with each cosmology's S8, for the paper_2 figure
 showing the effect of the DES Y3 imaging-systematics correction on the fit.
 
+The fiducial cosmology goes in a group of its own rather than into those arrays. It is not a grid
+point (the grid varies S8 and sigma_8, the fiducial sits at one place in it), but it is the
+cosmology export_sc_count_maps.py builds its maps at, so the figure marks its bias in the scatter
+to tie the two halves together. Same fit, same table, one row.
+
 The bias table is the tracked deliverable of that notebook, data/desy3_metacal_bias.h5 -- one file
 with a "clean" (no correction) and a "contam" (contaminated with the ISD imprint of
 files/lss_systematics.tex before the fit) HDF5 group. See project_isd_systematics_bias_fit and
@@ -104,6 +109,21 @@ def main():
         flush=True,
     )
 
+    # the one row the mask above drops, kept aside: its parameters come from the "fiducial" simset
+    # and are keyed "cosmo_fiducial" there, where the bias table calls the same cosmology
+    # "fiducial" (see source_clustering_bias.get_cosmogrid_dirs)
+    assert "fiducial" in keys, "the bias table carries no fiducial cosmology to export"
+    i_fid = keys.index("fiducial")
+    params_fid = cosmogrid.get_cosmo_params_info(meta_info_file, simset="fiducial")
+    row_fid = next(i for i, p in enumerate(params_fid["path_par"]) if scb.cosmo_key(p) == "cosmo_fiducial")
+    s8_fid = float(params_fid["s8"][row_fid])
+    S8_fid = s8_fid * np.sqrt(float(params_fid["Om"][row_fid]) / 0.3)
+    print(
+        f"fiducial: sigma_8 = {s8_fid:.3f}, S8 = {S8_fid:.3f}, "
+        f"b_g,s {bias_clean[i_fid].round(2)} -> {bias_contam[i_fid].round(2)}",
+        flush=True,
+    )
+
     # ------------------------------------------------------------------------------------ write
     ds = {"compression": "gzip", "compression_opts": 4}
     os.makedirs(os.path.dirname(output), exist_ok=True)
@@ -129,6 +149,18 @@ def main():
         b.attrs["description"] = "b_g,s of the grid cosmologies (fiducial excluded), row-matched to S8"
         b.create_dataset("clean", data=bias_clean[i_grid].astype(np.float64), **ds)
         b.create_dataset("contam", data=bias_contam[i_grid].astype(np.float64), **ds)
+
+        fid = f.create_group("fiducial")
+        fid.attrs["description"] = (
+            "the one cosmology the arrays above exclude, and the one export_sc_count_maps.py "
+            "builds its maps at. Same bias table, same fit, so the figure can mark it in the scatter"
+        )
+        fid.attrs["cosmo_key"] = "fiducial"
+        fid.attrs["sigma8"] = s8_fid
+        fid.attrs["S8"] = S8_fid
+        fb = fid.create_group("bias")
+        fb.create_dataset("clean", data=bias_clean[i_fid].astype(np.float64))
+        fb.create_dataset("contam", data=bias_contam[i_fid].astype(np.float64))
 
     print("done", flush=True)
 
