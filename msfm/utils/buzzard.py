@@ -57,14 +57,16 @@ def get_lensing_map(lensing_file, nest_in=False, plot_diagnostics=False):
     return wl_gamma_map
 
 
-def get_metacal_counts(lensing_file):
+def get_metacal_counts(lensing_file, survey=False):
     """Read the metacal (source) galaxy count map from a raw Buzzard lensing file, full sky.
 
-    This is the true N-body source clustering, used as the expected-count map for the "count"
-    shape-noise model (see observation.make_shape_noise_map).
+    This is the true N-body source clustering, used as the count map for the "count" shape-noise model (see
+    observation.make_shape_noise_map). With survey=True, the counts after the DES Y3 imaging systematics
+    (files.get_metacal_systematics) were imprinted on them by thinning the catalog.
     """
+    tag = "galaxy_counts_survey" if survey else "galaxy_counts"
     with h5py.File(lensing_file, "r") as f_in:
-        counts = [f_in[f"metacal/galaxy_counts_bin{j}"][:] for j in range(1, 5)]
+        counts = [f_in[f"metacal/{tag}_bin{j}"][:] for j in range(1, 5)]
 
     return np.stack(counts, axis=-1)
 
