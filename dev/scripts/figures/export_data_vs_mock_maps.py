@@ -60,15 +60,16 @@ import yaml
 
 from msfm.utils import catalog, files, imports, observation, parameters, scales
 
+# sibling module in this directory, shared with the other figure exports: the footprint projection
+# and its graticule, so that every paper_2 sky map is the same projection
+import footprint_projection
+from footprint_projection import UNSEEN_THRESHOLD
+
 # not parallel=True: that pins OMP_NUM_THREADS to every visible core, which a login node refuses
 # to hand out. Set OMP_NUM_THREADS yourself; the transforms scale well up to a few dozen threads.
 hp = imports.import_healpy()
 
 REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
-
-# healpy marks unseen pixels with this value, and the projectors fill the area outside of the
-# sphere with it as well
-UNSEEN_THRESHOLD = -1e30
 
 
 def parse_args():
@@ -287,52 +288,6 @@ def celestial_source_pix(n_side, msfm_conf):
     return catalog.survey_angles_to_pix(msfm_conf, ra, dec, n_side)
 
 
-def footprint_center(patch_pix_ring, n_side, msfm_conf):
-    """Celestial (ra, dec) of the footprint centroid, in degrees.
-
-    Averaged as unit vectors, which is what makes it right across the RA = 0 wrap the DES
-    footprint straddles.
-    """
-    ra, dec = catalog.survey_pix_to_angles(msfm_conf, patch_pix_ring, n_side)
-    vec = np.asarray(hp.ang2vec(ra, dec, lonlat=True)).mean(axis=0)
-    vec /= np.linalg.norm(vec)
-    ra_c, dec_c = hp.vec2ang(vec, lonlat=True)
-    # vec2ang always returns arrays; healpy's Rotator rejects a rot tuple holding them
-    return float(ra_c[0]), float(dec_c[0])
-
-
-def footprint_projector(patch_pix_ring, n_side, msfm_conf, reso, margin_deg):
-    """A Lambert azimuthal equal-area projector framing the whole footprint.
-
-    Equal area, because the figure is read as "how much sky, and what is in it". The plane
-    coordinates of a point depend only on the projection centre, so the frame is sized by
-    projecting the footprint first and then asking for enough pixels to hold it.
-
-    Returns:
-        (projector, (ra_center_deg, dec_center_deg))
-    """
-    ra_c, dec_c = footprint_center(patch_pix_ring, n_side, msfm_conf)
-    ra, dec = catalog.survey_pix_to_angles(msfm_conf, patch_pix_ring, n_side)
-    vec = np.asarray(hp.ang2vec(ra, dec, lonlat=True)).T
-
-    def make(xsize, ysize):
-        return hp.projector.AzimuthalProj(
-            rot=(ra_c, dec_c, 0.0), lamb=True, xsize=int(xsize), ysize=int(ysize), reso=reso
-        )
-
-    probe = make(1000, 1000)
-    x, y = probe.vec2xy(vec[0], vec[1], vec[2])
-    x0, x1, y0, y1 = probe.get_extent()
-    per_pixel = (x1 - x0) / 1000.0
-
-    # the margin is in degrees of great circle; near the centre the Lambert plane is radians
-    margin = np.radians(margin_deg)
-    half_x = max(abs(np.nanmin(x)), abs(np.nanmax(x))) + margin
-    half_y = max(abs(np.nanmin(y)), abs(np.nanmax(y))) + margin
-
-    return make(2 * half_x / per_pixel, 2 * half_y / per_pixel), (float(ra_c), float(dec_c))
-
-
 def project_celestial(values, patch_pix_ring, source_pix, n_side, proj):
     """Image stack of footprint values in celestial coordinates, NaN off the footprint.
 
@@ -345,77 +300,13 @@ def project_celestial(values, patch_pix_ring, source_pix, n_side, proj):
     """
     n_pix = hp.nside2npix(n_side)
 
-    def vec2pix(x, y, z):
-        return hp.vec2pix(n_side, x, y, z)
-
     images = []
     for i in range(values.shape[-1]):
         rotated = np.full(n_pix, np.nan, dtype=np.float64)
         rotated[patch_pix_ring] = values[:, i]
-        img = np.asarray(proj.projmap(rotated[source_pix], vec2pix), dtype=np.float32)
-        images.append(np.where(img < UNSEEN_THRESHOLD, np.nan, img))
+        images.append(footprint_projection.project(rotated[source_pix], n_side, proj))
 
     return np.stack(images)
-
-
-def crop_to_data(images, extent, margin_pix=8):
-    """Trim the all-NaN border off a projected image stack, carrying the extent with it.
-
-    The projector frames a rectangle around the footprint centre; the footprint is not a
-    rectangle, so a tight crop is what keeps the panel from being mostly empty.
-
-    Returns:
-        (cropped stack, cropped extent)
-    """
-    finite = np.isfinite(images).any(axis=0)
-    rows = np.flatnonzero(finite.any(axis=1))
-    cols = np.flatnonzero(finite.any(axis=0))
-    n_y, n_x = finite.shape
-
-    i0 = max(int(rows[0]) - margin_pix, 0)
-    i1 = min(int(rows[-1]) + margin_pix + 1, n_y)
-    j0 = max(int(cols[0]) - margin_pix, 0)
-    j1 = min(int(cols[-1]) + margin_pix + 1, n_x)
-
-    x0, x1, y0, y1 = extent
-    dx = (x1 - x0) / n_x
-    dy = (y1 - y0) / n_y
-    cropped_extent = (x0 + j0 * dx, x0 + j1 * dx, y0 + i0 * dy, y0 + i1 * dy)
-
-    return images[:, i0:i1, j0:j1], cropped_extent
-
-
-def graticule(proj, ra_range, dec_range, step_deg, n_samples=400, pad_deg=3.0):
-    """Meridians and parallels of the celestial grid, as polylines in the projection plane.
-
-    The graticule *is* the coordinate system of a footprint panel -- there are no meaningful
-    numeric axes on an azimuthal projection -- so it is exported alongside the images rather than
-    reconstructed by the plotting code, which has no healpy.
-
-    Returns:
-        dict with ``meridian_values`` (k,), ``meridians`` (k, n_samples, 2) and the same for
-        parallels. Points behind the projection are NaN.
-    """
-    ra_lo, ra_hi = ra_range
-    dec_lo, dec_hi = dec_range
-
-    def line(ra, dec):
-        vec = np.asarray(hp.ang2vec(ra, dec, lonlat=True)).T
-        x, y = proj.vec2xy(vec[0], vec[1], vec[2])
-        return np.stack([np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64)], axis=-1)
-
-    ra_values = np.arange(np.ceil(ra_lo / step_deg), np.floor(ra_hi / step_deg) + 1) * step_deg
-    dec_values = np.arange(np.ceil(dec_lo / step_deg), np.floor(dec_hi / step_deg) + 1) * step_deg
-
-    ra_samples = np.linspace(ra_lo - pad_deg, ra_hi + pad_deg, n_samples)
-    dec_samples = np.linspace(dec_lo - pad_deg, dec_hi + pad_deg, n_samples)
-
-    return {
-        "meridian_values": np.mod(ra_values, 360.0),
-        "meridians": np.stack([line(np.full(n_samples, ra), dec_samples) for ra in ra_values]),
-        "parallel_values": dec_values,
-        "parallels": np.stack([line(ra_samples, np.full(n_samples, dec)) for dec in dec_values]),
-    }
 
 
 def main():
@@ -474,9 +365,8 @@ def main():
     # map is noise, and storing both would double a file that is already the biggest thing in
     # paper_2_plotting/cache.
     patch_pix_ring = hp.nest2ring(n_side, patch_pix)
-    foot_proj, (ra_c, dec_c) = footprint_projector(
-        patch_pix_ring, n_side, msfm_conf, args.footprint_reso, args.footprint_margin
-    )
+    ra_f, dec_f = catalog.survey_pix_to_angles(msfm_conf, patch_pix_ring, n_side)
+    foot_proj, (ra_c, dec_c) = footprint_projection.projector(ra_f, dec_f, args.footprint_reso, args.footprint_margin)
     print(f"footprint projection centred on (ra, dec) = ({ra_c:.2f}, {dec_c:.2f}) deg", flush=True)
 
     source_pix = celestial_source_pix(n_side, msfm_conf)
@@ -486,19 +376,12 @@ def main():
     )
     # cropped as one array, so both panels end up on the same frame -- cropping them separately
     # would silently shift one against the other if their footprints ever stopped agreeing
-    stacked, footprint_extent = crop_to_data(stacked, foot_proj.get_extent())
+    stacked, footprint_extent = footprint_projection.crop_to_data(stacked, foot_proj.get_extent())
     footprint_projections = dict(zip(sources, np.split(stacked, len(sources))))
     print(f"footprint panel is {stacked.shape[1:]} pixels", flush=True)
 
     # the graticule spans the footprint itself, so it is derived from where the footprint actually is
-    ra_f, dec_f = catalog.survey_pix_to_angles(msfm_conf, patch_pix_ring, n_side)
-    d_ra = (ra_f - ra_c + 180.0) % 360.0 - 180.0
-    grat = graticule(
-        foot_proj,
-        (ra_c + d_ra.min(), ra_c + d_ra.max()),
-        (dec_f.min(), dec_f.max()),
-        args.graticule_step,
-    )
+    grat = footprint_projection.footprint_graticule(foot_proj, ra_f, dec_f, ra_c, args.graticule_step)
     print(
         f"graticule: RA {np.array2string(grat['meridian_values'], precision=0)}, "
         f"Dec {np.array2string(grat['parallel_values'], precision=0)}",
@@ -601,14 +484,7 @@ def main():
             d = g.create_dataset(source, data=images, **ds)
             d.attrs["extent"] = np.array(footprint_extent, dtype=np.float64)
 
-        sub = g.create_group("graticule")
-        sub.attrs["description"] = (
-            "celestial grid lines in the same plane coordinates as the images: one polyline per line, NaN "
-            "where it falls behind the projection. *_values carry the RA / Dec each line is at, in degrees, "
-            "for the labels"
-        )
-        for key, value in grat.items():
-            sub.create_dataset(key, data=np.asarray(value, dtype=np.float64), **ds)
+        footprint_projection.write_graticule(g, grat, **ds)
 
         sub = g.create_group("zoom")
         sub.attrs["description"] = (
