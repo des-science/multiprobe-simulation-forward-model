@@ -280,15 +280,13 @@ def build_metacal_map_from_cat(
 
 
 def build_full_metacal_map_from_cat(
-    conf, debug=True, force_recompute=False, sign_e1=1, sign_e2=1, apply_shear_rotation=True
+    conf, debug=True, force_recompute=False, sign_e1=1, sign_e2=-1, apply_shear_rotation=True
 ):
     """Build a full (non-tomographic) metacal shear map by combining all tomographic bins."""
     conf = files.load_config(conf)
 
     rot_suffix = "" if apply_shear_rotation else "_no_psi_rot"
-    sign_suffix = (
-        "" if (sign_e1 == 1 and sign_e2 == 1) else f"_e1{'m' if sign_e1 < 0 else 'p'}_e2{'m' if sign_e2 < 0 else 'p'}"
-    )
+    sign_suffix = f"_e1{'m' if sign_e1 < 0 else 'p'}_e2{'m' if sign_e2 < 0 else 'p'}"
     gamma_cache_dir = _cache_file(f"desy3_metacal_gamma_full{rot_suffix}{sign_suffix}.npy")
     count_cache_dir = _cache_file("desy3_metacal_count_full.npy")
 
@@ -426,7 +424,7 @@ def build_maglim_map_from_cat(conf, debug=True, force_recompute=False):
     return gc_count_map
 
 
-def get_shapes_from_cat(conf, apply_shear_rotation=True):
+def get_shapes_from_cat(conf, sign_e1=1, sign_e2=-1, apply_shear_rotation=True):
     conf = files.load_config(conf)
 
     n_side = conf["analysis"]["n_side"]
@@ -465,8 +463,8 @@ def get_shapes_from_cat(conf, apply_shear_rotation=True):
 
         # we include the shear response factor from eq. (4) in https://arxiv.org/pdf/2105.13543 here for simplicity
         # since this is a per-bin (not per-object) quantity
-        gamma_1.append(e1 / (R_gamma[i] + R_s[i]))
-        gamma_2.append(e2 / (R_gamma[i] + R_s[i]))
+        gamma_1.append(sign_e1 * e1 / (R_gamma[i] + R_s[i]))
+        gamma_2.append(sign_e2 * e2 / (R_gamma[i] + R_s[i]))
         weight.append(w)
         pixels.append(pix)
 
