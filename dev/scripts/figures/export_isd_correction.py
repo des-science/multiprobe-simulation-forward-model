@@ -65,10 +65,10 @@ def parse_args():
 
 
 def default_output(systematics_file):
-    """paper_2_plotting/cache/isd_weight_maps_<label>.h5."""
+    """paper_2/plotting/cache/isd_weight_maps_<label>.h5."""
     label = os.path.splitext(os.path.basename(systematics_file))[0].replace("desy3_", "")
     name = f"isd_{DATASET}_maps_{label}.h5"
-    return os.path.abspath(os.path.join(REPO_DIR, "../deep_lss_paper/paper_2_plotting/cache", name))
+    return os.path.abspath(os.path.join(REPO_DIR, "../deep_lss_paper/paper_2/plotting/cache", name))
 
 
 def git_hash(path):

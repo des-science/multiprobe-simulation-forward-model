@@ -50,7 +50,7 @@ def parse_args():
 
 def default_output():
     return os.path.abspath(
-        os.path.join(REPO_DIR, "../deep_lss_paper/paper_2_plotting/cache", "sc_bias_systematics_grid.h5")
+        os.path.join(REPO_DIR, "../deep_lss_paper/paper_2/plotting/cache", "sc_bias_systematics_grid.h5")
     )
 
 

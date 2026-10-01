@@ -116,7 +116,7 @@ def parse_args():
 
 
 def default_output(config, cosmo_key, smooth_fwhm):
-    """paper_2_plotting/cache/sc_count_maps_<version>-<release>_<cosmo key>[_smooth<fwhm>].h5.
+    """paper_2/plotting/cache/sc_count_maps_<version>-<release>_<cosmo key>[_smooth<fwhm>].h5.
 
     The name carries everything that changes the numbers, because nothing downstream checks that a
     cache file was produced by the settings that found it -- the smoothing included, since a
@@ -126,7 +126,7 @@ def default_output(config, cosmo_key, smooth_fwhm):
     release = os.path.splitext(os.path.basename(config))[0]
     suffix = "" if smooth_fwhm <= 0 else f"_smooth{smooth_fwhm:g}"
     name = f"sc_count_maps_{version}-{release}_{cosmo_key}{suffix}.h5"
-    return os.path.abspath(os.path.join(REPO_DIR, "../deep_lss_paper/paper_2_plotting/cache", name))
+    return os.path.abspath(os.path.join(REPO_DIR, "../deep_lss_paper/paper_2/plotting/cache", name))
 
 
 def git_hash(path):

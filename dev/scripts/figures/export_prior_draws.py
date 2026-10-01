@@ -14,7 +14,7 @@ survivors.
 
 The prior is read from a *run's own configs.yaml*, not from a repo config: the band has to be the
 prior the networks were actually trained under, and a restored run reads its own snapshot. Point
---run_config at the run the figure names as its reference; paper_2_plotting prints the exact
+--run_config at the run the figure names as its reference; paper_2/plotting prints the exact
 command, with both paths filled in, when the file it wants is not there.
 
 Cheap: a few seconds of rejection sampling and a ~30 MB h5, no maps. A login node is fine.
@@ -59,7 +59,7 @@ def output_name(version, params, n_draws):
 
 def default_output(version, params, n_draws):
     return os.path.abspath(
-        os.path.join(REPO_DIR, "../deep_lss_paper/paper_2_plotting/cache", output_name(version, params, n_draws))
+        os.path.join(REPO_DIR, "../deep_lss_paper/paper_2/plotting/cache", output_name(version, params, n_draws))
     )
 
 

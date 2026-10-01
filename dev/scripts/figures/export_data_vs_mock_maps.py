@@ -113,14 +113,14 @@ def parse_args():
     parser.add_argument(
         "--output",
         default=None,
-        help="path of the .h5 file to write. Defaults to the paper_2_plotting cache, named after "
+        help="path of the .h5 file to write. Defaults to the paper_2/plotting cache, named after "
         "the two configs and the realization",
     )
     return parser.parse_args()
 
 
 def default_output(args, msfm_conf_path, scales_conf_path):
-    """paper_2_plotting/cache/<msfm version>_<scales>_<realization>.h5.
+    """paper_2/plotting/cache/<msfm version>_<scales>_<realization>.h5.
 
     The name carries everything that changes the numbers, because nothing downstream checks that a
     cache file was produced by the settings that found it.
@@ -130,7 +130,7 @@ def default_output(args, msfm_conf_path, scales_conf_path):
     scales_name = os.path.splitext(os.path.basename(scales_conf_path))[0]
     mock = os.path.basename(args.mock_file).replace("_obs_maps.h5", "")
     name = f"data_vs_mock_maps_{version}-{release}_{scales_name}_{mock}-{args.i_realization}.h5"
-    return os.path.abspath(os.path.join(REPO_DIR, "../deep_lss_paper/paper_2_plotting/cache", name))
+    return os.path.abspath(os.path.join(REPO_DIR, "../deep_lss_paper/paper_2/plotting/cache", name))
 
 
 def git_hash(path):
@@ -363,7 +363,7 @@ def main():
     # ------------------------------------------------------- the whole footprint, on the real sky
     # Only the smoothed maps: at the ~5 arcmin per pixel a 5000 deg^2 panel can hold, an unsmoothed
     # map is noise, and storing both would double a file that is already the biggest thing in
-    # paper_2_plotting/cache.
+    # paper_2/plotting/cache.
     patch_pix_ring = hp.nest2ring(n_side, patch_pix)
     ra_f, dec_f = catalog.survey_pix_to_angles(msfm_conf, patch_pix_ring, n_side)
     foot_proj, (ra_c, dec_c) = footprint_projection.projector(ra_f, dec_f, args.footprint_reso, args.footprint_margin)
