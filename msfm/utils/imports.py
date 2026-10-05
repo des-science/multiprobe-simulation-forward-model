@@ -5,7 +5,8 @@ Author: Arne Thomsen
 Handle some peculiarities around importing healpy.
 """
 
-import os, logging
+import os
+import logging
 from msfm.utils import logger
 
 LOGGER = logger.get_logger(__file__)
@@ -27,7 +28,7 @@ def import_healpy(parallel=False):
         try:
             n_cpus = len(os.sched_getaffinity(0))
         except AttributeError:
-            LOGGER.debug(f"os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
+            LOGGER.debug("os.sched_getaffinity is not available on this system, use os.cpu_count() instead")
             n_cpus = os.cpu_count()
 
         os.environ["OMP_NUM_THREADS"] = str(n_cpus)

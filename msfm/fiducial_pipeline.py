@@ -4,7 +4,7 @@
 Created February 2023
 Author: Arne Thomsen
 
-This file is loosely based off 
+This file is loosely based off
 https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/input_pipeline.py
 by Janis Fluri
 """
@@ -14,7 +14,7 @@ import warnings
 from typing import Union
 
 from msfm.utils import logger, tfrecords, parameters
-from msfm.utils.base_pipeline import MSFMpipeline
+from msfm.utils.base_pipeline import MSFMpipeline, apply_autotune_ram_budget
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -66,7 +66,7 @@ class FiducialPipeline(MSFMpipeline):
                 tf.Variable to change it according to a schedule during training. Set to None to not include any shape
                 noise. Defaults to 1.0.
             poisson_noise_scale (float, optional): Factor by which to multiply the Poisson noise. This could also be a
-                tf.Variable to change it according to a schedule during training. Set to None to not include any 
+                tf.Variable to change it according to a schedule during training. Set to None to not include any
                 Poisson noise. Defaults to 1.0.
         """
         super().__init__(
@@ -113,6 +113,9 @@ class FiducialPipeline(MSFMpipeline):
         examples_shuffle_seed: int = 67,
         # distribution
         input_context: tf.distribute.InputContext = None,
+        # nside downsampling
+        downsample_nside: int = None,
+        parent_output_idx=None,
     ) -> tf.data.Dataset:
         """Builds the tf.data.Dataset from the given file name pattern and performance related parameters.
 
@@ -175,13 +178,13 @@ class FiducialPipeline(MSFMpipeline):
             examples_shuffle_seed = None
 
             LOGGER.warning(
-                f"Evaluation mode is activated: the random seed is fixed, the shuffle arguments ignored, and the "
-                f"dataset is not repeated"
+                "Evaluation mode is activated: the random seed is fixed, the shuffle arguments ignored, and the "
+                "dataset is not repeated"
             )
 
         # parallelization
         if n_workers is None:
-            LOGGER.info(f"n_workers is not set, using tf.data.AUTOTUNE. This might produce unexpected RAM usage.")
+            LOGGER.info("n_workers is not set, using tf.data.AUTOTUNE. This might produce unexpected RAM usage.")
             n_file_workers = tf.data.AUTOTUNE
             n_parse_workers = tf.data.AUTOTUNE
             n_augment_workers = tf.data.AUTOTUNE
@@ -226,7 +229,7 @@ class FiducialPipeline(MSFMpipeline):
 
             # Taken from https://www.tensorflow.org/tutorials/distribute/input#usage_2
             dset = dset.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
-            LOGGER.info(f"Sharding the dataset over the .tfrecord files according to the input context")
+            LOGGER.info("Sharding the dataset over the .tfrecord files according to the input context")
 
         # repeat and shuffle the files
         if not is_eval and not is_cached:
@@ -271,9 +274,9 @@ class FiducialPipeline(MSFMpipeline):
         if is_cached:
             dset = dset.cache()
             dset = dset.repeat()
-            LOGGER.warning(f"Caching the dataset")
+            LOGGER.warning("Caching the dataset")
             # TODO
-            LOGGER.error(f"CACHING SEEMS TO PRODUCE BUGGY BEHAVIOR")
+            LOGGER.error("CACHING SEEMS TO PRODUCE BUGGY BEHAVIOR")
 
         # map a single example to len(noise_indices) examples corresponding to different noise realizations
         # NOTE that interleaving with cycle_lengths > 1 doesn't improve performance, so we use flat_map
@@ -297,12 +300,28 @@ class FiducialPipeline(MSFMpipeline):
             deterministic=is_eval,
         )
 
+        # optional nside downsampling (e.g. for faster smoothing at low nside)
+        if downsample_nside is not None and parent_output_idx is not None:
+            parent_output_idx_tf = tf.constant(parent_output_idx, dtype=tf.int32)
+            n_pix_out = int(parent_output_idx.max()) + 1
+
+            def _downsample_dv(dv, *rest):
+                # dv: (batch, n_pix_in, n_channels) → (batch, n_pix_out, n_channels)
+                dv_t = tf.transpose(dv, perm=[1, 0, 2])  # (n_pix_in, batch, n_channels)
+                dv_down_t = tf.math.unsorted_segment_mean(dv_t, parent_output_idx_tf, n_pix_out)
+                return (tf.transpose(dv_down_t, perm=[1, 0, 2]), *rest)
+
+            dset = dset.map(_downsample_dv, num_parallel_calls=n_augment_workers, deterministic=is_eval)
+            LOGGER.info(f"Downsampling maps to nside={downsample_nside} ({n_pix_out} pixels)")
+
         # prefetch
         if n_prefetch != 0:
             if n_prefetch is None:
                 n_prefetch = tf.data.AUTOTUNE
             dset = dset.prefetch(n_prefetch)
             LOGGER.info(f"Prefetching {n_prefetch} elements")
+
+        dset = apply_autotune_ram_budget(dset)
 
         LOGGER.info(f"Successfully generated the fiducial training set with element_spec {dset.element_spec}")
         return dset
@@ -337,7 +356,7 @@ class FiducialPipeline(MSFMpipeline):
         # repeat the signal as often as there are different noise realizations
         for key in data_vectors.keys():
             # no action is necessary for the cls. They're already in this format right out of the .tfrecords
-            if not "cl" in key:
+            if "cl" not in key:
                 data_vectors[key] = tf.repeat(tf.expand_dims(data_vectors[key], axis=0), len(noise_indices), axis=0)
 
         if self.return_maps:
@@ -366,7 +385,7 @@ class FiducialPipeline(MSFMpipeline):
         Returns:
             tuple: (out_tensor, index) the elements of the dataset, where index is a tuple (i_example, i_noise).
         """
-        LOGGER.warning(f"Tracing _augmentations")
+        LOGGER.warning("Tracing _augmentations")
         LOGGER.info(f"Running on the data_vectors.keys() = {data_vectors.keys()}")
 
         # to be explicit
@@ -388,10 +407,10 @@ class FiducialPipeline(MSFMpipeline):
                     map_tensor = self._clustering_augmentations(data_vectors)
 
                 else:
-                    raise ValueError(f"At least one of 'lensing' or 'clustering' maps need to be selected")
+                    raise ValueError("At least one of 'lensing' or 'clustering' maps need to be selected")
 
                 if not self.with_padding:
-                    LOGGER.info(f"Removing the padding")
+                    LOGGER.info("Removing the padding")
                     map_tensor = tf.boolean_mask(map_tensor, self.mask_total, axis=1)
 
                 # potentially discard the unwanted redshift bins
@@ -410,10 +429,10 @@ class FiducialPipeline(MSFMpipeline):
                 cl_tensor = None
 
         # gather the indices
-        i_example = data_vectors.pop("i_example")
+        i_signal = data_vectors.pop("i_signal")
         i_noise = data_vectors.pop("i_noise")
 
-        return map_tensor, cl_tensor, (i_example, i_noise)
+        return map_tensor, cl_tensor, (i_signal, i_noise)
 
     def _lensing_augmentations(self, data_vectors: dict) -> tf.Tensor:
         """Applies random augmentations and general pre-processing to the weak lensing maps (kg). This includes in
@@ -435,7 +454,7 @@ class FiducialPipeline(MSFMpipeline):
                 correspond to the fiducial value, the second to the first perturbation, the third to the second
                 perturbation, etc. (for compatibility with the delta loss).
         """
-        LOGGER.warning(f"Tracing _lensing_augmentations")
+        LOGGER.warning("Tracing _lensing_augmentations")
 
         # shape noise
         sn = data_vectors.pop("sn")
@@ -445,7 +464,7 @@ class FiducialPipeline(MSFMpipeline):
             # galaxy bias perturbations
             if "bg" in label:
                 # doesn't affect the convergence map
-                data_vector = data_vectors[f"kg_fiducial"]
+                data_vector = data_vectors["kg_fiducial"]
 
             # cosmology + intrinsic alignment perturbations
             else:
@@ -461,13 +480,13 @@ class FiducialPipeline(MSFMpipeline):
                 # broadcast axis 0 of size n_pix
                 data_vector *= 1.0 + m_bias
             else:
-                LOGGER.warning(f"No multiplicative shear bias is applied")
+                LOGGER.warning("No multiplicative shear bias is applied")
 
             # shape noise
             if self.shape_noise_scale is not None:
                 data_vector += self.shape_noise_scale * sn
             else:
-                LOGGER.warning(f"No shape noise is added to the lensing maps")
+                LOGGER.warning("No shape noise is added to the lensing maps")
 
             # normalization
             if self.apply_norm:
@@ -496,7 +515,7 @@ class FiducialPipeline(MSFMpipeline):
                 correspond to the fiducial value, the second to the first perturbation, the third to the second
                 perturbation, etc. (for compatibility with the delta loss).
         """
-        LOGGER.warning(f"Tracing _clustering_augmentations")
+        LOGGER.warning("Tracing _clustering_augmentations")
 
         # poisson noise
         pn = data_vectors.pop("pn")
@@ -506,7 +525,7 @@ class FiducialPipeline(MSFMpipeline):
             # intrinsic alignemnt perturbations
             if "Aia" in label:
                 # doesn't affect the clustering map
-                data_vector = data_vectors[f"dg_fiducial"]
+                data_vector = data_vectors["dg_fiducial"]
             # cosmology perturbations
             else:
                 data_vector = data_vectors[f"dg_{label}"]
@@ -515,7 +534,7 @@ class FiducialPipeline(MSFMpipeline):
             if self.poisson_noise_scale is not None:
                 data_vector += self.poisson_noise_scale * pn
             else:
-                LOGGER.warning(f"No poisson noise is added to the clustering maps")
+                LOGGER.warning("No poisson noise is added to the clustering maps")
 
             # normalization
             if self.apply_norm:

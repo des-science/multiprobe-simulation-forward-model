@@ -8,14 +8,23 @@
 *.pdf
 *.slurm
 # except in the data directory
-!data/**/*.npy
 !data/**/*.npz
 !data/**/*.h5
 !data/**/*.hdf5
-!documentation/*.png
-!documentation/*.jpg
-data/DESY3_noise_v11.h5
+!data/**/*.png
+# tiny, and required by the gatti configs -- the blanket *.npy rule above caught it wrongly.
+# Keep this targeted: !data/**/*.npy would also un-ignore the ~340 MB of caches below
+!data/desy3_sc_calibration_gatti.npy
+# too large for git, regenerate with notebooks/noise_file.ipynb
+data/desy3_noise_512.h5
 data/DESY3_noise.h5
+# 220 MB, built by notebooks/build_buzzard_flock.ipynb and then copied into the deep_lss data dir.
+# Needs to be named: the !data/**/*.h5 above would otherwise un-ignore it.
+data/obs/
+# catalog-derived maps, rebuilt on demand by msfm/utils/catalog.py. The "/*" form (not "cache/")
+# is deliberate: an excluded directory cannot have its contents re-included by a negation
+data/cache/*
+!data/cache/.gitkeep
 
 # repository specific
 esub_logs

@@ -7,7 +7,8 @@ Author: Arne Thomsen
 Utilities to forward model (mock) observations to be consistent with the CosmoGrid maps.
 """
 
-import os, h5py, pickle
+import os
+import h5py
 import numpy as np
 from msfm.utils import (
     files,
@@ -20,7 +21,6 @@ from msfm.utils import (
     filenames,
     redshift,
     clustering,
-    lensing,
 )
 from typing import Union
 
@@ -36,6 +36,7 @@ def forward_model_observation_map(
     apply_norm: bool = True,
     with_padding: bool = True,
     nest_in: bool = True,
+    apply_maglim_sys_map: bool = False,
 ):
     """Take a (mock) observation and apply the same transformations to it as within the CosmoGrid pipeline, such that
     everything (masking, mode removal, normalization, ...) is consistent.
@@ -50,7 +51,7 @@ def forward_model_observation_map(
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). Defaults to None.
         apply_norm (bool, optional): Whether to rescale the maps to approximate unit range. Defaults to True.
-        with_padding (bool, optional): Whether to include the padding of the data vectors (the healpy DeepSphere \
+        with_padding (bool, optional): Whether to include the padding of the data vectors (the healpy DeepSphere
             networks) need this. Defaults to True.
         nest (bool, optional): Whether the full sky input maps wl_gamma and gc_count are in nested (or ring if false)
             ordering. Defaults to True.
@@ -60,7 +61,7 @@ def forward_model_observation_map(
     conf = files.load_config(conf)
 
     n_side = conf["analysis"]["n_side"]
-    n_pix = conf["analysis"]["n_pix"]
+    n_pix = hp.nside2npix(n_side)
     n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
     n_z_maglim = len(conf["survey"]["maglim"]["z_bins"])
 
@@ -86,6 +87,8 @@ def forward_model_observation_map(
             2,
         ), f"Expected shape {(n_pix, n_z_metacal, 2)}, got {wl_gamma_map.shape}"
 
+        LOGGER.info("Forward modeling the weak lensing map")
+
         wl_gamma_map *= masks_metacal[:, :, np.newaxis]
 
         # the input to the mode removal must always be in RING ordering
@@ -110,9 +113,6 @@ def forward_model_observation_map(
                 remove_mean=True,
             )
 
-        if apply_norm:
-            wl_kappa_dv = wl_kappa_dv / conf["analysis"]["normalization"]["lensing"]
-
         wl_kappa_dv *= dv_masks_metacal
         wl_kappa_dv, wl_alms = scales.data_vector_to_smoothed_data_vector(
             wl_kappa_dv,
@@ -128,11 +128,16 @@ def forward_model_observation_map(
         )
         wl_kappa_dv *= dv_masks_metacal
 
+        if apply_norm:
+            wl_kappa_dv = wl_kappa_dv / conf["analysis"]["normalization"]["lensing"]
+
     if gc_count_map is not None:
         assert gc_count_map.shape == (
             n_pix,
             n_z_maglim,
         ), f"Expected shape {(n_pix, n_z_maglim)}, got {gc_count_map.shape}"
+
+        LOGGER.info("Forward modeling the galaxy clustering map")
 
         gc_count_map *= masks_maglim
 
@@ -150,8 +155,13 @@ def forward_model_observation_map(
                 cutout_pix=patches_pix_dict["maglim"][i][0],
             )
 
-        if apply_norm:
-            print("No normalization applied to the galaxy clustering maps")
+        if apply_maglim_sys_map:
+            LOGGER.warning("Applying maglim systematics map")
+            # the systematics map is the DES Y3 weight map w = 1/F (F = SP contamination, see
+            # https://arxiv.org/pdf/2105.13540), so multiplying debiases the observed counts
+            # (N_corr = N_obs * w). This is the inverse of the contaminating ng /= w applied to
+            # the clean sims in clustering.galaxy_density_to_count when survey_sys=True.
+            gc_count_dv *= files.get_clustering_systematics(conf, pixel_type="data_vector")
 
         gc_count_dv *= dv_masks_maglim
         gc_count_dv, gc_alms = scales.data_vector_to_smoothed_data_vector(
@@ -167,6 +177,9 @@ def forward_model_observation_map(
             conf=conf,
         )
         gc_count_dv *= dv_masks_maglim
+
+        if apply_norm:
+            gc_count_dv = gc_count_dv / conf["analysis"]["normalization"]["clustering"]
 
     if wl_gamma_map is not None and gc_count_map is not None:
         observation = np.concatenate([wl_kappa_dv, gc_count_dv], axis=-1)
@@ -198,7 +211,8 @@ def forward_model_observation_map(
 def forward_model_cosmogrid(
     map_dir,
     conf=None,
-    noisy=False,
+    noisy=True,
+    noise_only=False,
     i_patch=0,
     # lensing
     with_lensing=True,
@@ -212,6 +226,8 @@ def forward_model_cosmogrid(
     with_clustering=True,
     tomo_bg=None,
     tomo_qbg=None,
+    tomo_cg=None,
+    survey_sys=False,
     noise_seed=12,
 ):
     """Take a full-sky CosmoGrid maps as they are projected with UFalcon and transform them into fiducial probe maps
@@ -235,18 +251,19 @@ def forward_model_cosmogrid(
     """
 
     conf = files.load_config(conf)
+    if noise_only:
+        assert noisy, "If noise_only is true, noisy must also be true."
 
     # constants
     n_side = conf["analysis"]["n_side"]
-    n_pix = conf["analysis"]["n_pix"]
+    n_pix = hp.nside2npix(n_side)
     data_vec_pix, patches_pix_dict, _, gamma2_signs = files.load_pixel_file(conf)
-    z0 = conf["analysis"]["modelling"]["z0"]
 
     map_file = filenames.get_filename_full_maps(map_dir, with_bary=conf["analysis"]["modelling"]["baryonified"])
     LOGGER.info(f"Loading the full-sky map from {map_file}")
     with h5py.File(map_file, "r") as f:
         if with_lensing:
-            LOGGER.info(f"Starting with the weak lensing map")
+            LOGGER.info("Starting with the weak lensing map")
             LOGGER.timer.start("weak_lensing")
 
             metacal_mask = files.get_tomo_dv_masks(conf)["metacal"]
@@ -311,21 +328,87 @@ def forward_model_cosmogrid(
                 wl_kappa_map *= 1.0 + m_bias
 
             if noisy:
-                if tomo_bg_metacal is not None:
-                    LOGGER.info(f"Using tomo_bg_metacal={tomo_bg_metacal} from the function call")
-                elif i_sobol is not None:
-                    tomo_bg_metacal = files.read_metacal_bias(f"cosmo_{i_sobol:06}", conf=conf)
-                    LOGGER.info(f"Using tomo_bg_metacal={tomo_bg_metacal} from the Sobol index {i_sobol}")
-                else:
-                    raise ValueError("Either tomo_bg_metacal or i_sobol must be provided to generate the shape noise")
+                # shape-noise model (see files.get_shape_noise): count / in_place / gatti
+                method, bias, fixed_bsc, survey_systematics = files.get_shape_noise(conf)
 
-                tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
-                dg = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
-                counts_map = clustering.galaxy_density_to_count(
-                    tomo_n_gal, dg, tomo_bg_metacal, systematics_map=None
-                ).astype(int)
+                # a metacal bias supplied via the function call overrides the config bias source: for
+                # count/in_place it selects the count method with that fixed bias (historical behavior),
+                # for gatti it overrides the per-bin b_sc used in the density modulation
+                if tomo_bg_metacal is not None and method != "gatti":
+                    LOGGER.info(
+                        f"Using tomo_bg_metacal={tomo_bg_metacal} from the function call, using count shape noise"
+                    )
+                    method = "count"
 
-                tomo_gamma_cat, _ = files.load_noise_file(conf)
+                if method == "count":
+                    if tomo_bg_metacal is None:
+                        if bias == "fixed" and i_sobol is not None:
+                            tomo_bg_metacal = files.read_metacal_bias(f"cosmo_{i_sobol:06}", conf=conf)
+                            LOGGER.info(f"Using tomo_bg_metacal={tomo_bg_metacal} from the Sobol index {i_sobol}")
+                        else:
+                            raise ValueError(
+                                "count shape noise needs tomo_bg_metacal (for bias: prior) or i_sobol (for "
+                                "bias: fixed) to determine the metacal source-clustering bias"
+                            )
+
+                    # bias: prior samples a single b_sc per patch (see run_single_postprocessing), which applies to
+                    # every tomographic bin. Broadcast it here, like the gatti branch below does, because the per-bin
+                    # loop indexes this per bin and a scalar is not subscriptable
+                    n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
+                    tomo_bg_metacal = np.atleast_1d(np.asarray(tomo_bg_metacal, dtype=float))
+                    if tomo_bg_metacal.size == 1:
+                        tomo_bg_metacal = np.full(n_z_metacal, tomo_bg_metacal[0])
+                    assert tomo_bg_metacal.size == n_z_metacal, (
+                        f"Expected a scalar or {n_z_metacal} metacal source-clustering biases, got "
+                        f"{tomo_bg_metacal.size}"
+                    )
+
+                    tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
+                    dg = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
+
+                    # DES Y3 imaging systematics of the source density, in the base patch frame. The counts
+                    # themselves are built per patch further down, exactly like
+                    # postprocessing.postprocess_shape_noise does, so that the two agree
+                    contamination = files.get_metacal_systematics(conf) if survey_systematics else None
+                elif method == "in_place":
+                    LOGGER.info("Rotating galaxies in place for shape noise")
+                elif method == "gatti":
+                    LOGGER.info("Gatti source-clustering: density-modulated rotate-in-place shape noise")
+                    # per-bin source galaxy bias b_sc for the modulation; the function call
+                    # (tomo_bg_metacal) overrides the config fixed_bsc (bias: fixed) or supplies the
+                    # sampled bsc (bias: prior)
+                    n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
+                    if tomo_bg_metacal is not None:
+                        b_sc_gatti = np.atleast_1d(np.asarray(tomo_bg_metacal, dtype=float))
+                        if b_sc_gatti.size == 1:
+                            b_sc_gatti = np.full(n_z_metacal, b_sc_gatti[0])
+                        LOGGER.info(f"Using b_sc={b_sc_gatti} from the function call (tomo_bg_metacal)")
+                    elif bias == "fixed":
+                        b_sc_gatti = np.asarray(fixed_bsc, dtype=float)
+                        LOGGER.info(f"Using b_sc={b_sc_gatti} from the config (fixed_bsc)")
+                    else:
+                        raise ValueError(
+                            "gatti shape noise with bias: prior needs tomo_bg_metacal (the sampled bsc) to "
+                            "be passed to forward_model_cosmogrid"
+                        )
+
+                    # simulation source-bin density contrast (full sky, per metacal bin), same convention
+                    # as the count branch above
+                    delta_metacal = (dg - np.mean(dg, axis=0)) / np.mean(dg, axis=0)
+
+                    # per metacal bin (corr_variance, A_corr, coeff_kurtosis), no-op (1, 1, 0) by default
+                    sc_calib = files.read_sc_calibration(conf, b_sc_gatti)
+
+                tomo_gamma_cat = files.load_noise_file(conf)
+
+                # per-pixel reference shape-noise variance for the kurtosis term (only if needed)
+                if method == "gatti" and any(ck != 0 for _, _, ck in sc_calib):
+                    var_ref_metacal = np.zeros((n_pix, len(tomo_gamma_cat)))
+                    for i_z_var, cat in enumerate(tomo_gamma_cat):
+                        gamma_abs_var = np.abs(cat[:, 0] + 1j * cat[:, 1])
+                        var_ref_metacal[:, i_z_var] = lensing.shape_noise_variance_map(
+                            gamma_abs_var, cat[:, 2], cat[:, 3], n_pix
+                        )
 
             gamma1 = []
             gamma2 = []
@@ -358,27 +441,87 @@ def forward_model_cosmogrid(
                     tf.random.set_seed(noise_seed)
 
                     with tf.device("/CPU:0"):
-                        counts = counts_map[cutout_patch_pix, i_z]
+                        gamma_cat = tomo_gamma_cat[i_z]
+                        gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
+                        w = gamma_cat[:, 2]
 
-                        # create joint distribution, as this is faster than random indexing
-                        gamma_abs = tf.math.abs(tomo_gamma_cat[i_z][:, 0] + 1j * tomo_gamma_cat[i_z][:, 1])
-                        w = tomo_gamma_cat[i_z][:, 2]
-                        cat_dist = tfp.distributions.Empirical(
-                            samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1
-                        )
+                        if method == "count":
+                            # expected counts of this patch, built exactly like postprocess_shape_noise does: the
+                            # LSS comes from the cut-out (aligned with the signal), the DES imprint is in the base
+                            # patch frame that the noise is written to, and the clip and renormalization of
+                            # galaxy_density_to_count act on the footprint rather than the full sky. For i_patch 0
+                            # this is bit-identical to source_clustering_bias.counts_from_bias
+                            ng = clustering.galaxy_density_to_count(
+                                tomo_n_gal[i_z],
+                                dg[cutout_patch_pix, i_z],
+                                tomo_bg_metacal[i_z],
+                                contamination_map=contamination[:, i_z] if contamination is not None else None,
+                            )
 
-                        gamma1_noise, gamma2_noise = lensing.noise_gen(counts, cat_dist, n_noise_per_example=1)
-                        gamma1_noise = gamma1_noise[:, 0]
-                        gamma2_noise = gamma2_noise[:, 0]
+                            # Poisson realization of the source counts, like postprocess_shape_noise. Unlike the
+                            # training set this is seeded, because an observation has to be reproducible. Passed as
+                            # a [noise_seed, i_z] pair rather than a sum: noise_seed already carries i_patch (see
+                            # run_single_postprocessing), so noise_seed + i_z would give patch p bin z and patch
+                            # p+1 bin z-1 the same stream
+                            counts = np.random.default_rng([noise_seed, i_z]).poisson(ng)
+
+                            # create joint distribution, as this is faster than random indexing
+                            cat_dist = tfp.distributions.Empirical(
+                                samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1
+                            )
+
+                            gamma1_noise, gamma2_noise = lensing.noise_gen(counts, cat_dist, n_noise_per_signal=1)
+                            gamma1_noise = gamma1_noise[:, 0]
+                            gamma2_noise = gamma2_noise[:, 0]
+                        elif method == "gatti":
+                            pix_cat = gamma_cat[:, 3]
+                            gamma1_noise, gamma2_noise = lensing.noise_gen_in_place(
+                                gamma_abs, w, pix_cat, patch_pix, n_pix, n_noise_per_signal=1
+                            )
+
+                            # density-modulate the rotate-in-place noise (Gatti et al. eq. 5). f uses the
+                            # simulation LSS of the cut-out (aligned with the signal, which is taken at
+                            # cutout_patch_pix), while var_ref is a real-data property at the base patch_pix
+                            f_sc = lensing.source_clustering_factor(
+                                delta_metacal[cutout_patch_pix, i_z], b_sc_gatti[i_z]
+                            )
+                            corr_variance, A_corr, coeff_kurtosis = sc_calib[i_z]
+                            mod = f_sc / np.sqrt(A_corr * corr_variance)
+                            if coeff_kurtosis != 0:
+                                # a negative coeff_kurtosis can drive (1 + coeff_kurtosis * var_ref)
+                                # below zero on sparse pixels with large var_ref; clip to keep the noise
+                                # finite (the variance correction cannot be negative)
+                                kurt_arg = 1.0 + coeff_kurtosis * var_ref_metacal[patch_pix, i_z]
+                                n_clip = int(np.sum(kurt_arg < 0))
+                                if n_clip > 0:
+                                    LOGGER.warning(
+                                        f"Clipping {n_clip} pixel(s) with negative kurtosis argument to zero "
+                                        f"shape noise (metacal bin {i_z}, coeff_kurtosis={coeff_kurtosis:.3g})"
+                                    )
+                                mod = mod * np.sqrt(np.clip(kurt_arg, a_min=0.0, a_max=None))
+
+                            gamma1_noise = gamma1_noise[:, 0] * mod
+                            gamma2_noise = gamma2_noise[:, 0] * mod
+                        else:
+                            pix_cat = gamma_cat[:, 3]
+                            gamma1_noise, gamma2_noise = lensing.noise_gen_in_place(
+                                gamma_abs, w, pix_cat, patch_pix, n_pix, n_noise_per_signal=1
+                            )
+                            gamma1_noise = gamma1_noise[:, 0]
+                            gamma2_noise = gamma2_noise[:, 0]
                 else:
                     gamma1_noise = 0
                     gamma2_noise = 0
 
                 gamma1_patch = np.zeros(n_pix, dtype=np.float32)
-                gamma1_patch[patch_pix] = gamma1_full[cutout_patch_pix] + gamma1_noise
-
                 gamma2_patch = np.zeros(n_pix, dtype=np.float32)
-                gamma2_patch[patch_pix] = gamma2_full[cutout_patch_pix] + gamma2_noise
+
+                if noise_only:
+                    gamma1_patch[patch_pix] = gamma1_noise
+                    gamma2_patch[patch_pix] = gamma2_noise
+                else:
+                    gamma1_patch[patch_pix] = gamma1_full[cutout_patch_pix] + gamma1_noise
+                    gamma2_patch[patch_pix] = gamma2_full[cutout_patch_pix] + gamma2_noise
 
                 gamma2_patch *= gamma2_signs[i_patch]
 
@@ -394,18 +537,19 @@ def forward_model_cosmogrid(
             wl_gamma_patch = None
 
         if with_clustering:
-            LOGGER.info(f"Starting with the galaxy clustering map")
+            LOGGER.info("Starting with the galaxy clustering map")
             LOGGER.timer.start("galaxy_clustering")
 
             maglim_bins = conf["survey"]["maglim"]["z_bins"]
             tomo_n_gal_maglim = np.array(conf["survey"]["maglim"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
 
-            patch_pix = np.stack([patches_pix_dict["maglim"][i_z][0] for i_z in range(len(maglim_bins))], axis=-1)
-            cutout_patch_pix = np.stack(
-                [patches_pix_dict["maglim"][i_z][i_patch] for i_z in range(len(maglim_bins))], axis=-1
-            )
+            # NOTE this assumes that the patches are the same for all tomographic bins, which is currently the case
+            i_z_pix = 0
+            patch_pix = patches_pix_dict["maglim"][i_z_pix][0]
+            cutout_patch_pix = patches_pix_dict["maglim"][i_z_pix][i_patch]
             maglim_mask = files.get_tomo_dv_masks(conf)["maglim"]
 
+            # full sky map
             dg = []
             for z_bin in maglim_bins:
                 dg.append(hp.ud_grade(f[f"map/dg/{z_bin}"], n_side))
@@ -416,9 +560,8 @@ def forward_model_cosmogrid(
             dg_patch[patch_pix] = dg[cutout_patch_pix]
 
             # subtract and divide by mean (within the patch and tomographic bin)
-            dg_patch[patch_pix] = (dg_patch[patch_pix] - np.mean(dg_patch[patch_pix], axis=0)) / np.mean(
-                dg_patch[patch_pix], axis=0
-            )
+            dg_mean = np.mean(dg_patch[patch_pix], axis=0)
+            dg_patch[patch_pix] = (dg_patch[patch_pix] - dg_mean) / dg_mean
 
             dg_patch = maps.tomographic_reorder(dg_patch, r2n=True)
             dg_dv = dg_patch[data_vec_pix]
@@ -457,18 +600,49 @@ def forward_model_cosmogrid(
                 LOGGER.info(f"Using tomo_qbg={tomo_qbg} from the function call")
                 qdg_dv = dg_dv**2 * np.sign(dg_dv)
 
+            # TODO
+            if tomo_cg is not None:
+                LOGGER.warning(f"!!!EXPERIMENTAL!!! Using tomo_cg={tomo_cg} from the function call")
+
+                perm_index = int(map_dir[-4:])
+
+                mg = []
+                for i, z_bin in enumerate(maglim_bins):
+                    mg_file = f"/pscratch/sd/a/athomsen/laura/DES_maps_260128/mag_map_bin_{i+1}_run_{perm_index}.npy"
+                    mg.append(np.load(mg_file))
+                mg = np.stack(mg, axis=-1)
+
+                mg_patch = np.zeros_like(mg)
+                mg_patch[patch_pix] = mg[cutout_patch_pix]
+                mg_patch = maps.tomographic_reorder(mg_patch, r2n=True)
+                mg_dv = mg_patch[data_vec_pix]
+
+            else:
+                mg_dv = None
+                tomo_cg = None
+
+            if survey_sys:
+                LOGGER.info("Including the maglim survey systematics map in the forward model")
+                systematics_map = files.get_clustering_systematics(conf, pixel_type="data_vector")
+
             gc_count_dv = clustering.galaxy_density_to_count(
                 tomo_n_gal_maglim,
                 dg_dv,
                 tomo_bg,
                 qdg_dv,
                 tomo_qbg,
+                mg_dv,
+                tomo_cg,
+                systematics_map=systematics_map if survey_sys else None,
                 mask=maglim_mask,
-                nest=True,
             )
 
             if noisy:
-                gc_count_dv += clustering.galaxy_count_to_noise(gc_count_dv, n_noise=1, np_seed=noise_seed)[0]
+                gc_noise_dv = clustering.galaxy_count_to_noise(gc_count_dv, n_noise=1, np_seed=noise_seed)[0]
+                if noise_only:
+                    gc_count_dv = gc_noise_dv
+                else:
+                    gc_count_dv += gc_noise_dv
 
             gc_count_patch = np.zeros((n_pix, gc_count_dv.shape[-1]))
             gc_count_patch[data_vec_pix] = gc_count_dv
@@ -481,17 +655,17 @@ def forward_model_cosmogrid(
         return wl_gamma_patch, gc_count_patch
 
 
-def make_shape_noise_map(wl_counts_map, conf, noise_seed=12):
+def make_shape_noise_map(wl_counts_map, conf, method="count", noise_seed=12):
     import tensorflow as tf
     import tensorflow_probability as tfp
 
     tf.random.set_seed(noise_seed)
 
     # constants
-    n_pix = conf["analysis"]["n_pix"]
+    n_pix = hp.nside2npix(conf["analysis"]["n_side"])
     _, patches_pix_dict, _, _ = files.load_pixel_file(conf)
 
-    tomo_gamma_cat, _ = files.load_noise_file(conf)
+    tomo_gamma_cat = files.load_noise_file(conf)
 
     gamma1 = []
     gamma2 = []
@@ -501,12 +675,21 @@ def make_shape_noise_map(wl_counts_map, conf, noise_seed=12):
         with tf.device("/CPU:0"):
             counts = wl_counts_map[patch_pix, i]
 
-            # create joint distribution, as this is faster than random indexing
             gamma_abs = tf.math.abs(tomo_gamma_cat[i][:, 0] + 1j * tomo_gamma_cat[i][:, 1])
             w = tomo_gamma_cat[i][:, 2]
-            cat_dist = tfp.distributions.Empirical(samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1)
 
-            gamma1_noise, gamma2_noise = lensing.noise_gen(counts, cat_dist, n_noise_per_example=1)
+            if method == "count":
+                # create joint distribution, as this is faster than random indexing
+                cat_dist = tfp.distributions.Empirical(samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1)
+
+                gamma1_noise, gamma2_noise = lensing.noise_gen(counts, cat_dist, n_noise_per_signal=1)
+            elif method == "in_place":
+                pix_cat = tomo_gamma_cat[i][:, 3]
+                gamma1_noise, gamma2_noise = lensing.noise_gen_in_place(gamma_abs, w, pix_cat, patch_pix, n_pix, 1)
+            else:
+                raise ValueError(f"Unknown shape-noise method {method!r}")
+
+            # only take the first noise realization
             gamma1_noise = gamma1_noise[:, 0]
             gamma2_noise = gamma2_noise[:, 0]
 

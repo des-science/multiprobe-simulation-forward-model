@@ -11,9 +11,10 @@ import numpy as np
 
 from sobol_seq import i4_sobol
 
-from msfm.utils import files, imports, parameters
+from msfm.utils import imports, logger, parameters
 
 hp = imports.import_healpy()
+LOGGER = logger.get_logger(__file__)
 
 
 def galaxy_density_to_count(
@@ -24,11 +25,13 @@ def galaxy_density_to_count(
     # quadratic
     qdg=None,
     qbg=None,
+    # magnification
+    mg=None,
+    cg=None,
     # modeling
     systematics_map=None,
+    contamination_map=None,
     # format
-    nest=True,
-    data_vec_pix=None,
     mask=None,
 ):
     """Transform a galaxy density to a galaxy count map, according to the constants defined in the config file.
@@ -41,7 +44,14 @@ def galaxy_density_to_count(
         bg (np.ndarray): Effective linear galaxy biasing parameter (optionally per tomographic bin).
         qdg (np.ndarray, optional): Squared galaxy density contrast map (optionally per tomographic bin).
         qbg (np.ndarray, optional): Effective quadratic galaxy biasing parameter (optionally per tomographic bin).
-        systematics_map (bool): Whether to multiply with the maglim systematics map. Defaults to False.
+        systematics_map (np.ndarray, optional): DES Y3 weight map w = 1/F of the maglim sample, see
+            files.get_clustering_systematics. The clean simulated counts are DIVIDED by it to imprint the survey
+            contamination F. Zeros (the data vector padding) are left untouched. Defaults to None.
+        contamination_map (np.ndarray, optional): DES Y3 imaging systematics contamination factor <1/F> of the
+            metacal sample, see files.get_metacal_systematics. The clean simulated density is MULTIPLIED by it to
+            imprint the survey contamination, before the clip so that the renormalization conserves the contaminated
+            total. The two maps encode the same physics in opposite conventions, because the metacal one is delivered
+            as the already inverted pixel average, which is not the inverse of the pixel average. Defaults to None.
         stochasticity (float, optional): Raises a NotImplementedError if not None. Defaults to None.
 
 
@@ -53,28 +63,47 @@ def galaxy_density_to_count(
     """
 
     # linear bias
-    if (qbg is None) and (qdg is None):
-        ng = ng_bar * (1 + bg * dg)
+    ng = 1 + bg * dg
 
     # quadratic bias
-    elif (qbg is not None) and (qdg is not None):
-        ng = ng_bar * (1 + bg * dg + qbg * qdg)
+    if (qbg is not None) and (qdg is not None):
+        ng += qbg * qdg
 
-    else:
-        raise ValueError("Both or none of qdg and qbg must be passed")
+    ng *= ng_bar
+
+    # map-level magnification bias as derived by Laura
+    if (mg is not None) and (cg is not None):
+        ng *= 1 + cg * mg
+
+    # impose the DES Y3 imaging systematics imprint on the clean model density. Applied before the clip below, so
+    # that the renormalization conserves the contaminated total rather than the clean one
+    if contamination_map is not None:
+        ng = ng * contamination_map
 
     # transform like in DeepLSS Appendix E and https://github.com/tomaszkacprzak/deep_lss/blob/3c145cf8fe04c4e5f952dca984c5ce7e163b8753/deep_lss/lss_astrophysics_model_batch.py#L609
     # this ensures that all of the values are positive, while the total number of galaxies is conserved
     if isinstance(dg, np.ndarray):
+        n_truncated = int(np.sum(ng < 0))
+        LOGGER.debug(
+            f"Truncating {n_truncated} negative pixels ({100.0 * n_truncated / ng.size:.4f}%) to zero in galaxy count (for a total of {ng.size} pixels)"
+        )
         ng_clip = np.clip(ng, a_min=0, a_max=None, dtype=np.float32)
         ng = ng_clip * np.sum(ng) / np.sum(ng_clip)
-    elif isinstance(dg, tf.Tensor):
+    else:
+        # imported here rather than at module scope, so that the numpy path does not pull tensorflow in. The name was
+        # previously used in the isinstance check below before this import, which raised a NameError instead
         import tensorflow as tf
 
+        if not isinstance(dg, tf.Tensor):
+            raise ValueError(f"Unsupported type {type(dg)} for dg")
+
+        n_truncated = int(tf.reduce_sum(tf.cast(ng < 0, tf.int64)).numpy())
+        n_total = int(tf.size(ng).numpy())
+        LOGGER.debug(
+            f"Truncating {n_truncated} negative pixels ({100.0 * n_truncated / n_total:.4f}%) to zero in galaxy count (for a total of {n_total} pixels)"
+        )
         ng_clip = tf.clip_by_value(ng, clip_value_min=0, clip_value_max=1e5)
         ng = ng_clip * tf.reduce_sum(ng) / tf.reduce_sum(ng_clip)
-    else:
-        raise ValueError(f"Unsupported type {type(dg)} for dg")
 
     if systematics_map is not None:
         # mask zeros, this is expecially important for the padded data vectors

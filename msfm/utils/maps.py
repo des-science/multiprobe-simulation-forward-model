@@ -1,6 +1,6 @@
 # Copyright (C) 2023 ETH Zurich, Institute for Particle Physics and Astrophysics
 
-""" 
+"""
 Created April 2023
 Author: Arne Thomsen
 

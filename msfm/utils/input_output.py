@@ -1,4 +1,7 @@
-import yaml, os, subprocess, shlex
+import yaml
+import os
+import subprocess
+import shlex
 from msfm.utils import logger
 
 LOGGER = logger.get_logger(__file__)
@@ -28,5 +31,5 @@ def robust_makedirs(path):
         try:
             os.makedirs(path)
             LOGGER.info(f"Created directory {path}")
-        except FileExistsError as err:
+        except FileExistsError:
             LOGGER.error(f"already exists {path}")

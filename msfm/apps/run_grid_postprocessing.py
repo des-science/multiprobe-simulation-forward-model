@@ -19,7 +19,14 @@ Meant for
 
 import numpy as np
 import tensorflow as tf
-import os, argparse, warnings, time, yaml, h5py, pickle, glob
+import os
+import argparse
+import warnings
+import time
+import yaml
+import h5py
+import pickle
+import glob
 
 from scipy.stats import qmc
 from sobol_seq import i4_sobol
@@ -54,13 +61,21 @@ def resources(args):
     args = setup(args)
 
     if args.cluster == "perlmutter":
-        # because of hyperthreading, there's a total of 256 threads per node
+        # Billing choice for the shared QOS, where NERSC bills max(cores/128, mem/512GB) of a node.
+        # The memory we need sets a floor on that charge, and cores under the floor are effectively
+        # free: measured peak RSS ~14.6 GB + margin, and main_memory is per-core, so total =
+        # 4 * 4352 = 17 GB -> a 17/512 = 3.3% floor, which 4 cores (4/128 = 3.1%) sits just under.
+        # More cores would push the charge above the floor; fewer would not make it any cheaper.
+        # Billed 3.3% of a node vs 6.25% at the old 8 cores.
+        # NOTE the SHTs are memory-bandwidth heavy, but they do scale with cores (measured 6.4x from
+        # 1->8 threads; the bandwidth wall only appears once ~3 tasks share a NUMA domain). So 4
+        # cores is a billing decision, not a claim that cores don't help -- main_time keeps margin.
         resources = {
-            "main_time": 8,
-            "main_n_cores": 8,
-            "main_memory": 1952,
+            "main_time": 3,
+            "main_n_cores": 4,
+            "main_memory": 4352,
             "main_scratch": 0,
-            "merge_time": 8,
+            "merge_time": 16,
             "merge_n_cores": 32,
             "merge_memory": 1952,
             "merge_scratch": 0,
@@ -186,6 +201,8 @@ def main(indices, args):
 
     # configuration
     conf = files.load_config(args.config)
+    # shape-noise model; sn_bias == "prior" sources the source-clustering bias from the Latin hypercube
+    _, sn_bias, _, _ = files.get_shape_noise(conf)
     if not args.to_san:
         with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
             yaml.dump(conf, f)
@@ -203,17 +220,21 @@ def main(indices, args):
     n_patches = conf["analysis"]["n_patches"]
     n_cosmos = conf["analysis"]["grid"]["n_cosmos"]
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
-    n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
-    n_examples_per_cosmo = n_patches * n_perms_per_cosmo * n_noise_per_example
+    n_noise_per_signal = conf["analysis"]["grid"]["n_noise_per_signal"]
+    n_examples_per_cosmo = n_patches * n_perms_per_cosmo * n_noise_per_signal
     LOGGER.info(
         f"For every cosmology, theres {n_examples_per_cosmo} examples: "
-        f"{n_patches} patches times {n_perms_per_cosmo} permutations times {n_noise_per_example} noise realizations"
+        f"{n_patches} patches times {n_perms_per_cosmo} permutations times {n_noise_per_signal} noise realizations"
     )
 
     # modeling
     configuration.print_and_check_modeling_in_config(conf)
 
     baryonified = conf["analysis"]["modelling"]["baryonified"]
+
+    store_cross_maps = conf["analysis"]["modelling"]["store_cross_maps"]
+    store_lensing = conf["analysis"]["modelling"]["lensing"]["store"]
+    store_clustering = conf["analysis"]["modelling"]["clustering"]["store"]
 
     extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
 
@@ -227,6 +248,8 @@ def main(indices, args):
     astro_params += conf["analysis"]["params"]["bg"]["linear"]
     if quadratic_biasing:
         astro_params += conf["analysis"]["params"]["bg"]["quadratic"]
+    if sn_bias == "prior":
+        astro_params += conf["analysis"]["params"]["sc"]
     LOGGER.info(f"Sampling the astrophysical parameters {astro_params} from a Latin hypercube")
 
     astro_priors = parameters.get_prior_intervals(astro_params, conf=conf)
@@ -294,6 +317,16 @@ def main(indices, args):
                 LOGGER.debug(f"Taking inputs from {cosmo_dir_in}")
 
                 state_file = os.path.join(args.dir_out, f"program_state{i_cosmo:06}" + args.file_suffix + ".pkl")
+
+                i_sobol, cosmo = _extend_sobol_squence(conf, cosmo_params_info, i_cosmo)
+
+                latin_sampler = qmc.LatinHypercube(d=len(astro_params), seed=i_cosmo)
+                unscaled_samples = latin_sampler.random(n_examples_per_cosmo // n_noise_per_signal)
+                astro_samples = qmc.scale(unscaled_samples, l_bounds=astro_priors[:, 0], u_bounds=astro_priors[:, 1])
+                astro_samples = astro_samples.astype(np.float32)
+
+                bsc_samples = astro_samples[:, -1] if sn_bias == "prior" else None
+
                 if args.debug and os.path.exists(state_file):
                     with open(state_file, "rb") as f:
                         state = pickle.load(f)
@@ -302,7 +335,7 @@ def main(indices, args):
                 else:
                     # cut out the survey footprints, generate the shape noise, perform mode removal, ...
                     data_vec_container = postprocessing.postprocess_grid_permutations(
-                        args, conf, cosmo_dir_in, pixel_file, noise_file
+                        args, conf, cosmo_dir_in, pixel_file, noise_file, bsc_samples=bsc_samples
                     )
 
                     if args.debug:
@@ -312,42 +345,41 @@ def main(indices, args):
                             pickle.dump(state, f)
 
                 # (n_examples_per_cosmo, n_pix, n_z_bins)
-                kg_examples = data_vec_container["kg"]
-                ia_examples = data_vec_container["ia"]
-                ds_examples = data_vec_container["ds"] if extended_nla else [None] * n_examples_per_cosmo
+                kg_examples = data_vec_container["kg"] if store_lensing else [None] * n_examples_per_cosmo
+                ia_examples = data_vec_container["ia"] if store_lensing else [None] * n_examples_per_cosmo
+                ds_examples = (
+                    data_vec_container["ds"] if store_lensing and extended_nla else [None] * n_examples_per_cosmo
+                )
 
-                dg_examples = data_vec_container["dg"]
+                dg_examples = data_vec_container["dg"] if store_clustering else [None] * n_examples_per_cosmo
                 # qdg_examples = data_vec_container["dg2"] if quadratic_biasing else [None] * n_examples_per_cosmo
                 # NOTE this is the naive quadratic bias map from DeepLSS
                 qdg_examples = (
                     np.square(dg_examples) * np.sign(dg_examples)
-                    if quadratic_biasing
+                    if store_clustering and quadratic_biasing
                     else [None] * n_examples_per_cosmo
                 )
 
-                # (n_examples_per_cosmo, n_noise_per_examplen_pix, n_z_bins)
-                sn_examples = data_vec_container["sn"]
-
-                i_sobol, cosmo = _extend_sobol_squence(conf, cosmo_params_info, i_cosmo)
-
-                latin_sampler = qmc.LatinHypercube(d=len(astro_params), seed=i_cosmo)
-                unscaled_samples = latin_sampler.random(n_examples_per_cosmo)
-                astro_samples = qmc.scale(unscaled_samples, l_bounds=astro_priors[:, 0], u_bounds=astro_priors[:, 1])
-                astro_samples = astro_samples.astype(np.float32)
+                # (n_examples_per_cosmo, n_noise_per_signaln_pix, n_z_bins)
+                sn_examples = data_vec_container["sn"] if store_lensing else [None] * n_examples_per_cosmo
 
                 # loop over the n_examples_per_cosmo
-                for i_example, (kg, ia, ds, sn_samples, dg, qdg) in LOGGER.progressbar(
+                for i_signal, (kg, ia, ds, sn_samples, dg, qdg) in LOGGER.progressbar(
                     enumerate(zip(kg_examples, ia_examples, ds_examples, sn_examples, dg_examples, qdg_examples)),
                     at_level="info",
                     desc="Looping through the per cosmology examples",
-                    total=n_examples_per_cosmo // n_noise_per_example,
+                    total=n_examples_per_cosmo // n_noise_per_signal,
                 ):
-                    if args.debug and i_example > n_patches:
+                    if args.debug and i_signal > n_patches:
                         LOGGER.warning(f"Debug mode, only processing the first {n_patches} examples")
                         break
 
-                    astro_sample = astro_samples[i_example]
+                    astro_sample = astro_samples[i_signal]
                     cosmo_sample = np.concatenate([cosmo, astro_sample])
+
+                    # to keep the indexing identical
+                    if sn_bias == "prior":
+                        astro_sample = astro_sample[:-1]
 
                     # lensing
                     if extended_nla:
@@ -374,33 +406,68 @@ def main(indices, args):
                             tomo_qbg = None
                         tomo_bg = np.array([bg1, bg2, bg3, bg4])
                     else:
-                        raise ValueError(f"Unsupported configuration of clustering bias")
+                        raise ValueError("Unsupported configuration of clustering bias")
 
-                    kg, sn_samples, alm_kg, alm_sn_samples = lensing_transform(
-                        kg, ia, ds, sn_samples, Aia, n_Aia, bta, np_seed=i_sobol + i_example
+                    kg, sn_samples, alm_kg, alm_sn_samples = (
+                        lensing_transform(kg, ia, ds, sn_samples, Aia, n_Aia, bta, np_seed=i_sobol + i_signal)
+                        if store_lensing
+                        else (None, None, None, None)
                     )
-                    dg, pn_samples, alm_dg, alm_pn_samples = clustering_transform(
-                        dg, tomo_bg, qdg, tomo_qbg, np_seed=i_sobol + i_example
+                    dg, pn_samples, alm_dg, alm_pn_samples = (
+                        clustering_transform(dg, tomo_bg, qdg, tomo_qbg, np_seed=i_sobol + i_signal)
+                        if store_clustering
+                        else (None, None, None, None)
                     )
+
+                    # cross-probe maps
+                    xg = None
+                    xn_samples = None
+                    if store_cross_maps and store_lensing and store_clustering:
+                        data_vec_pix = pixel_file[0]
+                        n_side = conf["analysis"]["n_side"]
+
+                        n_z_metacal = alm_kg.shape[1]
+                        n_z_maglim = alm_dg.shape[1]
+                        n_z_cross = n_z_metacal * n_z_maglim
+
+                        xg = np.zeros((kg.shape[0], n_z_cross), dtype=np.float32)
+                        xn_samples = np.zeros((n_noise_per_signal, kg.shape[0], n_z_cross), dtype=np.float32)
+                        ix = 0
+                        for i in LOGGER.progressbar(
+                            range(n_z_metacal), desc="cross bins", total=n_z_metacal, at_level="debug"
+                        ):
+                            for j in range(n_z_maglim):
+                                alm_cross = np.sqrt(alm_kg[:, i] * alm_dg[:, j])
+                                map_cross = hp.alm2map(alm_cross, nside=n_side, pol=False)
+                                xg[:, ix] = hp.reorder(map_cross, r2n=True)[data_vec_pix]
+
+                                for k in range(n_noise_per_signal):
+                                    alm_cross_noise = np.sqrt(alm_sn_samples[k][:, i] * alm_pn_samples[k][:, j])
+                                    map_cross_noise = hp.alm2map(alm_cross_noise, nside=n_side, pol=False)
+                                    xn_samples[k, :, ix] = hp.reorder(map_cross_noise, r2n=True)[data_vec_pix]
+
+                                ix += 1
 
                     # power spectra
                     cls = power_spectra.run_tfrecords_alm_to_cl(alm_kg, alm_sn_samples, alm_dg, alm_pn_samples)
 
                     serialized = tfrecords.parse_forward_grid(
-                        kg, sn_samples, dg, pn_samples, cls, cosmo_sample, i_sobol, i_example
+                        kg, sn_samples, dg, pn_samples, cls, cosmo_sample, i_sobol, i_signal, xg, xn_samples
                     ).SerializeToString()
 
                     _verify_tfrecord(
                         serialized,
-                        n_noise_per_example,
+                        n_noise_per_signal,
                         kg,
                         sn_samples,
                         dg,
                         pn_samples,
                         cosmo_sample,
                         i_sobol,
-                        i_example,
+                        i_signal,
                         cls,
+                        xg,
+                        xn_samples,
                     )
 
                     file_writer.write(serialized)
@@ -474,7 +541,7 @@ def _get_lensing_transform(conf, pixel_file):
             n_Aia,
             tomo_z_metacal,
             tomo_nz_metacal,
-            z0=conf["analysis"]["modelling"]["z0"],
+            z0=conf["survey"]["metacal"]["z0"],
             truncate_nz=conf["analysis"]["modelling"]["lensing"]["nla"]["truncate_nz"],
             z_min_quantile=conf["analysis"]["modelling"]["lensing"]["nla"]["z_min_quantile"],
             z_max_quantile=conf["analysis"]["modelling"]["lensing"]["nla"]["z_max_quantile"],
@@ -515,7 +582,7 @@ def _get_lensing_transform(conf, pixel_file):
 
 def _get_clustering_transform(conf, pixel_file):
     n_side = conf["analysis"]["n_side"]
-    n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
+    n_noise_per_signal = conf["analysis"]["grid"]["n_noise_per_signal"]
 
     # modeling
     quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
@@ -555,7 +622,7 @@ def _get_clustering_transform(conf, pixel_file):
     ):
         assert (not quadratic_biasing and ((qdg is None) or (tomo_qdg is None))) or (
             quadratic_biasing and (qdg is not None) and (tomo_qdg is not None)
-        ), f"The galaxy biasing setup must be consistent"
+        ), "The galaxy biasing setup must be consistent"
         LOGGER.debug(f"Per z bin linear bias = {tomo_bg}")
 
         if quadratic_biasing:
@@ -571,13 +638,12 @@ def _get_clustering_transform(conf, pixel_file):
             qdg,
             tomo_qdg,
             # misc
-            data_vec_pix=pixel_file[0],
             systematics_map=tomo_maglim_sys_dv,
             mask=maglim_mask,
         )
 
         # draw noise, mask, smooth
-        pn_samples = clustering.galaxy_count_to_noise(dg, n_noise_per_example, np_seed=np_seed)
+        pn_samples = clustering.galaxy_count_to_noise(dg, n_noise_per_signal, np_seed=np_seed)
 
         smooth_pn_samples, alm_pn_samples = [], []
         for i, pn in enumerate(pn_samples):
@@ -594,7 +660,7 @@ def _get_clustering_transform(conf, pixel_file):
         # noiseless
         dg, alm_dg = clustering_smoothing(dg, np_seed)
 
-        # shapes (n_pix, n_z_maglim), (n_noise_per_example, n_pix, n_z_maglim)
+        # shapes (n_pix, n_z_maglim), (n_noise_per_signal, n_pix, n_z_maglim)
         return dg, pn_samples, alm_dg, alm_pn_samples
 
     return clustering_transform
@@ -644,25 +710,55 @@ def _extend_sobol_squence(conf, cosmo_params_info, i_cosmo):
     return i_sobol, cosmo
 
 
-def _verify_tfrecord(serialized, n_noise_per_example, kg, sn_samples, dg, pn_samples, cosmo, i_sobol, i_example, cls):
-    inv_tfr = tfrecords.parse_inverse_grid(serialized, range(n_noise_per_example))
+def _verify_tfrecord(
+    serialized,
+    n_noise_per_signal,
+    kg,
+    sn_samples,
+    dg,
+    pn_samples,
+    cosmo,
+    i_sobol,
+    i_signal,
+    cls,
+    xg=None,
+    xn_samples=None,
+):
+    with_cross_probe = xg is not None and xn_samples is not None
+    with_lensing = kg is not None and sn_samples is not None
+    with_clustering = dg is not None and pn_samples is not None
 
-    for i_noise in range(n_noise_per_example):
-        assert np.allclose(inv_tfr[f"kg_{i_noise}"], kg + sn_samples[i_noise])
-        assert np.allclose(inv_tfr[f"dg_{i_noise}"], dg + pn_samples[i_noise])
-        assert np.allclose(inv_tfr[f"cl_{i_noise}"], cls[i_noise])
+    inv_tfr = tfrecords.parse_inverse_grid(
+        serialized,
+        range(n_noise_per_signal),
+        with_lensing=with_lensing,
+        with_clustering=with_clustering,
+        with_cross=with_cross_probe,
+        return_cls=cls is not None,
+    )
+
+    for i_noise in range(n_noise_per_signal):
+        if with_lensing:
+            assert np.allclose(inv_tfr[f"kg_{i_noise}"], kg + sn_samples[i_noise])
+        if with_clustering:
+            assert np.allclose(inv_tfr[f"dg_{i_noise}"], dg + pn_samples[i_noise])
+        if cls is not None:
+            assert np.allclose(inv_tfr[f"cl_{i_noise}"], cls[i_noise])
+        if with_cross_probe:
+            assert np.allclose(inv_tfr[f"xg_{i_noise}"], xg + xn_samples[i_noise])
     assert np.allclose(inv_tfr["cosmo"], cosmo)
     assert np.allclose(inv_tfr["i_sobol"], i_sobol)
-    assert np.allclose(inv_tfr["i_example"], i_example)
+    assert np.allclose(inv_tfr["i_signal"], i_signal)
     LOGGER.debug("Decoded the map part of the .tfrecord successfully")
 
-    inv_cls = tfrecords.parse_inverse_grid_cls(serialized)
+    if cls is not None:
+        inv_cls = tfrecords.parse_inverse_grid_cls(serialized)
 
-    assert np.allclose(inv_cls["cls"], cls)
-    assert np.allclose(inv_cls["cosmo"], cosmo)
-    assert np.allclose(inv_cls["i_sobol"], i_sobol)
-    assert np.allclose(inv_cls["i_example"], i_example)
-    LOGGER.debug("Decoded the cls part of the .tfrecord successfully")
+        assert np.allclose(inv_cls["cls"], cls)
+        assert np.allclose(inv_cls["cosmo"], cosmo)
+        assert np.allclose(inv_cls["i_sobol"], i_sobol)
+        assert np.allclose(inv_cls["i_signal"], i_signal)
+        LOGGER.debug("Decoded the cls part of the .tfrecord successfully")
 
 
 def merge(indices, args):
@@ -672,7 +768,7 @@ def merge(indices, args):
     n_cosmos = conf["analysis"]["grid"]["n_cosmos"]
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
-    n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
+    n_noise_per_signal = conf["analysis"]["grid"]["n_noise_per_signal"]
     n_signal_per_cosmo = n_patches * n_perms_per_cosmo
 
     tfr_pattern = filenames.get_filename_tfrecords(
@@ -714,7 +810,7 @@ def merge(indices, args):
             cls = example["cls"].numpy()
             cosmo = example["cosmo"].numpy()
             i_sobol = example["i_sobol"].numpy()
-            i_example = example["i_example"].numpy()
+            i_signal = example["i_signal"].numpy()
 
             # concatenate the noise realizations along the same axis as the examples
             cls = np.concatenate([cls[:, i, ...] for i in range(cls.shape[1])], axis=0)
@@ -723,13 +819,13 @@ def merge(indices, args):
             binned_cls, bin_edges = power_spectra.bin_according_to_config(cls, conf)
 
             # tiling has the same form as the above concatenation
-            cosmo = np.tile(cosmo, (n_noise_per_example, 1))
-            i_sobol = np.tile(i_sobol, n_noise_per_example)
-            i_example = np.tile(i_example, n_noise_per_example)
+            cosmo = np.tile(cosmo, (n_noise_per_signal, 1))
+            i_sobol = np.tile(i_sobol, n_noise_per_signal)
+            i_signal = np.tile(i_signal, n_noise_per_signal)
 
             # noise is treated separately because it's along a separate dimension in the .tfrecords. This here is preserves
             # the order imposed above in power_spectrum = ...
-            i_noise = np.arange(n_noise_per_example)
+            i_noise = np.arange(n_noise_per_signal)
             i_noise = np.repeat(i_noise, n_signal_per_cosmo)
 
             if i == 0:
@@ -738,7 +834,7 @@ def merge(indices, args):
                 f.create_dataset("cls/bin_edges", shape=(n_cosmos,) + bin_edges.shape, dtype="f4")
                 f.create_dataset("cosmo", shape=(n_cosmos,) + cosmo.shape, dtype="f4")
                 f.create_dataset("i_sobol", shape=(n_cosmos,) + i_sobol.shape, dtype="i4")
-                f.create_dataset("i_example", shape=(n_cosmos,) + i_example.shape, dtype="i4")
+                f.create_dataset("i_signal", shape=(n_cosmos,) + i_signal.shape, dtype="i4")
                 f.create_dataset("i_noise", shape=(n_cosmos,) + i_noise.shape, dtype="i4")
 
             f["cls/raw"][i] = cls
@@ -746,7 +842,7 @@ def merge(indices, args):
             f["cls/bin_edges"][i] = bin_edges
             f["cosmo"][i] = cosmo
             f["i_sobol"][i] = i_sobol
-            f["i_example"][i] = i_example
+            f["i_signal"][i] = i_signal
             f["i_noise"][i] = i_noise
 
-    LOGGER.info(f"Done with merging of the grid power spectra")
+    LOGGER.info("Done with merging of the grid power spectra")

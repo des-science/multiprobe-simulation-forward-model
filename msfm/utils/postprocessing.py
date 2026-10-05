@@ -13,12 +13,42 @@ TODO the function argument orders in this file aren't consistent, this should be
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-import os, time, h5py, copy_guardian, pickle
+import os
+import time
+import hashlib
+import h5py
+import copy_guardian
 from msfm.utils import logger, filenames, imports, lensing, clustering, maps, input_output, files
 
 hp = imports.import_healpy()
 
 LOGGER = logger.get_logger(__file__)
+
+
+def _shape_noise_seed(simset, bgs_key, i_perm, i_patch, i_z, i_noise):
+    """Deterministic seed for one shape-noise realization of the training set.
+
+    The shape noise used to be drawn from the unseeded global numpy and tensorflow RNGs, so a .tfrecord could not be
+    regenerated -- in contrast to the observation path, which has always seeded (see observation.forward_model_
+    cosmogrid) and to the multiplicative shear bias, which is baked into the .tfrecords for exactly this reason. The
+    key is spelled out and hashed rather than summed, so that neighbouring (permutation, patch, bin, noise) tuples
+    cannot land on the same stream the way i_sobol + i_signal would.
+
+    Args:
+        simset (str): "grid" or "fiducial", so that the two do not share streams.
+        bgs_key (str): Cosmology key of the bias table, i.e. "cosmo_%06d" or "fiducial".
+        i_perm (int): Permutation (simulation run) index.
+        i_patch (int): Footprint cut-out index.
+        i_z (int): Tomographic bin index.
+        i_noise (int): Noise realization index.
+
+    Returns:
+        int: 63 bit seed, accepted by both np.random.default_rng and tf.random.set_seed.
+    """
+    key = f"{simset}/{bgs_key}/{i_perm}/{i_patch}/{i_z}/{i_noise}"
+
+    return int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big") >> 1
+
 
 # fiducial ############################################################################################################
 
@@ -32,9 +62,20 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
 
     is_fiducial = "cosmo_fiducial" in cosmo_dir_in
 
+    store_lensing = conf["analysis"]["modelling"]["lensing"]["store"]
+    store_clustering = conf["analysis"]["modelling"]["clustering"]["store"]
+    samples = []
+    if store_lensing:
+        samples.append("metacal")
+    if store_clustering:
+        samples.append("maglim")
+
+    # B-mode convergence Cls study: also carry a parallel B-mode data vector through the metacal (lensing) channel
+    keep_b_mode = conf["analysis"]["modelling"]["lensing"].get("b_mode_cls", False)
+
     # output container, one for each example
-    data_vec_container = _set_up_per_example_dv_container(conf, pixel_file, is_fiducial)
-    for sample in ["metacal", "maglim"]:
+    data_vec_container = _set_up_per_example_dv_container(conf, pixel_file, is_fiducial, keep_b_mode=keep_b_mode)
+    for sample in samples:
         LOGGER.timer.start("sample")
         LOGGER.info(f"Starting with sample {sample}")
 
@@ -67,11 +108,19 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
                         noise_file,
                         full_maps_file,
                         bgs_key="fiducial",
+                        # only used to seed the shape noise, the fiducial has a single bias row and no bsc samples
+                        i_perm=i_perm,
+                        keep_b_mode=keep_b_mode,
                     )
                 elif sample == "maglim":
                     data_vecs = postprocess_maglim_bin(
                         conf, full_sky_bin, in_map_type, out_map_type, i_z, "fiducial", pixel_file, rng=rng
                     )
+
+                # unpack the parallel B-mode data vector for the lensing channel (see postprocess_metacal_bin)
+                if keep_b_mode and sample == "metacal":
+                    data_vecs, data_vecs_b = data_vecs
+                    data_vec_container[f"{out_map_type}_b"][..., i_z] = data_vecs_b
 
                 # collect the different permutations along the first axis
                 data_vec_container[out_map_type][..., i_z] = data_vecs
@@ -83,21 +132,31 @@ def postprocess_fiducial_permutations(args, conf, cosmo_dir_in, i_perm, pixel_fi
     return data_vec_container
 
 
-def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
+def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial, keep_b_mode=False):
     n_patches = conf["analysis"]["n_patches"]
-    n_noise_per_example = conf["analysis"]["fiducial"]["n_noise_per_example"]
+    n_noise_per_signal = conf["analysis"]["fiducial"]["n_noise_per_signal"]
     data_vec_len = len(pixel_file[0])
-    out_map_types = conf["survey"]["metacal"]["map_types"]["output"] + conf["survey"]["maglim"]["map_types"]["output"]
+
+    store_lensing = conf["analysis"]["modelling"]["lensing"]["store"]
+    store_clustering = conf["analysis"]["modelling"]["clustering"]["store"]
+
+    out_map_types = []
+    if store_lensing:
+        out_map_types += conf["survey"]["metacal"]["map_types"]["output"]
+    if store_clustering:
+        out_map_types += conf["survey"]["maglim"]["map_types"]["output"]
 
     data_vec_container = {}
     for out_map_type in out_map_types:
+        # metacal (lensing) outputs additionally get a parallel "_b" B-mode container when keep_b_mode
+        is_lensing = out_map_type in ["kg", "ia", "ds", "sn"]
         if out_map_type in ["kg", "ia", "ds"]:
             n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
             dvs_shape = (n_patches, data_vec_len, n_z_bins)
         elif out_map_type == "sn":
             n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
             if is_fiducial:
-                dvs_shape = (n_patches, n_noise_per_example, data_vec_len, n_z_bins)
+                dvs_shape = (n_patches, n_noise_per_signal, data_vec_len, n_z_bins)
             else:
                 dvs_shape = None
         elif out_map_type == "dg":
@@ -106,6 +165,8 @@ def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
 
         if dvs_shape is not None:
             data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
+            if keep_b_mode and is_lensing:
+                data_vec_container[f"{out_map_type}_b"] = np.zeros(dvs_shape, dtype=np.float32)
 
     return data_vec_container
 
@@ -113,12 +174,20 @@ def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial):
 # grid ################################################################################################################
 
 
-def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_file):
+def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_file, bsc_samples=None):
     # hard-coded with respect to the filenames
     i_sobol = int(cosmo_dir_in[-7:-1])
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
     rng = np.random.default_rng()
+
+    store_lensing = conf["analysis"]["modelling"]["lensing"]["store"]
+    store_clustering = conf["analysis"]["modelling"]["clustering"]["store"]
+    samples = []
+    if store_lensing:
+        samples.append("metacal")
+    if store_clustering:
+        samples.append("maglim")
 
     # output container, one for each cosmology
     data_vec_container = _set_up_per_cosmo_dv_container(conf, pixel_file)
@@ -131,7 +200,7 @@ def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fi
 
         full_maps_file = _get_full_sky_perm(args, conf, cosmo_dir_in, i_perm)
 
-        for sample in ["metacal", "maglim"]:
+        for sample in samples:
             LOGGER.timer.start("sample")
             LOGGER.info(f"Starting with sample {sample}")
 
@@ -159,6 +228,8 @@ def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fi
                             noise_file,
                             full_maps_file,
                             bgs_key=f"cosmo_{i_sobol:06d}",
+                            i_perm=i_perm,
+                            bsc_samples=bsc_samples,
                         )
                     elif sample == "maglim":
                         data_vecs = postprocess_maglim_bin(
@@ -187,9 +258,17 @@ def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fi
 def _set_up_per_cosmo_dv_container(conf, pixel_file):
     n_patches = conf["analysis"]["n_patches"]
     n_perms_per_cosmo = conf["analysis"]["grid"]["n_perms_per_cosmo"]
-    n_noise_per_example = conf["analysis"]["grid"]["n_noise_per_example"]
+    n_noise_per_signal = conf["analysis"]["grid"]["n_noise_per_signal"]
     data_vec_len = len(pixel_file[0])
-    out_map_types = conf["survey"]["metacal"]["map_types"]["output"] + conf["survey"]["maglim"]["map_types"]["output"]
+
+    store_lensing = conf["analysis"]["modelling"]["lensing"]["store"]
+    store_clustering = conf["analysis"]["modelling"]["clustering"]["store"]
+
+    out_map_types = []
+    if store_lensing:
+        out_map_types += conf["survey"]["metacal"]["map_types"]["output"]
+    if store_clustering:
+        out_map_types += conf["survey"]["maglim"]["map_types"]["output"]
 
     data_vec_container = {}
     for out_map_type in out_map_types:
@@ -201,7 +280,7 @@ def _set_up_per_cosmo_dv_container(conf, pixel_file):
             dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
         elif out_map_type == "sn":
             n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
-            dvs_shape = (n_perms_per_cosmo * n_patches, n_noise_per_example, data_vec_len, n_z_bins)
+            dvs_shape = (n_perms_per_cosmo * n_patches, n_noise_per_signal, data_vec_len, n_z_bins)
 
         data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
 
@@ -212,30 +291,54 @@ def _set_up_per_cosmo_dv_container(conf, pixel_file):
 
 
 def postprocess_metacal_bin(
-    conf, full_sky_map, in_map_type, out_map_type, i_z, simset, pixel_file, noise_file, full_maps_file, bgs_key
+    conf,
+    full_sky_map,
+    in_map_type,
+    out_map_type,
+    i_z,
+    simset,
+    pixel_file,
+    noise_file,
+    full_maps_file,
+    bgs_key,
+    i_perm=None,
+    bsc_samples=None,
+    keep_b_mode=False,
 ):
+    # keep_b_mode makes the lensing/shape-noise branches return (E_dvs, B_dvs) tuples (see mode_removal)
     if in_map_type in ["kg", "ia"]:
         # shape (n_patches, data_vec_len)
-        kappa_dvs = postprocess_lensing(full_sky_map, conf, pixel_file, i_z)
+        kappa_dvs = postprocess_lensing(full_sky_map, conf, pixel_file, i_z, keep_b_mode=keep_b_mode)
     elif in_map_type == "dg" and out_map_type == "sn":
-        # shape (n_patches, n_noise_per_example, data_vec_len)
-        kappa_dvs = postprocess_shape_noise(full_sky_map, conf, simset, pixel_file, noise_file, i_z, bgs_key)
+        # shape (n_patches, n_noise_per_signal, data_vec_len)
+        kappa_dvs = postprocess_shape_noise(
+            full_sky_map,
+            conf,
+            simset,
+            pixel_file,
+            noise_file,
+            i_z,
+            bgs_key,
+            i_perm,
+            bsc_samples,
+            keep_b_mode=keep_b_mode,
+        )
     elif in_map_type == "dg" and out_map_type == "ds":
         full_sky_ia = _read_full_sky_bin(conf, full_maps_file, "ia", conf["survey"]["metacal"]["z_bins"][i_z])
         full_sky_ds = (full_sky_ia - np.mean(full_sky_ia)) * (
             (full_sky_map - np.mean(full_sky_map)) / np.mean(full_sky_map)
         )
         # shape (n_patches, data_vec_len)
-        kappa_dvs = postprocess_lensing(full_sky_ds, conf, pixel_file, i_z)
+        kappa_dvs = postprocess_lensing(full_sky_ds, conf, pixel_file, i_z, keep_b_mode=keep_b_mode)
     else:
         raise ValueError(f"Unknown input map type {in_map_type} for metacal/weak lensing")
 
     return kappa_dvs
 
 
-def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
+def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z, keep_b_mode=False):
     n_side = conf["analysis"]["n_side"]
-    n_pix = conf["analysis"]["n_pix"]
+    n_pix = hp.nside2npix(n_side)
     n_patches = conf["analysis"]["n_patches"]
 
     # pixel file
@@ -264,6 +367,8 @@ def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
     )
 
     kappa_dvs = np.zeros((n_patches, data_vec_len), dtype=np.float32)
+    # parallel B-mode convergence data vectors (only populated when keep_b_mode)
+    kappa_dvs_b = np.zeros((n_patches, data_vec_len), dtype=np.float32) if keep_b_mode else None
     for i_patch, patch_pix in enumerate(patches_pix):
         # The 90° rots do NOT change the shear, however, the mirroring does,
         # therefore we have to swap sign of gamma2 for the last 2 patches!
@@ -287,7 +392,10 @@ def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
             n_side,
             apply_smoothing=False,
             hp_datapath=hp_datapath,
+            keep_b_mode=keep_b_mode,
         )
+        if keep_b_mode:
+            kappa_patch, kappa_patch_b = kappa_patch
 
         # cut out padded data vector
         kappa_dv = maps.map_to_data_vec(
@@ -300,15 +408,37 @@ def postprocess_lensing(kappa_full_sky, conf, pixel_file, i_z):
 
         kappa_dvs[i_patch] = kappa_dv
 
-    # shape (n_patches, data_vec_len)
+        if keep_b_mode:
+            kappa_dvs_b[i_patch] = maps.map_to_data_vec(
+                hp_map=kappa_patch_b,
+                data_vec_len=data_vec_len,
+                corresponding_pix=corresponding_pix,
+                cutout_pix=base_patch_pix,
+                remove_mean=True,
+            )
+
+    # shape (n_patches, data_vec_len); a second identically shaped array for the B-mode when keep_b_mode
+    if keep_b_mode:
+        return kappa_dvs, kappa_dvs_b
     return kappa_dvs
 
 
-def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file, i_z, bgs_key):
+def postprocess_shape_noise(
+    delta_full_sky,
+    conf,
+    simset,
+    pixel_file,
+    noise_file,
+    i_z,
+    bgs_key,
+    i_perm=None,
+    bsc_samples=None,
+    keep_b_mode=False,
+):
     n_side = conf["analysis"]["n_side"]
-    n_pix = conf["analysis"]["n_pix"]
+    n_pix = hp.nside2npix(n_side)
     n_patches = conf["analysis"]["n_patches"]
-    n_noise_per_example = conf["analysis"][simset]["n_noise_per_example"]
+    n_noise_per_signal = conf["analysis"][simset]["n_noise_per_signal"]
 
     # pixel file
     data_vec_pix, patches_pix_dict, corresponding_pix_dict, _ = pixel_file
@@ -318,12 +448,28 @@ def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file
     base_patch_pix = patches_pix[0]
 
     # noise file
-    tomo_gamma_cat, _ = noise_file
+    tomo_gamma_cat = noise_file
     gamma_cat = tomo_gamma_cat[i_z]
 
-    # metacal clustering
-    tomo_bias = files.read_metacal_bias(bgs_key, conf)
-    bias = tomo_bias[i_z]
+    # metacal shape-noise model (see files.get_shape_noise):
+    #   count    -> Poisson-resample the catalog weighted by the source density (metacal bias)
+    #   in_place -> rotate galaxies in place (no source-clustering bias)
+    #   gatti    -> rotate in place, then density-modulate like Gatti et al. (https://arxiv.org/abs/2307.13860)
+    method, bias, fixed_bsc, survey_systematics = files.get_shape_noise(conf)
+    n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
+
+    # every draw below is keyed on it, see _shape_noise_seed
+    assert i_perm is not None, "i_perm is required to seed the shape noise reproducibly"
+
+    if method == "count" and bias == "fixed":
+        # per-cosmology metacal source-clustering bias from files.metacal_bias
+        count_bias = files.read_metacal_bias(bgs_key, conf)[i_z]
+    else:
+        # count+prior samples the bias per patch; in_place/gatti do not resample counts
+        count_bias = None
+
+    # DES Y3 imaging systematics of the source density, in the base patch frame (see the patch loop below)
+    sys_patch = files.get_metacal_systematics(conf)[:, i_z] if survey_systematics else None
 
     tomo_n_gal = np.array(conf["survey"]["metacal"]["n_gal"]) * hp.nside2pixarea(n_side, degrees=True)
     n_bar = tomo_n_gal[i_z]
@@ -334,28 +480,101 @@ def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
     hp_datapath = os.path.join(repo_dir, conf["files"]["healpy_data"])
 
-    # create joint distribution, as this is faster than random indexing
-    gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
-    w = gamma_cat[:, 2]
-    cat_dist = tfp.distributions.Empirical(samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1)
+    # the catalog is ~25e6 galaxies per bin and this forward model runs on CPU nodes, so keep it off an incidentally
+    # visible GPU, like the noise generators it feeds (see lensing.noise_gen)
+    with tf.device("/CPU:0"):
+        gamma_abs = tf.math.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
+        w = gamma_cat[:, 2]
 
-    # normalize to number density contrast
-    delta_full_sky = (delta_full_sky - np.mean(delta_full_sky)) / np.mean(delta_full_sky)
+    if method == "count":
+        # create joint distribution, as this is faster than random indexing
+        with tf.device("/CPU:0"):
+            cat_dist = tfp.distributions.Empirical(samples=tf.stack([gamma_abs, w], axis=-1), event_ndims=1)
 
-    # number of galaxies per pixel
-    counts_full = clustering.galaxy_density_to_count(n_bar, delta_full_sky, bias, systematics_map=None).astype(int)
-    counts_full = np.random.poisson(counts_full).astype(int)
+        # normalize to number density contrast
+        delta_full_sky_norm = (delta_full_sky - np.mean(delta_full_sky)) / np.mean(delta_full_sky)
 
-    kappa_dvs = np.zeros((n_patches, n_noise_per_example, data_vec_len), dtype=np.float32)
+        assert bias != "prior" or bsc_samples is not None, "count+prior needs bsc_samples to set the per patch bias"
+    else:
+        LOGGER.warning(f"Rotating galaxies in place for shape noise (method {method!r})")
+        pix_cat = gamma_cat[:, 3]
+
+        if method == "gatti":
+            # simulation source-bin density contrast (full sky), same convention as the count branch
+            delta_full_sky_norm = (delta_full_sky - np.mean(delta_full_sky)) / np.mean(delta_full_sky)
+            # per-pixel reference shape-noise variance for the (optional) kurtosis term; cosmology-independent
+            gamma_abs_np = np.abs(gamma_cat[:, 0] + 1j * gamma_cat[:, 1])
+            var_ref = lensing.shape_noise_variance_map(gamma_abs_np, w, pix_cat, n_pix)
+
+    kappa_dvs = np.zeros((n_patches, n_noise_per_signal, data_vec_len), dtype=np.float32)
+    kappa_dvs_b = np.zeros((n_patches, n_noise_per_signal, data_vec_len), dtype=np.float32) if keep_b_mode else None
     for i_patch, patch_pix in enumerate(patches_pix):
-        # not a full healpy map, just the patch with no zeros
-        counts = counts_full[patch_pix]
+        # one seed per noise realization of this patch, so that the training set is reproducible
+        seeds = [_shape_noise_seed(simset, bgs_key, i_perm, i_patch, i_z, i) for i in range(n_noise_per_signal)]
 
-        # vectorized sampling, shape (len(counts), n_noise_per_example)
-        gamma1, gamma2 = lensing.noise_gen(counts, cat_dist, n_noise_per_example)
+        if method == "count":
+            bias_patch = bsc_samples[(i_perm * n_patches) + i_patch] if bias == "prior" else count_bias
+
+            # expected counts of this patch. Built per patch rather than once on the full sky, so that the clip and
+            # renormalization of galaxy_density_to_count act on the footprint, which is both where n_bar was measured
+            # and what the source clustering bias was fit against. The DES imprint lives in the base patch frame that
+            # every cut-out lands in, so the same array applies to all patches. Together this makes the expected
+            # counts identical to source_clustering_bias.counts_from_bias at the same bias
+            ng = clustering.galaxy_density_to_count(
+                n_bar, delta_full_sky_norm[patch_pix], bias_patch, contamination_map=sys_patch
+            )
+
+            # One Poisson realization of the source positions per noise realization, like the maglim Poisson noise
+            # (clustering.galaxy_count_to_noise). Drawing the counts once per patch and reusing them across the
+            # realizations would leave the per-pixel noise amplitude -- which is exactly where the source clustering
+            # and the DES imprint live -- perfectly correlated between the noise realizations of one signal
+            gamma1 = np.zeros((len(ng), n_noise_per_signal), dtype=np.float32)
+            gamma2 = np.zeros_like(gamma1)
+            for i_noise, seed in enumerate(seeds):
+                # the rate is not truncated to integers, matching the fit (a 0.5 count deficit at n_bar ~ 72)
+                counts = np.random.default_rng(seed).poisson(ng).astype(int)
+
+                # the same seed drives an independent generator here, the tensorflow one
+                gamma1_noise, gamma2_noise = lensing.noise_gen(counts, cat_dist, 1, seed=seed)
+                gamma1[:, i_noise] = gamma1_noise[:, 0]
+                gamma2[:, i_noise] = gamma2_noise[:, 0]
+        else:
+            # rotating in place draws all realizations in one call, so a single seed fixes the whole block
+            gamma1, gamma2 = lensing.noise_gen_in_place(
+                gamma_abs, w, pix_cat, base_patch_pix, n_pix, n_noise_per_signal, seed=seeds[0]
+            )
+
+            if method == "gatti":
+                # density-modulate the rotate-in-place noise (Gatti et al. eq. 5). f_sc uses the
+                # simulation LSS of the cut-out (patch_pix, aligned with the signal), while var_ref is a
+                # real-data property placed at base_patch_pix like the noise itself. b_sc is the per-bin
+                # source-clustering bias: fixed -> config fixed_bsc[i_z]; prior -> per-patch bsc_samples.
+                b_sc = fixed_bsc[i_z] if bias == "fixed" else bsc_samples[(i_perm * n_patches) + i_patch]
+                f_sc = lensing.source_clustering_factor(delta_full_sky_norm[patch_pix], b_sc)
+
+                # per metacal bin (corr_variance, A_corr, coeff_kurtosis), no-op (1, 1, 0) by default
+                corr_variance, A_corr, coeff_kurtosis = files.read_sc_calibration(conf, np.full(n_z_metacal, b_sc))[
+                    i_z
+                ]
+                mod = f_sc / np.sqrt(A_corr * corr_variance)
+                if coeff_kurtosis != 0:
+                    # a negative coeff_kurtosis can drive (1 + coeff_kurtosis * var_ref) below zero on
+                    # sparse pixels with large var_ref; clip to keep the variance correction non-negative
+                    kurt_arg = 1.0 + coeff_kurtosis * var_ref[base_patch_pix]
+                    n_clip = int(np.sum(kurt_arg < 0))
+                    if n_clip > 0:
+                        LOGGER.warning(
+                            f"Clipping {n_clip} pixel(s) with negative kurtosis argument to zero shape "
+                            f"noise (metacal bin {i_z}, coeff_kurtosis={coeff_kurtosis:.3g})"
+                        )
+                    mod = mod * np.sqrt(np.clip(kurt_arg, a_min=0.0, a_max=None))
+
+                # broadcast the per-pixel modulation across the n_noise_per_signal realizations
+                gamma1 = gamma1 * mod[:, None]
+                gamma2 = gamma2 * mod[:, None]
 
         # not vectorized because of the healpy alm transform
-        for i_noise in range(n_noise_per_example):
+        for i_noise in range(n_noise_per_signal):
             # full healpy map with zeros outside the footprint
             gamma1_patch = np.zeros(n_pix, dtype=np.float32)
             gamma1_patch[base_patch_pix] = gamma1[:, i_noise]
@@ -370,7 +589,10 @@ def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file
                 n_side,
                 apply_smoothing=False,
                 hp_datapath=hp_datapath,
+                keep_b_mode=keep_b_mode,
             )
+            if keep_b_mode:
+                kappa_patch, kappa_patch_b = kappa_patch
 
             # cut out padded data vector
             kappa_dv = maps.map_to_data_vec(
@@ -383,7 +605,18 @@ def postprocess_shape_noise(delta_full_sky, conf, simset, pixel_file, noise_file
 
             kappa_dvs[i_patch, i_noise] = kappa_dv
 
-    # shape (n_patches, n_noise_per_example, data_vec_len)
+            if keep_b_mode:
+                kappa_dvs_b[i_patch, i_noise] = maps.map_to_data_vec(
+                    hp_map=kappa_patch_b,
+                    data_vec_len=data_vec_len,
+                    corresponding_pix=corresponding_pix,
+                    cutout_pix=base_patch_pix,
+                    remove_mean=True,
+                )
+
+    # shape (n_patches, n_noise_per_signal, data_vec_len); a second such array for the B-mode when keep_b_mode
+    if keep_b_mode:
+        return kappa_dvs, kappa_dvs_b
     return kappa_dvs
 
 
@@ -404,7 +637,7 @@ def postprocess_maglim_bin(
 def postprocess_clustering(
     delta_full_sky, conf, i_z, simset, pixel_file, galaxy_sample="maglim", i_sobol=None, rng=None
 ):
-    n_pix = conf["analysis"]["n_pix"]
+    n_pix = hp.nside2npix(conf["analysis"]["n_side"])
     n_patches = conf["analysis"]["n_patches"]
 
     # pixel file
@@ -492,8 +725,8 @@ def _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out):
 
 
 def _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin):
-    n_pix = conf["analysis"]["n_pix"]
     n_side = conf["analysis"]["n_side"]
+    n_pix = hp.nside2npix(n_side)
 
     # load the full sky maps
     LOGGER.timer.start("load_map")
@@ -501,7 +734,7 @@ def _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin):
     with h5py.File(full_maps_file, "r") as f:
         map_full = f[map_dir][:]
 
-        # to convert from nside 512 to 1024
+        # ud_grade if the stored map is at a different resolution than the analysis n_side
         if map_full.shape[0] != n_pix:
             map_full = hp.ud_grade(map_full, nside_out=n_side, order_in="RING", order_out="RING", pess=True)
 

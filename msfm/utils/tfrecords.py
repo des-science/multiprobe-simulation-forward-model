@@ -1,11 +1,11 @@
 # Copyright (C) 2022 ETH Zurich, Institute for Particle Physics and Astrophysics
 
-""" 
+"""
 Created February 2023
 Author: Arne Thomsen
 
-This file is based off 
-https://github.com/tomaszkacprzak/CosmoPointNet/blob/main/CosmoPointNet/utils_tfrecords.py 
+This file is based off
+https://github.com/tomaszkacprzak/CosmoPointNet/blob/main/CosmoPointNet/utils_tfrecords.py
 by Tomasz Kacprzak and
 https://cosmo-gitlab.phys.ethz.ch/jafluri/cosmogrid_kids1000/-/blob/master/kids1000_analysis/data.py
 by Janis Fluri and see
@@ -24,7 +24,7 @@ warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
 
-def parse_forward_grid(kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_example):
+def parse_forward_grid(kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_signal, xg=None, xn_realz=None):
     """The grid cosmologies contain all of the maps and labels.
 
     Args:
@@ -36,42 +36,53 @@ def parse_forward_grid(kg, sn_realz, dg, pn_realz, cls, cosmo, i_sobol, i_exampl
         cls (np.ndarray): Auto and cross bin (both in terms of the tomographic bins, and the two probes) power spectra.
             The shape is (n_noise, n_cls, n_z_cross).
         i_sobol (int): Seed within the Sobol sequence.
-        i_example (int): Example index, which is determined by the simulation run and the patch.
+        i_signal (int): Example index, which is determined by the simulation run and the patch.
+        xg (np.ndarray, optional): shape(n_pix, n_z_cross), cross-maps between kg and dg. Defaults to None.
+        xn_realz (np.ndarray, optional): shape(n_noise, n_pix, n_z_cross), noise realizations for the cross-maps.
+            Defaults to None.
 
     Returns:
         tf.train.Example: Example containing all of these tensors.
     """
     # LOGGER.warning(f"Tracing parse_forward_grid")
 
-    # sn_realz has an additional shape noise axis
-    assert kg.shape == sn_realz.shape[1:]
-    # the data vector dimension matches (while n_z does not)
-    assert kg.shape[0] == dg.shape[0]
-
     features = {
-        # tensor shapes
-        "n_pix": _int64_feature(kg.shape[0]),
-        "n_z_metacal": _int64_feature(kg.shape[1]),
-        "n_z_maglim": _int64_feature(dg.shape[1]),
-        "n_params": _int64_feature(cosmo.shape[0]),
         # labels
         "cosmo": _bytes_feature(tf.io.serialize_tensor(cosmo)),
+        "n_params": _int64_feature(cosmo.shape[0]),
         "i_sobol": _int64_feature(i_sobol),
-        "i_example": _int64_feature(i_example),
-        # power spectra
-        "cls": _bytes_feature(tf.io.serialize_tensor(cls)),
-        "n_noise": _int64_feature(cls.shape[0]),
-        "n_cls": _int64_feature(cls.shape[1]),
-        "n_z_cross": _int64_feature(cls.shape[2]),
+        "i_signal": _int64_feature(i_signal),
     }
 
-    # lensing (metacal), shape noise realizations
-    for i, sn in enumerate(sn_realz):
-        features[f"kg_{i}"] = _bytes_feature(tf.io.serialize_tensor(kg + sn))
+    if cls is not None:
+        features["cls"] = _bytes_feature(tf.io.serialize_tensor(cls))
+        features["n_noise"] = _int64_feature(cls.shape[0])
+        features["n_cls"] = _int64_feature(cls.shape[1])
+        features["n_z_cross"] = _int64_feature(cls.shape[2])
 
-    # clustering (maglim), poisson noise realizations
-    for i, pn in enumerate(pn_realz):
-        features[f"dg_{i}"] = _bytes_feature(tf.io.serialize_tensor(dg + pn))
+    if kg is not None and sn_realz is not None:
+        assert kg.shape == sn_realz.shape[1:]
+        features["n_pix"] = _int64_feature(kg.shape[0])
+        features["n_z_metacal"] = _int64_feature(kg.shape[1])
+        for i, sn in enumerate(sn_realz):
+            features[f"kg_{i}"] = _bytes_feature(tf.io.serialize_tensor(kg + sn))
+
+    if dg is not None and pn_realz is not None:
+        assert dg.shape == pn_realz.shape[1:]
+        if kg is None:
+            features["n_pix"] = _int64_feature(dg.shape[0])
+        else:
+            assert kg.shape[0] == dg.shape[0]
+        features["n_z_maglim"] = _int64_feature(dg.shape[1])
+        for i, pn in enumerate(pn_realz):
+            features[f"dg_{i}"] = _bytes_feature(tf.io.serialize_tensor(dg + pn))
+
+    # cross-maps
+    if (xg is not None) and (xn_realz is not None):
+        features["n_z_cross_map"] = _int64_feature(xg.shape[1])
+
+        for i, xn in enumerate(xn_realz):
+            features[f"xg_{i}"] = _bytes_feature(tf.io.serialize_tensor(xg + xn))
 
     # create an Example, wrapping the single features
     example = tf.train.Example(features=tf.train.Features(feature=features))
@@ -85,13 +96,15 @@ def parse_inverse_grid(
     n_pix=None,
     n_z_metacal=None,
     n_z_maglim=None,
+    n_z_cross_map=None,
+    n_z_cross=None,
     n_params=None,
     n_noise=None,
     n_cls=None,
-    n_z_cross=None,
     # probes
     with_lensing=True,
     with_clustering=True,
+    with_cross=False,
     return_maps=True,
     return_cls=True,
 ):
@@ -108,10 +121,11 @@ def parse_inverse_grid(
         n_params (int, optional): Fixes the size of the tensors. Defaults to None.
         with_lensing (bool, optional): Whether to return the weak lensing maps. Defaults to True.
         with_clustering (bool, optional): Whether to return the galaxy clustering maps. Defaults to True.
-
+        with_cross_only (bool, optional): Whether to return only the cross maps. Defaults to False.
+        return_cls (bool, optional): Whether to return the cls. Defaults to True.
     Returns:
         dict: Dictionary containing the tensors for the different fields, the cosmological parameters and indices
-        i_sobol and i_example.
+        i_sobol and i_signal.
     """
     # LOGGER.warning(f"Tracing parse_inverse_grid")
 
@@ -122,38 +136,43 @@ def parse_inverse_grid(
         # labels
         "cosmo": tf.io.FixedLenFeature([], tf.string),
         "i_sobol": tf.io.FixedLenFeature([], tf.int64),
-        "i_example": tf.io.FixedLenFeature([], tf.int64),
-        # power spectra
-        "cls": tf.io.FixedLenFeature([], tf.string),
-        "n_noise": tf.io.FixedLenFeature([], tf.int64),
-        "n_cls": tf.io.FixedLenFeature([], tf.int64),
-        "n_z_cross": tf.io.FixedLenFeature([], tf.int64),
+        "i_signal": tf.io.FixedLenFeature([], tf.int64),
     }
+
+    if return_cls:
+        features["cls"] = tf.io.FixedLenFeature([], tf.string)
+        features["n_noise"] = tf.io.FixedLenFeature([], tf.int64)
+        features["n_cls"] = tf.io.FixedLenFeature([], tf.int64)
+        features["n_z_cross"] = tf.io.FixedLenFeature([], tf.int64)
 
     if return_maps:
         if with_lensing:
-            features["n_z_metacal"] = tf.io.FixedLenFeature([], tf.int64)
             for i in noise_indices:
                 features[f"kg_{i}"] = tf.io.FixedLenFeature([], tf.string)
 
         if with_clustering:
-            features["n_z_maglim"] = tf.io.FixedLenFeature([], tf.int64)
             for i in noise_indices:
                 features[f"dg_{i}"] = tf.io.FixedLenFeature([], tf.string)
+
+        if with_cross:
+            for i in noise_indices:
+                features[f"xg_{i}"] = tf.io.FixedLenFeature([], tf.string)
+
+    # n_z_metacal and n_z_maglim are always needed when return_cls, since the stored Cls contain all
+    # pairs of the concatenated [lensing, clustering] alms regardless of which probes are active
+    if (with_lensing and return_maps) or return_cls:
+        features["n_z_metacal"] = tf.io.FixedLenFeature([], tf.int64)
+
+    if (with_clustering and return_maps) or return_cls:
+        features["n_z_maglim"] = tf.io.FixedLenFeature([], tf.int64)
+
+    if with_cross and return_maps:
+        features["n_z_cross_map"] = tf.io.FixedLenFeature([], tf.int64)
 
     serialized_data = tf.io.parse_single_example(serialized_example, features)
 
     # output container
     output_data = {}
-
-    bin_indices, _ = cross_statistics.get_cross_bin_indices(
-        _parse_none_value(serialized_data, "n_z_metacal", n_z_metacal),
-        _parse_none_value(serialized_data, "n_z_maglim", n_z_maglim),
-        with_lensing,
-        with_clustering,
-        with_cross_z=True,
-        with_cross_probe=(with_lensing and with_clustering),
-    )
 
     cosmo = tf.io.parse_tensor(serialized_data["cosmo"], out_type=tf.float32)
     if n_params is None:
@@ -174,11 +193,29 @@ def parse_inverse_grid(
                     output_data, serialized_data, f"dg_{i}", f"dg_{i}", n_pix, n_z_maglim, "n_z_maglim"
                 )
 
+            if with_cross:
+                output_data = _parse_and_reshape_data_vector(
+                    output_data, serialized_data, f"xg_{i}", f"xg_{i}", n_pix, n_z_cross_map, "n_z_cross_map"
+                )
+
         if return_cls:
+            # the stored Cls always contain all pairs of the concatenated [lensing, clustering] alms,
+            # so the selection indices must be computed in that full layout regardless of the probe flags
+            n_z_mc = _parse_none_value(serialized_data, "n_z_metacal", n_z_metacal)
+            n_z_ml = _parse_none_value(serialized_data, "n_z_maglim", n_z_maglim)
+            bin_indices, _ = cross_statistics.get_cross_bin_indices(
+                n_z_mc,
+                n_z_ml,
+                with_lensing,
+                with_clustering,
+                with_cross_z=True,
+                with_cross_probe=(with_lensing and with_clustering),
+            )
+
             _parse_and_reshape_cls(
                 output_data,
                 serialized_data,
-                f"cls",
+                "cls",
                 f"cl_{i}",
                 n_noise,
                 n_cls,
@@ -189,7 +226,7 @@ def parse_inverse_grid(
 
     # indices
     output_data["i_sobol"] = serialized_data["i_sobol"]
-    output_data["i_example"] = serialized_data["i_example"]
+    output_data["i_signal"] = serialized_data["i_signal"]
 
     return output_data
 
@@ -217,7 +254,7 @@ def parse_inverse_grid_cls(
 
     Returns:
         tf.tensors, int: Tensors containing the different fields, the cosmological parameters and indices i_sobol and
-            i_example.
+            i_signal.
     """
 
     features = {
@@ -230,7 +267,7 @@ def parse_inverse_grid_cls(
         # labels
         "cosmo": tf.io.FixedLenFeature([], tf.string),
         "i_sobol": tf.io.FixedLenFeature([], tf.int64),
-        "i_example": tf.io.FixedLenFeature([], tf.int64),
+        "i_signal": tf.io.FixedLenFeature([], tf.int64),
     }
 
     serialized_data = tf.io.parse_single_example(serialized_example, features)
@@ -258,7 +295,7 @@ def parse_inverse_grid_cls(
 
     # indices
     output_data["i_sobol"] = serialized_data["i_sobol"]
-    output_data["i_example"] = serialized_data["i_example"]
+    output_data["i_signal"] = serialized_data["i_signal"]
 
     return output_data
 
@@ -280,7 +317,11 @@ def parse_forward_fiducial(
     cl_ia_perts,
     cl_bg_perts,
     # label
-    i_example,
+    i_signal,
+    # B-mode power spectra (B-mode Cls study); None -> not serialized, back-compatible schema
+    cl_bmode_perts=None,
+    cl_bmode_ia_perts=None,
+    cl_bmode_bg_perts=None,
 ):
     """The fiducials don't need a label and contain the perturbation for the delta loss with
     n_perts = 2 * n_params + 1
@@ -298,7 +339,7 @@ def parse_forward_fiducial(
         pn_realz (np.ndarray): Poisson noise realizations of shape(n_noise, n_pix, n_z_maglim).
         cls (np.ndarray): Auto and cross bin (both in terms of the tomographic bins, and the two probes) power spectra.
             The shape is (n_noise, n_cls, n_z_cross).
-        i_example (int): example index (comes from simulation run and the patch), there are
+        i_signal (int): example index (comes from simulation run and the patch), there are
             n_perms_per_cosmo * n_patches.
 
     Returns:
@@ -319,6 +360,8 @@ def parse_forward_fiducial(
         len(sn_realz) == len(pn_realz) == cl_perts.shape[1]
     ), "the number of noise realizations has to be identical for sn, pn and the cls"
 
+    keep_b_mode = cl_bmode_perts is not None
+
     # define the structure of a single example
     features = {
         # tensor shapes
@@ -326,7 +369,7 @@ def parse_forward_fiducial(
         "n_z_metacal": _int64_feature(kg_perts[0].shape[1]),
         "n_z_maglim": _int64_feature(dg_perts[0].shape[1]),
         # label
-        "i_example": _int64_feature(i_example),
+        "i_signal": _int64_feature(i_signal),
         # power spectra
         "cls": _bytes_feature(tf.io.serialize_tensor(cl_perts[0])),
         "n_noise": _int64_feature(cl_perts.shape[1]),
@@ -334,25 +377,44 @@ def parse_forward_fiducial(
         "n_z_cross": _int64_feature(cl_perts.shape[3]),
     }
 
+    # B-mode power spectra: the fiducial-cosmology block for the covariance path + the number of B cross bins
+    if keep_b_mode:
+        features["cls_bmode"] = _bytes_feature(tf.io.serialize_tensor(cl_bmode_perts[0]))
+        features["n_z_cross_bmode"] = _int64_feature(cl_bmode_perts.shape[3])
+
     # cosmological perturbations (kappa and delta)
-    for label, kg_pert, dg_pert, cl_pert in zip(cosmo_pert_labels, kg_perts, dg_perts, cl_perts):
+    if not keep_b_mode:
+        cl_bmode_perts = [None] * len(cosmo_pert_labels)
+    for label, kg_pert, dg_pert, cl_pert, cl_bmode_pert in zip(
+        cosmo_pert_labels, kg_perts, dg_perts, cl_perts, cl_bmode_perts
+    ):
         features[f"kg_{label}"] = _bytes_feature(tf.io.serialize_tensor(kg_pert))
         features[f"dg_{label}"] = _bytes_feature(tf.io.serialize_tensor(dg_pert))
         features[f"cl_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_pert))
+        if keep_b_mode:
+            features[f"cl_bmode_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_bmode_pert))
 
     # intrinsic alignment perturbations (kappa)
-    for label, ia_pert, cl_ia_pert in zip(ia_pert_labels, ia_perts, cl_ia_perts):
+    if not keep_b_mode:
+        cl_bmode_ia_perts = [None] * len(ia_pert_labels)
+    for label, ia_pert, cl_ia_pert, cl_bmode_ia_pert in zip(ia_pert_labels, ia_perts, cl_ia_perts, cl_bmode_ia_perts):
         features[f"kg_{label}"] = _bytes_feature(tf.io.serialize_tensor(ia_pert))
         features[f"cl_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_ia_pert))
+        if keep_b_mode:
+            features[f"cl_bmode_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_bmode_ia_pert))
 
     # shape noise realizations
     for i, sn in enumerate(sn_realz):
         features[f"sn_{i}"] = _bytes_feature(tf.io.serialize_tensor(sn))
 
     # galaxy biasing (delta)
-    for label, bg_pert, cl_bg_pert in zip(bg_pert_labels, bg_perts, cl_bg_perts):
+    if not keep_b_mode:
+        cl_bmode_bg_perts = [None] * len(bg_pert_labels)
+    for label, bg_pert, cl_bg_pert, cl_bmode_bg_pert in zip(bg_pert_labels, bg_perts, cl_bg_perts, cl_bmode_bg_perts):
         features[f"dg_{label}"] = _bytes_feature(tf.io.serialize_tensor(bg_pert))
         features[f"cl_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_bg_pert))
+        if keep_b_mode:
+            features[f"cl_bmode_{label}"] = _bytes_feature(tf.io.serialize_tensor(cl_bmode_bg_pert))
 
     # poisson noise realizations
     for i, pn in enumerate(pn_realz):
@@ -379,6 +441,9 @@ def parse_inverse_fiducial(
     with_clustering=True,
     return_maps=True,
     return_cls=True,
+    # B-mode power spectra (parallel field cl_bmode_{label}); requires a tfrecord written with b_mode_cls on
+    with_bmode=False,
+    n_z_cross_bmode=None,
 ):
     """Use the same structure as in in the forward pass above. Note that n_pix and n_z_bins have to be passed as
     arguments to ensure that the function can be converted to a graph.
@@ -397,7 +462,7 @@ def parse_inverse_fiducial(
             True.
 
     Returns:
-        dict, int: Dictionary of datavectors (fiducial, perturbations and shape noise) and the patch index (i_example).
+        dict, int: Dictionary of datavectors (fiducial, perturbations and shape noise) and the patch index (i_signal).
     """
     # LOGGER.warning(f"Tracing parse_inverse_fiducial")
 
@@ -410,21 +475,26 @@ def parse_inverse_fiducial(
         "n_cls": tf.io.FixedLenFeature([], tf.int64),
         "n_z_cross": tf.io.FixedLenFeature([], tf.int64),
         # label
-        "i_example": tf.io.FixedLenFeature([], tf.int64),
+        "i_signal": tf.io.FixedLenFeature([], tf.int64),
     }
+
+    if with_bmode:
+        features["n_z_cross_bmode"] = tf.io.FixedLenFeature([], tf.int64)
 
     # all perturbation parameters
     for label in pert_labels:
         if return_maps:
             # kappa: cosmological + intrinsic alignment parameters
-            if with_lensing and (not "bg" in label):
+            if with_lensing and ("bg" not in label):
                 features[f"kg_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
             # delta: cosmological + galaxy clustering parameters
-            if with_clustering and (not "Aia" in label):
+            if with_clustering and ("Aia" not in label):
                 features[f"dg_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
         features[f"cl_{label}"] = tf.io.FixedLenFeature([], tf.string)
+        if with_bmode:
+            features[f"cl_bmode_{label}"] = tf.io.FixedLenFeature([], tf.string)
 
     if return_maps:
         # all desired noise realizations
@@ -442,6 +512,8 @@ def parse_inverse_fiducial(
     # output container
     output_data = {}
 
+    # the stored Cls always contain all pairs of the concatenated [lensing, clustering] alms,
+    # so the selection indices must be computed in that full layout regardless of the probe flags
     bin_indices, _ = cross_statistics.get_cross_bin_indices(
         _parse_none_value(serialized_data, "n_z_metacal", n_z_metacal),
         _parse_none_value(serialized_data, "n_z_maglim", n_z_maglim),
@@ -455,13 +527,13 @@ def parse_inverse_fiducial(
     for label in pert_labels:
         if return_maps:
             # kappa: cosmological + intrinsic alignment parameters
-            if with_lensing and (not "bg" in label):
+            if with_lensing and ("bg" not in label):
                 output_data = _parse_and_reshape_data_vector(
                     output_data, serialized_data, f"kg_{label}", f"kg_{label}", n_pix, n_z_metacal, "n_z_metacal"
                 )
 
             # delta: cosmological + galaxy clustering parameters
-            if with_clustering and (not "Aia" in label):
+            if with_clustering and ("Aia" not in label):
                 output_data = _parse_and_reshape_data_vector(
                     output_data, serialized_data, f"dg_{label}", f"dg_{label}", n_pix, n_z_maglim, "n_z_maglim"
                 )
@@ -479,6 +551,20 @@ def parse_inverse_fiducial(
                 bin_indices,
             )
 
+            # B-mode block: plain reshape + noise gather only (its 42 columns do not fit the triangular
+            # metacal+maglim layout assumed by the get_cross_bin_indices gather)
+            if with_bmode:
+                _parse_and_reshape_cls_bmode(
+                    output_data,
+                    serialized_data,
+                    f"cl_bmode_{label}",
+                    f"cl_bmode_{label}",
+                    n_noise,
+                    n_cls,
+                    n_z_cross_bmode,
+                    noise_indices,
+                )
+
     if return_maps:
         # all desired noise realizations
         for i in noise_indices:
@@ -495,7 +581,7 @@ def parse_inverse_fiducial(
                 )
 
     # indices
-    output_data["i_example"] = serialized_data["i_example"]
+    output_data["i_signal"] = serialized_data["i_signal"]
 
     return output_data
 
@@ -506,6 +592,9 @@ def parse_inverse_fiducial_cls(
     n_noise=None,
     n_cls=None,
     n_z_cross=None,
+    # B-mode block (fiducial-cosmology cls_bmode); requires a tfrecord written with b_mode_cls on
+    with_bmode=False,
+    n_z_cross_bmode=None,
 ):
     """
     Use the same structure as in in the forward pass above, but only return the data associated with the power spectra.
@@ -521,7 +610,7 @@ def parse_inverse_fiducial_cls(
         n_params (int, optional): Fixes the size of the tensors. Defaults to None.
 
     Returns:
-        dict, int: Dictionary of datavectors (fiducial, perturbations and shape noise) and the patch index (i_example).
+        dict, int: Dictionary of datavectors (fiducial, perturbations and shape noise) and the patch index (i_signal).
     """
 
     features = {
@@ -531,8 +620,11 @@ def parse_inverse_fiducial_cls(
         "n_cls": tf.io.FixedLenFeature([], tf.int64),
         "n_z_cross": tf.io.FixedLenFeature([], tf.int64),
         # labels
-        "i_example": tf.io.FixedLenFeature([], tf.int64),
+        "i_signal": tf.io.FixedLenFeature([], tf.int64),
     }
+    if with_bmode:
+        features["cls_bmode"] = tf.io.FixedLenFeature([], tf.string)
+        features["n_z_cross_bmode"] = tf.io.FixedLenFeature([], tf.int64)
 
     serialized_data = tf.io.parse_single_example(serialized_example, features)
 
@@ -549,8 +641,20 @@ def parse_inverse_fiducial_cls(
         cls = tf.ensure_shape(cls, shape=(n_noise, n_cls, n_z_cross))
     output_data["cls"] = cls
 
+    # B-mode power spectra (fiducial cosmology only, for the sample covariance)
+    if with_bmode:
+        cls_bmode = tf.io.parse_tensor(serialized_data["cls_bmode"], out_type=tf.float32)
+        if n_noise is None and n_cls is None and n_z_cross_bmode is None:
+            cls_bmode = tf.reshape(
+                cls_bmode,
+                shape=(serialized_data["n_noise"], serialized_data["n_cls"], serialized_data["n_z_cross_bmode"]),
+            )
+        else:
+            cls_bmode = tf.ensure_shape(cls_bmode, shape=(n_noise, n_cls, n_z_cross_bmode))
+        output_data["cls_bmode"] = cls_bmode
+
     # indices
-    output_data["i_example"] = serialized_data["i_example"]
+    output_data["i_signal"] = serialized_data["i_signal"]
 
     return output_data
 
@@ -587,6 +691,28 @@ def _parse_and_reshape_cls(
 
     cls = tf.gather(cls, noise_indices, axis=0)
     cls = tf.gather(cls, bin_indices, axis=-1)
+
+    out_dict[key_out] = cls
+
+    return out_dict
+
+
+def _parse_and_reshape_cls_bmode(
+    out_dict, serialized_data, key_in, key_out, n_noise, n_cls, n_z_cross_bmode, noise_indices
+):
+    """Parse the B-mode Cls block. Unlike _parse_and_reshape_cls, there is no cross-bin gather: the B-touching
+    columns do not follow the triangular metacal+maglim ordering, so they are kept as stored (plain reshape) and
+    only the requested noise realizations are gathered."""
+    cls = tf.io.parse_tensor(serialized_data[key_in], out_type=tf.float32)
+
+    if n_noise is None and n_cls is None and n_z_cross_bmode is None:
+        cls = tf.reshape(
+            cls, shape=(serialized_data["n_noise"], serialized_data["n_cls"], serialized_data["n_z_cross_bmode"])
+        )
+    else:
+        cls = tf.ensure_shape(cls, shape=(n_noise, n_cls, n_z_cross_bmode))
+
+    cls = tf.gather(cls, noise_indices, axis=0)
 
     out_dict[key_out] = cls
 

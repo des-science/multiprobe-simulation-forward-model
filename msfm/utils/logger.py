@@ -5,10 +5,13 @@ Created on Jul 2021
 author: Tomasz Kacprzak
 """
 
-import os, sys, logging, time, datetime
+import os
+import sys
+import logging
+import time
+import datetime
 
 from tqdm import tqdm
-
 
 logging_levels = {
     "critical": logging.CRITICAL,
@@ -120,5 +123,5 @@ def set_all_loggers_level(level):
     for key in loggerDict:
         try:
             set_logger_level(logger=loggerDict[key], level=level)
-        except Exception as err:
+        except Exception:
             pass

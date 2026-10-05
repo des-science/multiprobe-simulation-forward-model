@@ -108,7 +108,7 @@ def main(indices, args):
 
     conf = files.load_config(args.config)
     n_side = conf["analysis"]["n_side"]
-    n_pix = conf["analysis"]["n_pix"]
+    n_pix = hp.nside2npix(n_side)
     n_z = len(conf["survey"]["metacal"]["z_bins"] + conf["survey"]["maglim"]["z_bins"])
 
     l_max = 3 * n_side

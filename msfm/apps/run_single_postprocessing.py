@@ -22,9 +22,14 @@ esub ../../msfm/apps/run_single_postprocessing.py \
 """
 
 import numpy as np
-import os, argparse, warnings, h5py, time, re
+import os
+import argparse
+import warnings
+import h5py
+import time
+import re
 
-from msfm.utils import files, logger, input_output, imports, observation
+from msfm.utils import files, logger, input_output, imports, observation, parameters, configuration
 
 hp = imports.import_healpy(parallel=False)
 
@@ -80,7 +85,9 @@ def setup(args):
         "--suffix_out",
         type=str,
         default="",
-        help="suffix to append to the output files",
+        help="suffix inserted into the output filename before the '_obs_maps' token, i.e. "
+        "{cosmo_name}{suffix_out}_obs_maps.h5 (so the file still ends in '_obs_maps.h5' and is "
+        "picked up by the mock auto-discovery in run_evaluation.py / run_cls_training+evaluation.py)",
     )
     parser.add_argument(
         "--msfm_config",
@@ -93,7 +100,12 @@ def setup(args):
     parser.add_argument(
         "--noiseless",
         action="store_true",
-        help="whether to include shape and Poisson noise",
+        help="whether to include shape and Poisson noise on top of the signal",
+    )
+    parser.add_argument(
+        "--noise_only",
+        action="store_true",
+        help="whether to only include shape and Poisson noise",
     )
     parser.add_argument(
         "--with_lensing",
@@ -138,6 +150,17 @@ def setup(args):
         type=float,
         nargs="+",
         default=None,
+    )
+    parser.add_argument(
+        "--tomo_cg",
+        type=float,
+        nargs="+",
+        default=None,
+    )
+    parser.add_argument(
+        "--contaminate_survey_systematics",
+        action="store_true",
+        help="whether to include the maglim survey systematics map in the forward model",
     )
 
     # run
@@ -187,6 +210,10 @@ def main(indices, args):
     args = setup(args)
     msfm_conf = files.load_config(args.msfm_config)
 
+    # like the grid and fiducial apps. Most importantly this asserts that the source clustering bias table was fit
+    # against the same forward model that is about to consume it, which is otherwise a silent mismatch
+    configuration.print_and_check_modeling_in_config(msfm_conf)
+
     if args.debug:
         args.max_sleep = 0
         LOGGER.warning("!!! debug mode !!!")
@@ -199,30 +226,56 @@ def main(indices, args):
     for index in indices:
         perm_dir = os.path.join(args.dir_in, f"perm_{index:04}")
 
-        # metacal bias logic
-        if args.tomo_bg_metacal is None:
+        # metacal bias logic: determine the source-clustering bias passed to forward_model_cosmogrid
+        method, bias, fixed_bsc, survey_systematics = files.get_shape_noise(msfm_conf)
+        if args.tomo_bg_metacal is not None:
+            tomo_bg_metacal = args.tomo_bg_metacal
+        elif method == "count" and bias == "fixed":
+            # count+fixed: per-cosmology metacal bias read from files.metacal_bias
             if "/grid/" in perm_dir:
                 match = re.search(r"cosmo_(\d{6})", perm_dir)
                 i_sobol = int(match.group(1))
                 tomo_bg_metacal = files.read_metacal_bias(f"cosmo_{i_sobol:06}", conf=msfm_conf)
             elif "/fiducial/" in perm_dir or "benchmark" in perm_dir:
-                tomo_bg_metacal = files.read_metacal_bias(f"fiducial", conf=msfm_conf)
-        else:
-            tomo_bg_metacal = args.tomo_bg_metacal
+                tomo_bg_metacal = files.read_metacal_bias("fiducial", conf=msfm_conf)
+            else:
+                raise ValueError(
+                    f"Cannot determine metacal bias key from perm_dir={perm_dir!r}: expected '/grid/' or '/fiducial/'/'benchmark' in path"
+                )
+        elif bias == "prior":
+            # count+prior or gatti+prior: sample bsc from the prior (assigned per patch below)
+            sc_prior = parameters.get_prior_intervals(["bsc"], conf=msfm_conf)
+            bsc_samples = np.random.default_rng(seed=index).uniform(
+                sc_prior[0, 0], sc_prior[0, 1], size=msfm_conf["analysis"]["n_patches"]
+            )
+            tomo_bg_metacal = None  # set per patch below
+        else:  # in_place, or gatti+fixed (which uses the config fixed_bsc inside forward_model_cosmogrid)
+            tomo_bg_metacal = None
 
         obs_maps = []
         obs_cls_raw = []
         for i_patch in LOGGER.progressbar(
-            range(msfm_conf["analysis"]["n_patches"]), desc=f"loop through patches\n", at_level="info"
+            range(msfm_conf["analysis"]["n_patches"]), desc="loop through patches\n", at_level="info"
         ):
             if args.debug and i_patch > 0:
                 LOGGER.warning("Debug mode: only processing the first patch")
                 break
 
+            if bias == "prior" and args.tomo_bg_metacal is None:
+                tomo_bg_metacal = bsc_samples[i_patch]
+
+            # unique seed per (permutation, patch) so the 80 realizations have independent noise
+            # (mirrors the grid's np_seed = i_sobol + i_signal). For rotate source clustering this is
+            # essential: the noise depends only on (catalog, seed), so a constant seed would otherwise
+            # duplicate the shape noise across all permutations. The seed is a deterministic function of
+            # (index, i_patch) only, so the noise stays matched between mocks at the same realization.
+            noise_seed = args.np_seed + index * msfm_conf["analysis"]["n_patches"] + i_patch
+
             wl_gamma_patch, gc_count_patch = observation.forward_model_cosmogrid(
                 perm_dir,
                 conf=msfm_conf,
                 noisy=not args.noiseless,
+                noise_only=args.noise_only,
                 i_patch=i_patch,
                 # lensing
                 with_lensing=args.with_lensing,
@@ -233,7 +286,9 @@ def main(indices, args):
                 # clustering
                 with_clustering=args.with_clustering,
                 tomo_bg=args.tomo_bg,
-                noise_seed=args.np_seed,
+                tomo_cg=args.tomo_cg,
+                survey_sys=args.contaminate_survey_systematics,
+                noise_seed=noise_seed,
             )
 
             obs_map, obs_cl_raw, _ = observation.forward_model_observation_map(
@@ -253,10 +308,11 @@ def main(indices, args):
 
         # save the results
         cosmo_name = os.path.basename(args.dir_in)
-        out_file = os.path.join(args.dir_out, f"{cosmo_name}_obs_maps{args.suffix_out}_{index:04}.h5")
+        out_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps_{index:04}.h5")
         with h5py.File(out_file, "w") as f:
             f.create_dataset(name="obs/maps", data=obs_maps)
             f.create_dataset(name="obs/cls_raw", data=obs_cls_raw)
+        LOGGER.info(f"Saved results to {out_file}")
 
         yield index
 
@@ -267,11 +323,11 @@ def merge(indices, args):
     n_patches = msfm_conf["analysis"]["n_patches"]
 
     cosmo_name = os.path.basename(args.dir_in)
-    out_file = os.path.join(args.dir_out, f"{cosmo_name}_obs_maps{args.suffix_out}.h5")
+    out_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps.h5")
 
     with h5py.File(out_file, "w") as f_merged:
         for index in LOGGER.progressbar(indices, desc="merging files", at_level="info"):
-            in_file = os.path.join(args.dir_out, f"{cosmo_name}_obs_maps{args.suffix_out}_{index:04}.h5")
+            in_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps_{index:04}.h5")
             with h5py.File(in_file, "r") as f_in:
                 obs_maps = f_in["obs/maps"][:]
                 obs_cls_raw = f_in["obs/cls_raw"][:]
@@ -293,6 +349,6 @@ def merge(indices, args):
 
     # only remove the files after the above loop has terminated successfully
     for index in indices:
-        in_file = os.path.join(args.dir_out, f"{cosmo_name}_obs_maps{args.suffix_out}_{index:04}.h5")
+        in_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps_{index:04}.h5")
         os.remove(in_file)
-    LOGGER.info(f"Removed temporary files")
+    LOGGER.info("Removed temporary files")

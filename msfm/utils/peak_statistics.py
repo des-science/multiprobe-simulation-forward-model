@@ -2,7 +2,7 @@
 Created in December 2023
 Author: Arne Thomsen
 
-Tools to handle the calculate peaks consistent with the forward modeled maps. These are based off 
+Tools to handle the calculate peaks consistent with the forward modeled maps. These are based off
 https://github.com/des-science/y3-combined-peaks
 By Virginia Ajani. The two classes from estats by Dominik Zürcher can be found in
 https://cosmo-gitlab.phys.ethz.ch/cosmo_public/estats/-/blob/master/estats/map.py
@@ -10,7 +10,7 @@ https://cosmo-gitlab.phys.ethz.ch/cosmo_public/estats/-/blob/master/estats/summa
 """
 
 import numpy as np
-import os, h5py
+import h5py
 
 from estats import map as estats_map_module
 from estats import utils as estats_utils
@@ -103,7 +103,7 @@ def get_peaks(
         ), f"For per tomographic bin smoothing scales, the length of theta_fwhm must be {n_z_bins}."
         assert all(
             len(theta_fwhm[0]) == len(sublist) for sublist in theta_fwhm
-        ), f"For per tomographic bin smoothing scales, all bins need the same number of scales."
+        ), "For per tomographic bin smoothing scales, all bins need the same number of scales."
     elif not isinstance(theta_fwhm, list):
         raise ValueError("Smoothing scales must be a list of lists or a list of floats.")
 
@@ -191,7 +191,7 @@ def _downbin_cross_peaks(cross_peaks, current_theta_fwhm, i, j, n_bins, binning_
         bin_centers = bins_centers[f"{i}x{j}"]
 
     else:
-        raise ValueError(f"either binning_file or bins_centers and bins_edges must be provided.")
+        raise ValueError("either binning_file or bins_centers and bins_edges must be provided.")
 
     # result
     summary.set_binning_scheme(bin_centers, bin_edges, statistic="CrossPeaks", bin=n_bins)
@@ -216,7 +216,7 @@ def _get_peaks_per_pair(
         ), f"For per tomographic bin smoothing scales, the length of theta_fwhm must be {n_z_bins}."
         assert all(
             len(theta_fwhm[0]) == len(sublist) for sublist in theta_fwhm
-        ), f"For per tomographic bin smoothing scales, all bins need the same number of scales."
+        ), "For per tomographic bin smoothing scales, all bins need the same number of scales."
 
     peaks = []
     for i in range(n_z_bins):
