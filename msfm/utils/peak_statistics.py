@@ -12,6 +12,8 @@ https://cosmo-gitlab.phys.ethz.ch/cosmo_public/estats/-/blob/master/estats/summa
 import numpy as np
 import os, h5py
 
+from estats import map as estats_map_module
+from estats import utils as estats_utils
 from estats.map import map as estats_map
 from estats.summary import summary as estats_summary
 
@@ -84,6 +86,125 @@ def get_peaks(
             long summary vector.
     """
 
+    if white_noise_sigma is not None:
+        return _get_peaks_per_pair(
+            maps, n_side, n_bins, theta_fwhm, with_cross, white_noise_sigma, binning_file, bins_edges, bins_centers,
+            bins_fwhms,
+        )
+
+    # possibly for multiple probes
+    n_z_bins = maps.shape[1]
+
+    # whether list of lists
+    per_tomo_bin_scales = isinstance(theta_fwhm, list) and all(isinstance(sublist, list) for sublist in theta_fwhm)
+    if per_tomo_bin_scales:
+        assert (
+            len(theta_fwhm) == n_z_bins
+        ), f"For per tomographic bin smoothing scales, the length of theta_fwhm must be {n_z_bins}."
+        assert all(
+            len(theta_fwhm[0]) == len(sublist) for sublist in theta_fwhm
+        ), f"For per tomographic bin smoothing scales, all bins need the same number of scales."
+    elif not isinstance(theta_fwhm, list):
+        raise ValueError("Smoothing scales must be a list of lists or a list of floats.")
+
+    # The same computation as one estats map object per tomographic pair (_get_peaks_per_pair), with identical
+    # results, but every map is transformed to harmonic space only once instead of once per pair it enters, and the
+    # cross alms are formed once per pair instead of once per smoothing scale. The smoothing, the transform back and
+    # the peak finding are estats' own routines, applied to the same arrays.
+    emap = estats_map(polarizations="E", kappa_E=[maps[:, k] for k in range(n_z_bins)], NSIDE=n_side, verbosity=3)
+    emap.ctx["tomo"] = "0x0"  # as set by estats map.calc_summary_stats
+    cross_peaks_stat = estats_utils.import_executable("CrossPeaks", "CrossPeaks")
+    # as estats map._prep_alms (the maps are already in the map object's precision)
+    alms = [estats_map_module.hp.map2alm(emap.kappa_E[k], lmax=emap.lmax) for k in range(n_z_bins)]
+    # estats derives the (equal) weights of both maps of a pair from the footprint of its first map
+    footprints = [emap.kappa_E[k] > estats_map_module.hp.UNSEEN for k in range(n_z_bins)]
+
+    peaks = []
+    for i in range(n_z_bins):
+        for j in range(n_z_bins):
+            if (i == j) or (i < j and with_cross):
+                if per_tomo_bin_scales:
+                    # always be conservative and take the maximum smoothing scale for cross bins
+                    current_theta_fwhm = [max(theta) for theta in zip(theta_fwhm[i], theta_fwhm[j])]
+                else:
+                    current_theta_fwhm = theta_fwhm
+                emap.ctx["scales"] = current_theta_fwhm
+
+                # as estats map._calc_multi_stats (cross mode, no noise), with the cross alms out of the scale loop
+                weights = (footprints[i] + footprints[i]) / 2.0
+                alm_cross = np.sqrt(alms[i]) * np.sqrt(alms[j])
+                cross_peaks = []
+                for scale in current_theta_fwhm:
+                    emap.ctx["scale"] = scale
+                    kappa = emap._convert_alm_to_kappa(alm_cross, scale)
+                    cross_peaks.append(cross_peaks_stat(kappa, weights, emap.ctx))
+                cross_peaks = np.vstack(cross_peaks)
+
+                binned_peaks = _downbin_cross_peaks(
+                    cross_peaks, current_theta_fwhm, i, j, n_bins, binning_file, bins_edges, bins_centers, bins_fwhms
+                )
+                peaks.append(binned_peaks)
+
+    # the cross z bin channels come last
+    peaks = np.stack(peaks, axis=-1)
+
+    # shape (n_scales, n_bins, n_z_cross)
+    return peaks
+
+
+def _downbin_cross_peaks(cross_peaks, current_theta_fwhm, i, j, n_bins, binning_file, bins_edges, bins_centers, bins_fwhms):
+    """Downbins the fine (1000 step) estats CrossPeaks histograms of the tomographic pair i x j to n_bins, with a binning
+    scheme that is either derived from these peaks and stored (binning_file) or given (bins_edges, bins_centers).
+
+    Returns:
+        np.ndarray: shape (n_scales, n_bins)
+    """
+    # downbin cross peaks, the value of 1000 is a default and hardcoded
+    summary = estats_summary(
+        scales=current_theta_fwhm, CrossPeaks=1000, CrossPeaks_sliced_bins=n_bins, verbosity=1
+    )
+    summary.readin_stat_data(
+        cross_peaks, statistic="CrossPeaks", meta_list=["sims", n_bins], parameters=["type", "tomo"]
+    )
+    summary.generate_binning_scheme(statistics="CrossPeaks", bin=n_bins)
+
+    # store the binning scheme to disk
+    if binning_file is not None:
+        bin_edges, bin_centers = summary.get_binning_scheme(statistic="CrossPeaks", bin=n_bins)
+
+        with h5py.File(binning_file, "a") as f:
+            f.create_dataset(f"edges/{i}x{j}", data=bin_edges)
+            f.create_dataset(f"centers/{i}x{j}", data=bin_centers)
+            f.create_dataset(f"theta_fwhm/{i}x{j}", data=current_theta_fwhm)
+
+        LOGGER.info(
+            f"Saved binning scheme for {i}x{j} and theta_fwhm = {current_theta_fwhm} to {binning_file}"
+        )
+
+    # from memory, to be used in conjunction with get_binning_scheme
+    elif (bins_edges is not None) and (bins_centers is not None):
+        assert np.all(
+            current_theta_fwhm == bins_fwhms[f"{i}x{j}"]
+        ), f"Smoothing scales for cross bin {i}x{j} have to match."
+
+        bin_edges = bins_edges[f"{i}x{j}"]
+        bin_centers = bins_centers[f"{i}x{j}"]
+
+    else:
+        raise ValueError(f"either binning_file or bins_centers and bins_edges must be provided.")
+
+    # result
+    summary.set_binning_scheme(bin_centers, bin_edges, statistic="CrossPeaks", bin=n_bins)
+    summary.downbin_data(statistics=["CrossPeaks"])
+    binned_peaks = summary.get_data("CrossPeaks").reshape(len(current_theta_fwhm), n_bins)
+    return binned_peaks
+
+def _get_peaks_per_pair(
+    maps, n_side, n_bins, theta_fwhm, with_cross, white_noise_sigma, binning_file, bins_edges, bins_centers, bins_fwhms
+):
+    """The original implementation: one estats map object per tomographic pair, which transforms both of its maps
+    (so every map is transformed once per pair it enters). Only used with white_noise_sigma, where estats adds the
+    noise to the two maps before combining them."""
     # possibly for multiple probes
     n_z_bins = maps.shape[1]
 
@@ -101,7 +222,6 @@ def get_peaks(
     for i in range(n_z_bins):
         for j in range(n_z_bins):
             if (i == j) or (i < j and with_cross):
-                print('[jbucko] get_peaks i,j: %d,%d'%(i,j))
                 if per_tomo_bin_scales:
                     # always be conservative and take the maximum smoothing scale for cross bins
                     current_theta_fwhm = [max(theta) for theta in zip(theta_fwhm[i], theta_fwhm[j])]
@@ -135,44 +255,9 @@ def get_peaks(
                 # select 'E-modes'
                 cross_peaks = cross_stats["E"]["CrossPeaks"]
 
-                # downbin cross peaks, the value of 1000 is a default and hardcoded
-                summary = estats_summary(
-                    scales=current_theta_fwhm, CrossPeaks=1000, CrossPeaks_sliced_bins=n_bins, verbosity=1
+                binned_peaks = _downbin_cross_peaks(
+                    cross_peaks, current_theta_fwhm, i, j, n_bins, binning_file, bins_edges, bins_centers, bins_fwhms
                 )
-                summary.readin_stat_data(
-                    cross_peaks, statistic="CrossPeaks", meta_list=["sims", n_bins], parameters=["type", "tomo"]
-                )
-                summary.generate_binning_scheme(statistics="CrossPeaks", bin=n_bins)
-
-                # store the binning scheme to disk
-                if binning_file is not None:
-                    bin_edges, bin_centers = summary.get_binning_scheme(statistic="CrossPeaks", bin=n_bins)
-
-                    with h5py.File(binning_file, "a") as f:
-                        f.create_dataset(f"edges/{i}x{j}", data=bin_edges)
-                        f.create_dataset(f"centers/{i}x{j}", data=bin_centers)
-                        f.create_dataset(f"theta_fwhm/{i}x{j}", data=current_theta_fwhm)
-
-                    LOGGER.info(
-                        f"Saved binning scheme for {i}x{j} and theta_fwhm = {current_theta_fwhm} to {binning_file}"
-                    )
-
-                # from memory, to be used in conjunction with get_binning_scheme
-                elif (bins_edges is not None) and (bins_centers is not None):
-                    assert np.all(
-                        current_theta_fwhm == bins_fwhms[f"{i}x{j}"]
-                    ), f"Smoothing scales for cross bin {i}x{j} have to match."
-
-                    bin_edges = bins_edges[f"{i}x{j}"]
-                    bin_centers = bins_centers[f"{i}x{j}"]
-
-                else:
-                    raise ValueError(f"either binning_file or bins_centers and bins_edges must be provided.")
-
-                # result
-                summary.set_binning_scheme(bin_centers, bin_edges, statistic="CrossPeaks", bin=n_bins)
-                summary.downbin_data(statistics=["CrossPeaks"])
-                binned_peaks = summary.get_data("CrossPeaks").reshape(len(current_theta_fwhm), n_bins)
                 peaks.append(binned_peaks)
 
     # the cross z bin channels come last
