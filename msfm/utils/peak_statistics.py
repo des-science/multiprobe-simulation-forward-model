@@ -17,11 +17,14 @@ from estats import utils as estats_utils
 from estats.map import map as estats_map
 from estats.summary import summary as estats_summary
 
-from msfm.utils import logger, imports
+from msfm.utils import logger, imports, maps
 
 hp = imports.import_healpy()
 
 LOGGER = logger.get_logger(__file__)
+
+# state of a process pool worker, see init_patch_worker
+_PATCH_WORKER = {}
 
 
 def get_peaks_bins(binning_file, n_z_bins, with_cross=True):
@@ -150,6 +153,35 @@ def get_peaks(
 
     # shape (n_scales, n_bins, n_z_cross)
     return peaks
+
+
+def init_patch_worker(patch_pix, n_pix, peaks_kwargs):
+    """Initializer of a process pool to evaluate get_peaks_from_patch in parallel. It lives in this module, which
+    doesn't import TensorFlow, such that the workers (e.g. from a forkserver) start fast and don't inherit the state of
+    the main process.
+
+    Args:
+        patch_pix (np.ndarray): Pixel indices of the patch within the full sky.
+        n_pix (int): Number of pixels of the full sky.
+        peaks_kwargs (dict): Keyword arguments passed through to get_peaks.
+    """
+    _PATCH_WORKER["patch_pix"] = patch_pix
+    _PATCH_WORKER["n_pix"] = n_pix
+    _PATCH_WORKER["peaks_kwargs"] = peaks_kwargs
+
+
+def get_peaks_from_patch(data_vector):
+    """Calculates the peaks statistic of a single data vector of shape (n_patch_pix, n_z_bins) that is cut out of the
+    full sky in nest ordering, as returned by the pipelines with with_padding=False. Requires init_patch_worker.
+
+    Returns:
+        np.ndarray: The peaks statistic with shape (n_scales, n_bins, n_z_cross).
+    """
+    full_sky = np.full((_PATCH_WORKER["n_pix"], data_vector.shape[-1]), hp.UNSEEN)
+    full_sky[_PATCH_WORKER["patch_pix"]] = data_vector
+    full_sky = maps.tomographic_reorder(full_sky, n2r=True)
+
+    return get_peaks(full_sky, **_PATCH_WORKER["peaks_kwargs"])
 
 
 def _downbin_cross_peaks(cross_peaks, current_theta_fwhm, i, j, n_bins, binning_file, bins_edges, bins_centers, bins_fwhms):
