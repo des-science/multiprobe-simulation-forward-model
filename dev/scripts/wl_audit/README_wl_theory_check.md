@@ -3,8 +3,10 @@
 **Date:** 2026-07-13
 **Author:** Arne Thomsen (with Claude)
 **Code:** `wl_theory_comparison.py` (fiducial), `wl_theory_scan.py` (S8 / w0 cosmology scan)
-**Results:** `/pscratch/sd/a/athomsen/deep_lss/runs/wl_audit/`
-**Companion:** `dev/notes/wl_forward_model_audit_2026-07-11.md` §3.9 (this is the standalone version)
+**Results:** `/pscratch/sd/a/athomsen/deep_lss/runs/wl_audit/` (Perlmutter, original run); the input
+maps are now also on Clariden at `/iopsstor/scratch/cscs/athomsen/CosmoGrid/v11desy3/` and the
+scripts default to the Clariden paths (2026-07-16)
+**Companion:** `dev/notes/wl_forward_model_audit_2026-07-11.md` §3.8 (this is the standalone version)
 
 ---
 
@@ -21,7 +23,8 @@ It does not touch the lensing signal and is largely absorbed by the marginalised
 ## 1. Why this test was needed
 
 The 2026-07-11 audit checked the WL data path exhaustively and found no bug — but every signal check
-in it (§§3.2, 3.3, 3.5c) divided the pipeline output by **each map's own full-sky Cl**. Those are
+in it (§§3.2, 3.3c, 3.4a in the note's current numbering) divided the pipeline output by **each map's
+own full-sky Cl**. Those are
 *transfer* ratios. A wrong absolute amplitude or a wrong scale dependence baked into the `kg` or `ia`
 input maps themselves would cancel in such a ratio and pass unnoticed — while still lowering the S/N
 of the forward-modelled data vector. This was the one WL data-side hypothesis never tested.
@@ -150,19 +153,24 @@ this analysis.
 ## 5. Bottom line
 
 The WL data path is clean end to end, **including the absolute normalisation of its inputs**, at the
-fiducial and across the prior. The constraining-power gap remains compression/inference-side (audit
-§4 items 1–2: VMIM target dimensionality; the compression-level `bta` penalty → the v17 retrain).
+fiducial and across the prior. Combined with the audit's Fisher-vs-SBI result (note §4.7: the
+likelihood-flow reproduces the Gaussian Cl Fisher ceiling, so 2pt density-estimation is also
+clean), the constraining-power gap must live in the data vector / data-vs-sim mismatch and the
+compression stage (note §5: leading candidates are the data-vector differences vs the references
+and the compression-level `bta` penalty → the v17 retrain).
 
 ## 6. Reproducing
 
-Needs `pyccl` (3.2.1) + `camb`, pip-installed into `~/.local` for the `dlss15` python. Maps are on
-CFS, so this runs on a Perlmutter CPU node (no allocation needed for the small perm counts below);
-the fiducial 8-perm run takes ≈45 min, the scan ≈40 min.
+Needs `pyccl` (3.2.1) + `camb`. The fiducial 8-perm run takes ≈45 min on a CPU node, the scan
+≈40 min.
+
+**On Clariden (default paths since 2026-07-16):** the maps live at
+`/iopsstor/scratch/cscs/athomsen/CosmoGrid/v11desy3/` and outputs go to
+`/iopsstor/scratch/cscs/athomsen/deep_lss/runs/wl_audit/`. `pyccl`/`camb` are not yet installed in
+any Clariden env — pip-install them into e.g. `~/dlss/tf_env` first (aarch64: check that binary
+wheels exist; `camb` may need a gfortran build).
 
 ```bash
-source activate dlss15
-cd ~/multiprobe-simulation-forward-model
-
 # fiducial, both map variants (the headline test)
 python dev/scripts/wl_audit/wl_theory_comparison.py --n_perms 8 --variant both
 
@@ -170,7 +178,12 @@ python dev/scripts/wl_audit/wl_theory_comparison.py --n_perms 8 --variant both
 python dev/scripts/wl_audit/wl_theory_scan.py --n_perms 2
 ```
 
-Outputs in `/pscratch/sd/a/athomsen/deep_lss/runs/wl_audit/`:
+**On Perlmutter (original run):** `source activate dlss15` (`pyccl`/`camb` in `~/.local`), maps on
+CFS at `/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/`; pass
+`--map_dir`/`--grid_root` (and `--out_dir /pscratch/sd/a/athomsen/deep_lss/runs/wl_audit`) since
+the defaults now point at Clariden.
+
+Outputs:
 
 | file | contents |
 |---|---|
