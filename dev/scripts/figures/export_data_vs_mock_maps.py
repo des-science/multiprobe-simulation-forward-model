@@ -45,7 +45,7 @@ resolution for anything the images cannot answer.
 Runs on numpy/healpy/h5py only, no tensorflow and no GPU, but it does ~40 spherical harmonic
 transforms at nside 512, so give it a compute node:
 
-    srun -A a0158 --partition=debug --time=00:30:00 \
+    srun -A lp184 --partition=debug --time=00:30:00 \
         uenv run --view=default pytorch/v2.9.1:v2 -- \
         ~/dlss/torch_env/bin/python3 dev/scripts/figures/export_data_vs_mock_maps.py
 """
