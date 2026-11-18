@@ -27,6 +27,11 @@ their configs (`configs/vNN/` to `configs/desy3/vNN/`). They are Perlmutter-era 
 |---|---|---|---|
 | v1 | in preparation | `configs/desy6/v1/` | First DES Y6 forward model, see `dev/notes/desy6_tfrecord_plan.md`. |
 
+`desy6/products/run.sh <pixels|maps|noise>` submits a compute-node step of the Y6 data products
+(`msfm.apps.products.desy6`, see `data/README.md`) after running its `--dry-run` on the login node.
+It is a daint script (account `lp184`, `torch_env` in the `pytorch/v2.9.1:v2` uenv), not a
+Perlmutter one.
+
 ### DES Y3 (`desy3/`, frozen)
 
 | version | status | configs | esub | packed | notes |
@@ -61,5 +66,6 @@ pipelines/
       packed/                  the only submission path -- submit.sh (grid+fiducial) and
                                submit_obs.sh (every benchmark/mock arm)
   desy6/
+    products/run.sh            submits a compute-node step of the Y6 data products
     v1/                        not yet created
 ```

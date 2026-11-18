@@ -25,6 +25,9 @@ data/desy3/obs/
 # is deliberate: an excluded directory cannot have its contents re-included by a negation
 data/desy3/cache/*
 !data/desy3/cache/.gitkeep
+# DES Y6, same reasons as above: the noise file and the catalog-derived maps of msfm.apps.products.desy6
+data/desy6/desy6_noise_512.h5
+data/desy6/cache/*
 
 # repository specific
 esub_logs

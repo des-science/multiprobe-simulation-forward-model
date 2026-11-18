@@ -48,5 +48,5 @@ def get_filename_tfrecords(out_dir, index, tag, simset, with_bary=False, return_
     return os.path.join(out_dir, file_name)
 
 
-def get_filename_z_distribution(data_dir, galaxy_sample_label, i_bin):
-    return os.path.join(data_dir, f"desy3_nz_{galaxy_sample_label}_bin{i_bin}.txt")
+def get_filename_z_distribution(data_dir, galaxy_sample_label, i_bin, prefix="desy3"):
+    return os.path.join(data_dir, f"{prefix}_nz_{galaxy_sample_label}_bin{i_bin}.txt")

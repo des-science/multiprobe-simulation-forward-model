@@ -17,7 +17,7 @@ Each survey has its own subdirectory. The top level holds only what is not speci
 |---|---|
 | `data/*` (flat) | survey-agnostic inputs: `CosmoGridV1_metainfo.h5`, `healpy_data/`. A DES Y6 config may use them only if it lists them explicitly |
 | `data/desy3/` | DES Y3. Production inputs flat, plus `redshift_distributions/`, `cache/`, `obs/` and `deprecated/`. **Frozen** as the provenance of the v18 analysis |
-| `data/desy6/` | DES Y6, not created yet. Same internal layout as `desy3/` |
+| `data/desy6/` | DES Y6, being built (see "DES Y6" below). Same internal layout as `desy3/` |
 | `data/deprecated/` | superseded survey-agnostic inputs (`CosmoGridV1_original_metainfo.h5`) |
 | `data/figures/` | figures embedded in the repository `README.md` |
 
@@ -54,10 +54,11 @@ files:
 
 ## Where every file comes from
 
-`notebooks/` is **production**: it holds exactly the notebooks that generate the contents of this
-directory, one slot per product, under the same survey subdirectory (`notebooks/desy3/` for
-`data/desy3/`). `dev/notebooks/` is **debugging**: analysis and comparison notebooks that consume
-these products rather than make them. That split is what decides where a notebook belongs.
+For DES Y3, `notebooks/` is **production**: it holds exactly the notebooks that generate the
+contents of this directory, one slot per product, under the same survey subdirectory
+(`notebooks/desy3/` for `data/desy3/`). DES Y6 uses a script instead (see "DES Y6" below).
+`dev/notebooks/` is **debugging**: analysis and comparison notebooks that consume these products
+rather than make them. That split is what decides where a notebook belongs.
 
 ### Produced in this repository
 
@@ -96,6 +97,65 @@ casually — but they are reproducible, which is why they are not in git.
 | `notebooks/desy3/config.ipynb` | `survey.{metacal,maglim}.n_gal`, `survey.Aeff` |
 | `notebooks/desy3/patches.ipynb` | `analysis.footprint.rotation.{y_rad,z_rad}` |
 | `notebooks/desy3/scale_cuts.ipynb` | `analysis.scale_cuts` |
+
+## DES Y6
+
+`configs/desy6/v1/default.yaml` names these files. Each one not produced yet is listed in
+`EXPECTED_MISSING` in the path gate, and comes off that list once its step has run.
+
+**Raw inputs stay outside the repository.** `dirs.catalog` points at the public Y6 release as
+downloaded to `/capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/data_desy6a2`
+(from `desdr-server.ncsa.illinois.edu/despublic/y6a2_files/y6_psf/final_version/`). Only five of
+its files are read:
+
+| file | size | used for |
+|---|---|---|
+| `metadetect_2024-11-07.hdf5` | 140 G | source shear and count maps, response, `n_gal`, noise file |
+| `maglim_2024-11-07.hdf5` | 2.7 G | lens count maps (per-galaxy `weight`), `n_gal` |
+| `jointmask_DESY6_2024-06-04.hsp` | 696 M | footprint, pixel file, `Aeff` |
+| `3x2pt_2025-07-28-20h_UNBLINDED_wmask_nob2.fits` | 22 M | fiducial n(z), HDUs `nz_source` (4 bins) and `nz_lens` (6 bins) |
+| `desy6_source_redshift.h5` | 373 M | m prior: mean and std of the `M_BIN*` columns only |
+
+The rest of the download is not needed:
+- the non-tomographic metadetection file;
+- the randoms, the w(θ) debias file and redMaGiC;
+- `maglim_addl_cols_v1.hdf5`;
+- the lens realization set `desy6_lens_redshift.h5`, which feeds the projection;
+- the `desy6kp_cats` index.
+
+DES's `3x2pt_pipeline_public.ipynb`, in the same directory, is the reference for the response, the
+weights and the mean-shear subtraction.
+
+**Derived products** come from one config-driven script, not from notebooks:
+
+```bash
+python -m msfm.apps.products.desy6 <step> --config configs/desy6/v1/default.yaml
+pipelines/desy6/products/run.sh <pixels|maps|noise>    # the compute-node steps, as a job
+```
+
+Every step writes to the path its config key names, stops on a failed check, and records its
+inputs, outputs and the msfm commit in `desy6/provenance.yaml` (`files.provenance`). The steps run
+in this order:
+
+| step | file | from | tracked |
+|---|---|---|---|
+| `nz` | `desy6/redshift_distributions/desy6_nz_metacal_bin{1-4}.txt`, `desy6_nz_maglim_bin{1-6}.txt` | the FITS | yes |
+| `pixels` | `desy6/desy6_pixels_fiducial_512.h5` | the mask | yes |
+| `maps` | `desy6/cache/desy6_metacal_{gamma_e1p_e2m,count,response}.npy`, `desy6_maglim_{count,weighted_count}.npy` (`dirs.cache`), every survey bin | metadetect and MagLim | no |
+| `values` | `desy6/desy6_survey_values.yaml` | the maps, the pixel file, metadetect, the m columns | yes |
+| `config` | the lines of `configs/desy6/v1/default.yaml` marked `# <- desy6 values: <key>` | the values file | yes |
+| `noise` | `desy6/desy6_noise_512.h5` | metadetect | no |
+| `sc_bias` | `desy6/desy6_metacal_bias.h5` | the Y6 projection | yes |
+| (external) | `desy6/desy6_metacal_systematics_<label>_512.h5` | `lss_sys` on the Y6 survey-property maps (TODO) | yes |
+
+All steps but `sc_bias` exist so far; the release reader behind them is
+`msfm/utils/catalog_desy6.py`. The steps serve the purposes of the Y3 production notebooks: `pixels` is
+`pixel_file` + `patches`, `maps` is `build_des`, `values` is `config`, and `noise` and `sc_bias`
+keep their names. The spec is section 5 of `dev/notes/desy6_tfrecord_plan.md`.
+
+All six lens bins are produced; the config excludes bin 2 through `survey.maglim.z_bins`. The token
+in the n(z) filenames stays `metacal`/`maglim` because it echoes the config key, even though the Y6
+sources are metadetection.
 
 ## Naming
 
