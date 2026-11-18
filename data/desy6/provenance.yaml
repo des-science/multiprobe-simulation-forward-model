@@ -1,0 +1,32 @@
+about: 'Written by msfm.apps.products.desy6, one record per step: how each file in data/desy6/ was made.'
+steps:
+  nz:
+    date: '2026-11-18T13:43:42+01:00'
+    command: python -m msfm.apps.products.desy6 nz --config configs/desy6/v1/default.yaml
+    config: configs/desy6/v1/default.yaml
+    msfm_commit: 73f58dcd0ae0a20e6b6c3c6bb1853462944bad4b
+    inputs:
+    - path: /capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/data_desy6a2/3x2pt_2025-07-28-20h_UNBLINDED_wmask_nob2.fits
+      bytes: 23016960
+      mtime: '2026-11-09T03:56:46+01:00'
+    outputs:
+    - path: data/desy6/redshift_distributions/desy6_nz_metacal_bin1.txt
+      sha256: ee45f6b5d40da9fab858d63fc0bd7dbd7a85a16b57627d97a41ecda90461b677
+    - path: data/desy6/redshift_distributions/desy6_nz_metacal_bin2.txt
+      sha256: 4b4fd39ca074857669684faf4edcbcf4609beed6ff18f974504b8e736e093757
+    - path: data/desy6/redshift_distributions/desy6_nz_metacal_bin3.txt
+      sha256: a40982bcfb9c70b17878fccb6b2f79ea9661fbe118b2febb6c5d194df6ab8ffa
+    - path: data/desy6/redshift_distributions/desy6_nz_metacal_bin4.txt
+      sha256: 02daec04b30fff9be960171564be9cafaa746cbe67e7fd03f76a7be50d320784
+    - path: data/desy6/redshift_distributions/desy6_nz_maglim_bin1.txt
+      sha256: e4a32f7ee0b81b5e0d056696d6375deddc75df53386d98cd7af3f4d1ea9e619c
+    - path: data/desy6/redshift_distributions/desy6_nz_maglim_bin2.txt
+      sha256: fabb9767cca3111a45d400d10443b6ceb54b55fc77c6619a951d1c9096620c15
+    - path: data/desy6/redshift_distributions/desy6_nz_maglim_bin3.txt
+      sha256: 0fee4f3381a7b43d5a5d6ec33f0ce5b11fe644f62ae1dbd26d37832b79dc89d2
+    - path: data/desy6/redshift_distributions/desy6_nz_maglim_bin4.txt
+      sha256: a27343bd70357ebb84ba865335bd8557f923255d8016482d775c0fcc3c65b112
+    - path: data/desy6/redshift_distributions/desy6_nz_maglim_bin5.txt
+      sha256: eb0e8f08b7e67ed2e34e8f8424bae91921e2f8b7eec425ade1794ae7a3772b21
+    - path: data/desy6/redshift_distributions/desy6_nz_maglim_bin6.txt
+      sha256: b6a383befdeb2585eb47f375ff8d32b3e3883bf0c9e6cdf6325a9065731a744f
