@@ -8,7 +8,7 @@ configs/<survey>/<version>/<subversion>.yaml
 
 | | |
 |---|---|
-| `desy6/v1/` | DES Y6, first version, in preparation (`dev/notes/desy6_tfrecord_plan.md`) |
+| `desy6/v1/` | DES Y6, first version. `default.yaml` is a skeleton based on `desy3/v18/default.yaml`; its `null` values are written by `python -m msfm.apps.products.desy6` (`dev/notes/desy6_tfrecord_plan.md`, section 5) |
 | `desy3/v18/` | DES Y3 production: `default.yaml`, plus the mock-observation variants in `obs/`. **Frozen** |
 | `desy3/v17/`, `desy3/v16/` | earlier DES Y3 generations, still read by their pipelines and studies |
 | `desy3/deprecated/` | v5 to v15 and `marcel` |
