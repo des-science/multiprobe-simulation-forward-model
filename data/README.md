@@ -28,11 +28,11 @@ Within `desy3/`:
 | `desy3/*` (flat) | production inputs: the set the v18 model reads |
 | `desy3/cache/` | catalog-derived maps, gitignored, rebuilt on demand by `msfm/utils/catalog.py` |
 | `desy3/obs/` | Buzzard flock mock observations, gitignored |
-| `desy3/deprecated/` | superseded inputs, kept only so `configs/deprecated/` and v16/v17 still resolve. **Frozen**: they keep the old uppercase names |
+| `desy3/deprecated/` | superseded inputs, kept only so `configs/desy3/deprecated/` and v16/v17 still resolve. **Frozen**: they keep the old uppercase names |
 
 ## Production inputs
 
-These are exactly the `files:` / `dirs:` values of `configs/v18/default.yaml`, the current Y3
+These are exactly the `files:` / `dirs:` values of `configs/desy3/v18/default.yaml`, the current Y3
 production config:
 
 ```yaml
@@ -48,7 +48,7 @@ files:
   metacal_bias_arm:    contam
 ```
 
-`configs/v18/obs/*.yaml` vary only the shape-noise model, which swaps `metacal_bias_arm` for
+`configs/desy3/v18/obs/*.yaml` vary only the shape-noise model, which swaps `metacal_bias_arm` for
 `clean` (`sc_no_sys`) or replaces the two `metacal_bias*` keys with
 `sc_calibration: data/desy3/desy3_sc_calibration_gatti.npy` (`sc_gatti`).
 
@@ -129,6 +129,8 @@ On branch `desy6`, every DES Y3 file and notebook moved one level down. Filename
 | `data/obs/` | `data/desy3/obs/` |
 | `data/deprecated/*`, except `CosmoGridV1_original_metainfo.h5` | `data/desy3/deprecated/*` |
 | `notebooks/*`, except `permutations_list.ipynb` | `notebooks/desy3/*` |
+| `configs/{v16,v17,v18,deprecated}/` | `configs/desy3/{v16,v17,v18,deprecated}/` |
+| `pipelines/{v17,v18,deprecated}/` | `pipelines/desy3/{v17,v18,deprecated}/` |
 
 Every config, `.gitignore`, `catalog.py` and the `dev/` scripts were updated in the same change.
 

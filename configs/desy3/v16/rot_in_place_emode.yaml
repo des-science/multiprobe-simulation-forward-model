@@ -1,11 +1,11 @@
 # contains the configuration parameters of the forward model pipeline
 #
-# E-MODE-ONLY variant of configs/v16/rot_in_place.yaml. Functionally IDENTICAL to rot_in_place.yaml:
+# E-MODE-ONLY variant of configs/desy3/v16/rot_in_place.yaml. Functionally IDENTICAL to rot_in_place.yaml:
 # NLA + TATT cross-term (extended_nla, bta), in_place shape noise, multiprobe (metacal + maglim),
 # lensing scale cut l_min=30. The only addition is an explicit
 # `analysis.modelling.lensing.b_mode_cls: False`, which pins the standard behaviour (the Kaiser-Squires
 # E-mode kappa is kept and the B-mode is discarded -- the default when the flag is absent). This is the
-# named E-mode-only run for v16; set b_mode_cls: True (see configs/v17/baseline_bmode.yaml) to also
+# named E-mode-only run for v16; set b_mode_cls: True (see configs/desy3/v17/baseline_bmode.yaml) to also
 # emit the parallel B-mode Cls for an E vs E+B Fisher forecast.
 dirs:
   # absolute on Clariden
@@ -104,7 +104,7 @@ analysis:
     lensing:
       store: True
       # E-mode only (explicit): keep the Kaiser-Squires E-mode kappa and discard the B-mode. This is
-      # the default behaviour when the flag is absent; set True (see configs/v17/baseline_bmode.yaml)
+      # the default behaviour when the flag is absent; set True (see configs/desy3/v17/baseline_bmode.yaml)
       # to also emit the parallel B-mode Cls for the E vs E+B forecast.
       b_mode_cls: False
       # shape-noise model (parsed/validated by files.get_shape_noise)

@@ -2,7 +2,7 @@
 
 Clean-start submission of the v17 baseline dataset (grid + fiducial) on `--qos=regular` (whole
 CPU nodes), packing many postprocessing tasks per node, each pinned to a NUMA domain. Uses the
-version-agnostic executors in `../../common/packed/` — see that directory's `README.md` for *why*
+version-agnostic executors in `../../../common/packed/` — see that directory's `README.md` for *why*
 this exists (vs. esub/shared, vs. unpinned packing) and how the `SLOTS`/`OMP` sizing methodology
 works in general. This file only covers what's specific to v17.
 
@@ -44,7 +44,7 @@ workload. (The same holds for fiducial: 24-slot = 37.5 min → ~26 nh vs 32-slot
 
 - `submit.sh` — control script / single source of truth for grid+fiducial tfrecord production.
   Builds the index list, submits the packed array, then the merge (afterok), routing through
-  `../../common/packed/{run_packed.py,packed_node.slurm,merge_node.slurm}`.
+  `../../../common/packed/{run_packed.py,packed_node.slurm,merge_node.slurm}`.
 - `submit_single_mock.sh` — packed submission for the `sc_fixed_sys` single-postprocessing mock
   (see the cross-reference note above).
 
@@ -61,7 +61,7 @@ measurements; an uncontended run (fewer nodes in flight) is faster.
 ## How to run
 
 ```bash
-cd pipelines/v17/packed
+cd pipelines/desy3/v17/packed
 DRY_RUN=1 ./submit.sh both     # inspect: prints every sbatch call, touches nothing
 ./submit.sh both               # or: grid | fiducial
 ```
@@ -78,7 +78,7 @@ could otherwise feed a corrupt file into the merge.
   maps to indices `[k*SLOTS,(k+1)*SLOTS)`; a later `ARRAY=1-41 ./submit.sh fiducial` covers the
   rest, reusing element 0's output.
 - `SKIP_MERGE=1` defers the merge; once every stage is done submit it with
-  `sbatch --dependency=afterok:<id1>:<id2> --time=<MERGE_TIME> --job-name=<chain>_merge --output=<PACKED_LOGS>/%x_%A.out --export=ALL ../../common/packed/merge_node.slurm`.
+  `sbatch --dependency=afterok:<id1>:<id2> --time=<MERGE_TIME> --job-name=<chain>_merge --output=<PACKED_LOGS>/%x_%A.out --export=ALL ../../../common/packed/merge_node.slurm`.
 
 ## If something fails
 
@@ -100,7 +100,7 @@ could otherwise feed a corrupt file into the merge.
   ```bash
   # export APP / DRIVER / JOB_NAME / APP_ARGS as submit.sh does, then:
   sbatch --time=04:00:00 --job-name=tfr_fidu_v17_merge --output=$PACKED_LOGS/%x_%A.out \
-      --export=ALL ../../common/packed/merge_node.slurm
+      --export=ALL ../../../common/packed/merge_node.slurm
   ```
   This was needed once for the v17 run: input map `cosmo_delta_bary_nu_p/perm_0209` was corrupt
   upstream (the only bad file of 67,260), so fiducial index 209 could not complete and the set was

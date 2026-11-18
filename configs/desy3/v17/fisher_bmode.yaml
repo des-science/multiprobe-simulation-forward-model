@@ -1,5 +1,5 @@
 # Fisher-forecast spec for the B-mode Cls information-loss study, driven by
-# `python -m msfm.apps.run_fisher_forecast --spec configs/v17/fisher_bmode.yaml`.
+# `python -m msfm.apps.run_fisher_forecast --spec configs/desy3/v17/fisher_bmode.yaml`.
 #
 # Three forecasts, two comparisons:
 #   baseline_E  -> bmode_E   : l_min ablation (drop the lensing ell_min=30 map high-pass)
@@ -8,7 +8,7 @@
 
 # Config used only for the Gaussian prior widths when options.priors is true (params are shared, so
 # either tree's config works).
-config: configs/v17/baseline_bmode.yaml
+config: configs/desy3/v17/baseline_bmode.yaml
 
 options:
   priors: false      # also runs are re-invocable with --priors / --no-priors

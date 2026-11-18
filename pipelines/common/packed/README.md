@@ -2,8 +2,8 @@
 
 Version-agnostic building blocks for running msfm postprocessing apps on `--qos=regular` (whole
 CPU nodes), packing many tasks per node, each pinned to a NUMA domain, instead of esub's
-`--qos=shared` jobarrays. Used by `../../v17/packed/{submit.sh,submit_single_mock.sh}` and
-`../../v18/packed/{submit.sh,submit_obs.sh}` — those per-version scripts hold the actual chain/arm
+`--qos=shared` jobarrays. Used by `../../desy3/v17/packed/{submit.sh,submit_single_mock.sh}` and
+`../../desy3/v18/packed/{submit.sh,submit_obs.sh}` — those per-version scripts hold the actual chain/arm
 configuration (paths, `N_TOTAL`, per-chain `SLOTS`/`OMP`) and just point here for the executors.
 See each version's own `packed/README.md` for its measured numbers, cost table and how-to-run
 examples.

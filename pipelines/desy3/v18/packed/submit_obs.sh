@@ -2,10 +2,10 @@
 # Packed regular-QOS replacement for the retired ../../deprecated/v18_esub/obs_commands.sh: runs
 # run_single_postprocessing.py over a small, fixed index range (one CosmoGrid permutation
 # directory, 20 indices per arm) for every v18 benchmark/mock arm. v18 is packed-only (see
-# ../../README.md), so this is the only place these arms are defined -- there is no esub sibling
+# ../../../README.md), so this is the only place these arms are defined -- there is no esub sibling
 # to keep in sync with, unlike v17 (see ../../v17/packed/submit_single_mock.sh).
 #
-# Why not the default esub/shared chain: see ../../common/packed/README.md.
+# Why not the default esub/shared chain: see ../../../common/packed/README.md.
 #
 # Usage:
 #   DRY_RUN=1 ./submit_obs.sh <arm>|all      # print the sbatch calls, touch nothing
@@ -15,7 +15,7 @@
 # arms: reference dmo box_size particle_count redshift_resolution sc_in_place sc_no_sys sc_gatti
 #       eta_shell grid_debug
 #
-# Reuses ../../common/packed/{run_packed.py,packed_node.slurm,merge_node.slurm} unchanged -- no
+# Reuses ../../../common/packed/{run_packed.py,packed_node.slurm,merge_node.slurm} unchanged -- no
 # msfm Python was touched. merge_node.slurm's default --tasks=0 is for the grid/fiducial apps'
 # glob-based merge(); run_single_postprocessing.merge() needs the FULL index range instead (see
 # that file's header), so TASKS is exported explicitly below.
@@ -32,7 +32,7 @@ DIR_OUT=/pscratch/sd/a/athomsen/dlss/data/v18/baseline/obs
 PACKED_LOGS=/pscratch/sd/a/athomsen/run_files/v18/packed_logs
 
 FIDUCIAL_BENCH=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/benchmarks/fiducial_bench
-DEFAULT_CONFIG=$REPO/configs/v18/default.yaml
+DEFAULT_CONFIG=$REPO/configs/desy3/v18/default.yaml
 
 # arm_cfg <arm> sets DIR_IN / MSFM_CONFIG / SUFFIX_OUT / EXTRA_ARGS / JOB_NAME, ported 1:1 from the
 # retired ../../deprecated/v18_esub/obs_commands.sh (same dir_in/config/suffix/extra-flags per
@@ -48,7 +48,7 @@ arm_cfg() {
             ;;
         dmo)
             SUFFIX_OUT=_dmo
-            MSFM_CONFIG=$REPO/configs/v18/obs/dmo.yaml
+            MSFM_CONFIG=$REPO/configs/desy3/v18/obs/dmo.yaml
             JOB_NAME=postproc_v18_bench_fidu_dmo
             ;;
         box_size)
@@ -65,17 +65,17 @@ arm_cfg() {
             ;;
         sc_in_place)
             SUFFIX_OUT=_source_clustering_in_place
-            MSFM_CONFIG=$REPO/configs/v18/obs/sc_in_place.yaml
+            MSFM_CONFIG=$REPO/configs/desy3/v18/obs/sc_in_place.yaml
             JOB_NAME=postproc_v18_sc_in_place
             ;;
         sc_no_sys)
             SUFFIX_OUT=_source_clustering_no_sys
-            MSFM_CONFIG=$REPO/configs/v18/obs/sc_no_sys.yaml
+            MSFM_CONFIG=$REPO/configs/desy3/v18/obs/sc_no_sys.yaml
             JOB_NAME=postproc_v18_sc_no_sys
             ;;
         sc_gatti)
             SUFFIX_OUT=_source_clustering_gatti
-            MSFM_CONFIG=$REPO/configs/v18/obs/sc_gatti.yaml
+            MSFM_CONFIG=$REPO/configs/desy3/v18/obs/sc_gatti.yaml
             EXTRA_ARGS="--tomo_bg_metacal 1 1 1 1"
             JOB_NAME=postproc_v18_sc_gatti
             ;;
@@ -98,7 +98,7 @@ ARMS="reference dmo box_size particle_count redshift_resolution sc_in_place sc_n
 N_TOTAL=20
 # same worst-case-3-per-domain arithmetic as v17/packed/submit_single_mock.sh: ceil(20/8)=3 tasks
 # on the busiest domains, so SLOTS=24/OMP=10 (not an assumed even 20/8=2.5) is what's actually
-# safe -- see ../../common/packed/README.md.
+# safe -- see ../../../common/packed/README.md.
 SLOTS=24
 OMP=10
 NODE_TIME=01:00:00

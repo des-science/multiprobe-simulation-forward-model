@@ -34,7 +34,7 @@ EXPECTED_MISSING = {
     "data/CosmoGridV1_param_dirs.npy",
     "data/CosmoGridV1_perm_dirs.npy",
     "data/desy3/DESY3_noise.h5",
-    # note the reversed name: this is a typo in configs/deprecated/v8/linear_bias_octant.yaml, a
+    # note the reversed name: this is a typo in configs/desy3/deprecated/v8/linear_bias_octant.yaml, a
     # different string from the real DESY3_pixels_v11_octant_512.h5, so it was left frozen
     "data/desy3/DESY3_pixels_v11_512_octant.h5",
     "data/desy3/deprecated/nside256/DESY3_noise.h5",

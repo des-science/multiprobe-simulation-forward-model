@@ -49,7 +49,7 @@ def parse_args():
     # inputs
     parser.add_argument(
         "--msfm_config",
-        default=os.path.join(REPO_DIR, "configs/v17/baseline.yaml"),
+        default=os.path.join(REPO_DIR, "configs/desy3/v17/baseline.yaml"),
         help="msfm forward model config that was used to write the .tfrecords",
     )
     parser.add_argument(

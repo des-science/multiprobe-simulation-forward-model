@@ -16,7 +16,7 @@ mkdir -p "$OUT_DIR"
 
 srun -N1 --ntasks-per-node=1 --environment=tensorflow \
     bash -c "source ~/dlss/tf_env/bin/activate && python $REPOS/multiprobe-simulation-forward-model/dev/scripts/wl_audit/wl_sn_diagnostics.py \
-        --config=$REPOS/multiprobe-simulation-forward-model/configs/v16/rot_in_place.yaml \
+        --config=$REPOS/multiprobe-simulation-forward-model/configs/desy3/v16/rot_in_place.yaml \
         --fiducial_perm_dir=$MYSCRATCH/deep_lss/data/projected/fiducial/cosmo_fiducial/perm_0000 \
         --grid_cls_file=$MYSCRATCH/deep_lss/data/v16/rot_in_place/cls/grid_cls.h5 \
         --out_dir=$OUT_DIR"

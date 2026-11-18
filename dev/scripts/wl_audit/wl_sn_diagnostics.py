@@ -58,7 +58,7 @@ def setup(args=None):
     parser.add_argument(
         "--config",
         type=str,
-        default="/users/athomsen/dlss/repos/multiprobe-simulation-forward-model/configs/v16/rot_in_place.yaml",
+        default="/users/athomsen/dlss/repos/multiprobe-simulation-forward-model/configs/desy3/v16/rot_in_place.yaml",
     )
     parser.add_argument(
         "--fiducial_perm_dir",
@@ -474,9 +474,7 @@ def sn_ratio(conf, args, results):
     axl.set_ylabel(r"per-mode $C_\ell^{\rm kg} / C_\ell^{\rm sn}$")
     axl.set_title("per-mode signal / shape-noise")
     axl.legend()
-    axr.semilogx(
-        l[lmin:], np.sqrt(np.sum(sn2_cumulative, axis=0))[lmin:], "k-", lw=2, label="auto-combined"
-    )
+    axr.semilogx(l[lmin:], np.sqrt(np.sum(sn2_cumulative, axis=0))[lmin:], "k-", lw=2, label="auto-combined")
     axr.set_xlabel(r"$\ell_{\max}$")
     axr.set_ylabel(r"detection S/N ($\ell_{\min} \leq \ell \leq \ell_{\max}$), one patch")
     axr.set_title("cumulative detection S/N vs. scale cut")

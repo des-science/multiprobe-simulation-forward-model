@@ -64,7 +64,9 @@ def parse_args():
     cut = p.add_mutually_exclusive_group(required=True)
     cut.add_argument("--lmax", type=int, help="uniform harmonic cut: one beam for every z-bin")
     cut.add_argument("--mpc", type=str, help="transverse comoving cut as 'lensing,clustering' in Mpc/h, e.g. 8,32")
-    p.add_argument("--config", default="configs/v18/default.yaml", help="msfm config (repo-relative or absolute)")
+    p.add_argument(
+        "--config", default="configs/desy3/v18/default.yaml", help="msfm config (repo-relative or absolute)"
+    )
     p.add_argument("--n-perms", type=int, default=10, help="fiducial permutations to average the Cls over")
     p.add_argument("--threshold", type=float, default=0.01, help="low_pass^2 suppression defining the cut")
     p.add_argument("--cache", default=None, help="npz to read/write mean_cls, to skip the anafast on a re-run")

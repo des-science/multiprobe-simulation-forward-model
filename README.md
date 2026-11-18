@@ -74,7 +74,7 @@ executables (`resources` / `setup` / `main` / `merge`), so they are always launc
 esub msfm/apps/run_single_postprocessing.py \
     --dir_in=/path/to/CosmoGrid/bary/grid/cosmo_008963 \
     --dir_out=/path/to/output \
-    --msfm_config=configs/v18/default.yaml \
+    --msfm_config=configs/desy3/v18/default.yaml \
     --with_lensing --with_clustering \
     --mode=run --function=all --tasks="0" --n_jobs=1
 ```
@@ -93,11 +93,13 @@ All four live in [`msfm/apps/`](msfm/apps/).
 | `run_grid_postprocessing.py` | Cuts the full-sky maps into DES Y3 footprint mocks across the **cosmology grid**. The main loop runs over cosmologies, with astrophysical nuisance parameters drawn from a Sobol/Latin-hypercube sample. Parallelized over output `.tfrecord` files, one per job-array element. |
 | `run_fiducial_postprocessing.py` | The same forward model, but the main loop runs over **simulation permutations** at the fiducial cosmology and its finite-difference perturbations. Astrophysical amplitudes come from the config rather than the hypercube, and the per-example multiplicative-bias draw is shared between fiducial and perturbations so the finite differences stay consistent. `--no_derivatives` skips the perturbations. |
 | `run_single_postprocessing.py` | The same forward model for a **single cosmology** — used for mock observations and forward-model variants. Carries the switches that define a variant: `--noiseless`, `--noise_only`, `--reduced_shear`, `--bta`, `--contaminate_survey_systematics`. |
-| `run_fisher_forecast.py` | Gaussian-$C_\ell$ Fisher forecasts (wraps [`msfm/utils/fisher.py`](msfm/utils/fisher.py)). Reads a small YAML spec and prints marginalized constraints plus pairwise comparisons. The only app that is *not* an esub executable: `python -m msfm.apps.run_fisher_forecast --spec configs/v17/fisher_bmode.yaml`. |
+| `run_fisher_forecast.py` | Gaussian-$C_\ell$ Fisher forecasts (wraps [`msfm/utils/fisher.py`](msfm/utils/fisher.py)). Reads a small YAML spec and prints marginalized constraints plus pairwise comparisons. The only app that is *not* an esub executable: `python -m msfm.apps.run_fisher_forecast --spec configs/desy3/v17/fisher_bmode.yaml`. |
 
 ### Configuration
 
-One YAML per forward-model generation under [`configs/`](configs/), defining survey properties
+One YAML per forward-model generation under [`configs/`](configs/), grouped by survey as
+`configs/<survey>/<version>/<subversion>.yaml` (`configs/desy3/v18/default.yaml`,
+`configs/desy6/v1/default.yaml`; see [`configs/README.md`](configs/README.md)), defining survey properties
 (galaxy number densities, shear-calibration priors, response factors, tomographic bins for both
 the metacalibration source sample and the MagLim lens sample), the input data paths, the
 parameter priors, and the forward-modeling switches. The config is passed to every app as
@@ -107,8 +109,8 @@ built with.
 
 ### Submission
 
-Submission commands live in [`pipelines/`](pipelines/), one directory per forward-model
-generation, mirroring `configs/` 1:1. Two modes, documented with their trade-offs in
+Submission commands live in [`pipelines/`](pipelines/), one directory per survey and
+forward-model generation, mirroring `configs/` 1:1. Two modes, documented with their trade-offs in
 [`pipelines/README.md`](pipelines/README.md):
 
 - **esub / shared queue** — `pipe.yaml` (grid and fiducial production, run via `epipe`) and
@@ -134,7 +136,7 @@ msfm/
                            tfrecords, cosmogrid, prior, parameters, fisher, ...
   fiducial_pipeline.py   tf.data generator for the fiducial dataset
   grid_pipeline.py       tf.data generator for the cosmology-grid dataset
-configs/                 forward-model configs, one dir per generation (+ deprecated/)
+configs/                 forward-model configs, <survey>/<version>/ (desy3/, desy6/) -- see its README.md
 pipelines/               submission commands, mirroring configs/ 1:1 -- see its README.md
 data/                    inputs to the forward model -- see its README.md
 notebooks/               the notebooks that produce data/, one per product
@@ -164,7 +166,7 @@ subdirectory (`notebooks/desy3/` for `data/desy3/`); the table in
 - **`data/desy3/desy3_noise_512.h5` is not in the repository.** It exceeds the file size limit
   and must be regenerated from the source galaxy catalog via
   [`notebooks/desy3/noise_file.ipynb`](notebooks/desy3/noise_file.ipynb) before the first run.
-- **`configs/vNN/` and `pipelines/vNN/` are versioned together.** A config generation and its
+- **`configs/<survey>/vNN/` and `pipelines/<survey>/vNN/` are versioned together.** A config generation and its
   submission commands always carry the same number; changing one without the other produces
   a run that does not match its own submission recipe.
 - **Each survey's `data/<survey>/` top level is a closed set.** It is exactly what that survey's

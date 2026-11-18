@@ -14,9 +14,9 @@ A forecast is `{source, blocks}`: a covariance/jacobian source pair and an order
 an ell_min=None tree) isolates an analysis choice; comparing block sets within one source isolates the
 information a block carries.
 
-Spec format (see configs/v17/fisher_bmode.yaml):
+Spec format (see configs/desy3/v17/fisher_bmode.yaml):
 
-    config: configs/v17/baseline_bmode.yaml   # for the Gaussian prior widths (priors: true only)
+    config: configs/desy3/v17/baseline_bmode.yaml   # for the Gaussian prior widths (priors: true only)
     options: {priors: true, hartlap: true, normalize: true}
     # optional custom block registry; defaults to fisher.BLOCKS_DEFAULT
     blocks:
@@ -34,7 +34,7 @@ Spec format (see configs/v17/fisher_bmode.yaml):
       - [bmode_E, bmode_EB]        # B-mode information gain
 
 Usage:
-    python -m msfm.apps.run_fisher_forecast --spec configs/v17/fisher_bmode.yaml
+    python -m msfm.apps.run_fisher_forecast --spec configs/desy3/v17/fisher_bmode.yaml
     python -m msfm.apps.run_fisher_forecast --spec ... --only bmode_E bmode_EB   # subset
     python -m msfm.apps.run_fisher_forecast --spec ... --no-priors               # override options
 """

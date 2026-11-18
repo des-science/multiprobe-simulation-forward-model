@@ -4,7 +4,7 @@
 # grid/fiducial production chain. Sibling of submit.sh in this directory, simplified to a single
 # "chain" and sized so everything fits on ONE node in ONE array element.
 #
-# Why not the default esub/shared chain: see ../../common/packed/README.md -- shared QOS is a
+# Why not the default esub/shared chain: see ../../../common/packed/README.md -- shared QOS is a
 # saturated 70-node pool (ETA can be weeks), regular QOS has idle capacity but is node-exclusive,
 # so we hand-pack many tasks onto one node instead of burning a whole node per ~2 GB task.
 #
@@ -18,11 +18,11 @@
 #   ./submit_single_mock.sh                  # fresh run: submit every index
 #   ./submit_single_mock.sh --rerun          # submit only indices whose obs_maps file is missing
 #
-# Reuses ../../common/packed/{run_packed.py,packed_node.slurm,merge_node.slurm} unchanged -- no
+# Reuses ../../../common/packed/{run_packed.py,packed_node.slurm,merge_node.slurm} unchanged -- no
 # msfm Python was touched. merge_node.slurm's merge() needs the FULL index range (not the dummy
 # --tasks=0 the grid/fiducial chains use), since run_single_postprocessing.merge() reads exactly
 # the {cosmo_name}{suffix_out}_obs_maps_{index:04}.h5 files named by the indices it is given (see
-# ../../common/packed/merge_node.slurm's header) -- so TASKS is exported explicitly below.
+# ../../../common/packed/merge_node.slurm's header) -- so TASKS is exported explicitly below.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -37,7 +37,7 @@ JOB_NAME=postproc_v17_sc_fixed_sys
 DIR_IN=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/benchmarks/fiducial_bench
 DIR_OUT=/pscratch/sd/a/athomsen/dlss/data/v17/baseline/obs
 SUFFIX_OUT=_source_clustering_fixed_sys
-MSFM_CONFIG=$REPO/configs/v17/mocks/sc_fixed_sys.yaml
+MSFM_CONFIG=$REPO/configs/desy3/v17/mocks/sc_fixed_sys.yaml
 PACKED_LOGS=/pscratch/sd/a/athomsen/run_files/v17/packed_logs
 
 # N_TOTAL matches the esub --tasks="0>20" range this replaces. SLOTS >= N_TOTAL so everything

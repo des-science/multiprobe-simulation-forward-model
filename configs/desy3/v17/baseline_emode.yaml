@@ -1,10 +1,10 @@
 # contains the configuration parameters of the forward model pipeline
 #
-# E-MODE-ONLY variant of configs/v17/baseline.yaml. Functionally IDENTICAL to baseline.yaml: standard
+# E-MODE-ONLY variant of configs/desy3/v17/baseline.yaml. Functionally IDENTICAL to baseline.yaml: standard
 # NLA, in_place shape noise, multiprobe (metacal + maglim), lensing scale cut l_min=30. The only
 # addition is an explicit `analysis.modelling.lensing.b_mode_cls: False`, which pins the standard
 # behaviour (the Kaiser-Squires E-mode kappa is kept and the B-mode is discarded -- the default when
-# the flag is absent). This is the named E-mode-only counterpart to configs/v17/baseline_bmode.yaml
+# the flag is absent). This is the named E-mode-only counterpart to configs/desy3/v17/baseline_bmode.yaml
 # (b_mode_cls: True, l_min: Null); pair them to run the E-only vs E+B Fisher forecast on matched trees.
 #
 # v17 = v16/rot_in_place without the delta-NLA cross term: extended_nla is off, so the IA model is

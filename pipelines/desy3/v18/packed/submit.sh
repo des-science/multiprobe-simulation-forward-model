@@ -1,10 +1,13 @@
 #!/bin/bash
-# Clean-start submission of the v17 baseline postprocessing on regular QOS (whole CPU nodes),
+# Clean-start submission of the v18 baseline postprocessing on regular QOS (whole CPU nodes),
 # packing many tasks per node -- WITHOUT esub. This is the single source of truth for the run: it
 # holds all per-chain configuration and exports it to the generic executors in
-# ../../common/packed/ (packed_node.slurm / merge_node.slurm, which call run_packed.py -- a
+# ../../../common/packed/ (packed_node.slurm / merge_node.slurm, which call run_packed.py -- a
 # ~30-line import-and-call driver shared by every pipeline version). Nothing runs until this
 # script is invoked.
+#
+# v18 is packed-only -- see submit_obs.sh in this directory for the single-postprocessing
+# benchmark/mock arms (replaces the retired ../../deprecated/v18_esub/obs_commands.sh).
 #
 # Usage:
 #   DRY_RUN=1 ./submit.sh both            # print the sbatch calls, touch nothing
@@ -26,20 +29,15 @@ cd "$(dirname "$0")"
 
 # --- fixed paths -----------------------------------------------------------------------------
 REPO=/global/homes/a/athomsen/multiprobe-simulation-forward-model
-# the generic executors, shared with v18 and any future version -- see ../../common/packed/README.md
+# the generic executors, shared with v17 and any future version -- see ../../../common/packed/README.md
 COMMON_PACKED=$REPO/pipelines/common/packed
 # absolute path to the driver, exported to the slurm scripts. It must be absolute: Slurm copies
 # the batch script into /var/spool/slurmd/<job>, so the executors cannot locate it themselves.
 DRIVER=$COMMON_PACKED/run_packed.py
-# CONFIG / DATA_ROOT default to the v17 baseline but can be overridden from the environment for a
-# parallel run (e.g. the B-mode Cls study: CONFIG_OVERRIDE=configs/v17/baseline_bmode.yaml with a
-# separate DATA_ROOT_OVERRIDE so the completed baseline tfrecords are never touched). JOB_SUFFIX is
-# appended to every job/log/index-file name so the two runs never collide in squeue or on disk.
-CONFIG=${CONFIG_OVERRIDE:-$REPO/configs/v17/baseline.yaml}
+CONFIG=$REPO/configs/desy3/v18/default.yaml
 DIR_IN=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary
-DATA_ROOT=${DATA_ROOT_OVERRIDE:-/pscratch/sd/a/athomsen/v11desy3/v17/baseline/tfrecords}
-PACKED_LOGS=/pscratch/sd/a/athomsen/run_files/v17/packed_logs
-JOB_SUFFIX=${JOB_SUFFIX:-}
+DATA_ROOT=/pscratch/sd/a/athomsen/dlss/data/v18/baseline/tfrecords
+PACKED_LOGS=/pscratch/sd/a/athomsen/run_files/v18/packed_logs
 
 # --- per-chain configuration (single source of truth) ---------------------------------------
 # SLOTS      : tasks packed per node. A MULTIPLE OF 8 so packed_node.slurm places SLOTS/8 tasks on
@@ -57,13 +55,9 @@ chain_cfg() {
     case "$1" in
         grid)
             APP=$REPO/msfm/apps/run_grid_postprocessing.py
-            JOB_NAME=tfr_grid_v17$JOB_SUFFIX
+            JOB_NAME=tfr_grid_v18
             DIR_OUT=$DATA_ROOT/grid
             SIMSET=grid
-            # space-separated indices whose CosmoGrid INPUT maps are known permanently corrupt (no
-            # good copy) -- never submitted, so no task can fail on them and block the afterok merge.
-            # None known for grid. Override at call time with SKIP_INDICES="..." (or "" to force all).
-            SKIP_INDICES_DEFAULT=""
             # 3/domain x ~13.5 GB = 40 GB (>20 GB headroom). Benchmarked 24 vs 32 slots under the
             # same fleet contention: 24-slot 85.5 min/node -> ~150 nh; 32-slot 142.8 min -> ~188 nh
             # (~20% dearer). The first v17 run used 32/8 before this was measured -- see README.
@@ -71,14 +65,9 @@ chain_cfg() {
             ;;
         fiducial)
             APP=$REPO/msfm/apps/run_fiducial_postprocessing.py
-            JOB_NAME=tfr_fidu_v17$JOB_SUFFIX
+            JOB_NAME=tfr_fidu_v18
             DIR_OUT=$DATA_ROOT/fiducial
             SIMSET=fiducial
-            # perm_0209 of the cosmo_delta_bary_nu_p perturbation is a truncated input HDF5 (89 MB vs
-            # 606 MB, "bad object header version number", no good copy) shared by every fiducial run,
-            # so index 209 can only ever fail and DependencyNeverSatisfied-block the merge (it did in
-            # the baseline run too). Never submit it. Override with SKIP_INDICES="..." (or "" to force).
-            SKIP_INDICES_DEFAULT="209"
             # 3/domain x ~11.5 GB = 35 GB (huge headroom). 24-slot 37.5 min/node -> ~26 nh; 32-slot
             # doubled to 78 min -> ~42 nh (bandwidth-bound, same as grid). 3/domain is the knee.
             N_TOTAL=1000; SLOTS=24; OMP=10; NODE_TIME=04:00:00; MERGE_TIME=04:00:00
@@ -118,15 +107,6 @@ submit_chain() {
             > "$index_file" || true
     else
         seq 0 $((N_TOTAL - 1)) > "$index_file"
-    fi
-
-    # drop known permanently-corrupt-input indices (see SKIP_INDICES_DEFAULT in chain_cfg). Applied to
-    # both fresh and --rerun lists so these indices are never (re)submitted and can't block the merge.
-    local skip=${SKIP_INDICES-$SKIP_INDICES_DEFAULT}
-    if [ -n "$skip" ]; then
-        local n_before; n_before=$(grep -c . "$index_file" || true)
-        grep -vxF -f <(printf '%s\n' $skip) "$index_file" > "$index_file.tmp" && mv "$index_file.tmp" "$index_file"
-        echo "[$chain] skipping known-bad-input indices ($skip): $n_before -> $(grep -c . "$index_file" || true) indices"
     fi
 
     local n_idx n_elements

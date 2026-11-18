@@ -49,7 +49,7 @@ the power spectra give no 2-point motivation to invest in it.
 |---|---|
 | [msfm/utils/fisher.py](../../msfm/utils/fisher.py) | Core library. Loads a covariance sample + Jacobian source assembled from named Cl **blocks** (E, B, …), builds `F = JᵀC⁻¹J` (Hartlap + correlation-matrix normalization), and propagates σ(S8)/FoM. `run_forecast(...)` is one self-describing forecast. |
 | [msfm/apps/run_fisher_forecast.py](../../msfm/apps/run_fisher_forecast.py) | Driver over a YAML spec: runs any set of named forecasts and prints requested pairwise comparisons. `--only`, `--priors`/`--no-priors` overrides. |
-| [configs/v17/fisher_bmode.yaml](../../configs/v17/fisher_bmode.yaml) | The spec for this study: `baseline_E` (standard E-only), `bmode_E` (+low-ℓ), `bmode_EB` (+B), with the two comparisons. Running just `baseline_E` reproduces the standard forecast. |
+| [configs/desy3/v17/fisher_bmode.yaml](../../configs/desy3/v17/fisher_bmode.yaml) | The spec for this study: `baseline_E` (standard E-only), `bmode_E` (+low-ℓ), `bmode_EB` (+B), with the two comparisons. Running just `baseline_E` reproduces the standard forecast. |
 
 ### Jacobian-source production (this directory, `dev/bmode_fisher/`)
 | File | Role |
@@ -66,7 +66,7 @@ the power spectra give no 2-point motivation to invest in it.
 | [msfm/apps/run_fiducial_postprocessing.py](../../msfm/apps/run_fiducial_postprocessing.py) | Threads the B channel through the same IA+m-bias+mask+smoothing; new `run_tfrecords_alm_to_cl_bmode` (12-channel stack → 78 cols, returns the 42 B-touching cols, asserts the 36 E/g cols reproduce the standard `cl`); `merge` bins the B-block into `cls/bmode_*`. |
 | [msfm/utils/power_spectra.py](../../msfm/utils/power_spectra.py) | `run_tfrecords_alm_to_cl_bmode`; B-block binned via `smooth_and_bin_cls(with_cross=False)`. |
 | [msfm/utils/tfrecords.py](../../msfm/utils/tfrecords.py) | Stores/parses `cl_bmode_{label}` (plain reshape — NOT the triangular bin_indices gather). |
-| [configs/v17/baseline_bmode.yaml](../../configs/v17/baseline_bmode.yaml) | Clone of `baseline.yaml` with `b_mode_cls: True` and lensing `scale_cuts.l_min: Null`. |
+| [configs/desy3/v17/baseline_bmode.yaml](../../configs/desy3/v17/baseline_bmode.yaml) | Clone of `baseline.yaml` with `b_mode_cls: True` and lensing `scale_cuts.l_min: Null`. |
 
 > Note: the `msfm/` changes are staged in the working tree (uncommitted), gated so a normal run is
 > byte-identical. `dev/bmode_fisher/` is untracked.
@@ -83,9 +83,9 @@ the power spectra give no 2-point motivation to invest in it.
 
 ```bash
 # (data already produced; this is the ~seconds analysis step)
-python -m msfm.apps.run_fisher_forecast --spec configs/v17/fisher_bmode.yaml            # no priors
-python -m msfm.apps.run_fisher_forecast --spec configs/v17/fisher_bmode.yaml --priors   # + priors
-python -m msfm.apps.run_fisher_forecast --spec configs/v17/fisher_bmode.yaml --only baseline_E  # standard forecast alone
+python -m msfm.apps.run_fisher_forecast --spec configs/desy3/v17/fisher_bmode.yaml            # no priors
+python -m msfm.apps.run_fisher_forecast --spec configs/desy3/v17/fisher_bmode.yaml --priors   # + priors
+python -m msfm.apps.run_fisher_forecast --spec configs/desy3/v17/fisher_bmode.yaml --only baseline_E  # standard forecast alone
 ```
 
 Add a new forecast by editing the spec (a `{source, blocks}` entry); add a new Cl sub-vector by adding

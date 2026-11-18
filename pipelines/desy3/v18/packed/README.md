@@ -2,7 +2,7 @@
 
 Clean-start submission of the v18 baseline dataset on `--qos=regular` (whole CPU nodes), packing
 many postprocessing tasks per node, each pinned to a NUMA domain. Uses the version-agnostic
-executors in `../../common/packed/` — see that directory's `README.md` for *why* this exists (vs.
+executors in `../../../common/packed/` — see that directory's `README.md` for *why* this exists (vs.
 esub/shared, vs. unpinned packing) and how the `SLOTS`/`OMP` sizing methodology works in general.
 This file only covers what's specific to v18.
 
@@ -31,7 +31,7 @@ this version; if fiducial index 209 fails here too, add
 
 - `submit.sh` — control script for grid+fiducial tfrecord production. Builds the index list,
   submits the packed array, then the merge (afterok), routing through
-  `../../common/packed/{run_packed.py,packed_node.slurm,merge_node.slurm}`.
+  `../../../common/packed/{run_packed.py,packed_node.slurm,merge_node.slurm}`.
 - `submit_obs.sh` — packed replacement for the retired `obs_commands.sh`: one `arm_cfg()` table
   covering every benchmark/mock arm (`reference`, `dmo`, `box_size`, `particle_count`,
   `redshift_resolution`, `sc_in_place`, `sc_no_sys`, `sc_gatti`, `eta_shell`, `grid_debug`).
@@ -48,7 +48,7 @@ Carried over from v17's measured numbers as a starting estimate only:
 ## How to run
 
 ```bash
-cd pipelines/v18/packed
+cd pipelines/desy3/v18/packed
 DRY_RUN=1 ./submit.sh both          # inspect grid+fiducial: prints every sbatch call, touches nothing
 ./submit.sh both                    # or: grid | fiducial
 
@@ -65,7 +65,7 @@ truncate on open). Prefer this after a cancelled run.
   node (indices 0–SLOTS-1). The index file is still built over *all* indices so element k always
   maps to indices `[k*SLOTS,(k+1)*SLOTS)`.
 - `SKIP_MERGE=1` defers the merge; once every stage is done submit it with
-  `sbatch --dependency=afterok:<id1>:<id2> --time=<MERGE_TIME> --job-name=<chain>_merge --output=<PACKED_LOGS>/%x_%A.out --export=ALL ../../common/packed/merge_node.slurm`.
+  `sbatch --dependency=afterok:<id1>:<id2> --time=<MERGE_TIME> --job-name=<chain>_merge --output=<PACKED_LOGS>/%x_%A.out --export=ALL ../../../common/packed/merge_node.slurm`.
 
 ## If something fails
 
