@@ -8,7 +8,7 @@ Projects the DES Y3 imaging-systematics decontamination (ISD) weight maps onto t
 paper_2 figure, one image per metacal tomographic bin.
 
 The input is the tracked deliverable of the lss_sys pipeline,
-data/desy3_metacal_systematics_STD32_512.h5, which is the same file the forward model reads: W is
+data/desy3/desy3_metacal_systematics_STD32_512.h5, which is the same file the forward model reads: W is
 a per pixel multiplicative correction with unit mean over the footprint, and n_corrected = n_obs * W.
 
 NOTE the figure shows the *weight*, not the contamination. The forward model consumes
@@ -54,7 +54,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "--systematics_file",
-        default=os.path.join(REPO_DIR, "data/desy3_metacal_systematics_STD32_512.h5"),
+        default=os.path.join(REPO_DIR, "data/desy3/desy3_metacal_systematics_STD32_512.h5"),
         help="the lss_sys deliverable, as the forward model reads it",
     )
     parser.add_argument("--reso", type=float, default=5.0, help="panel resolution in arcmin per pixel")

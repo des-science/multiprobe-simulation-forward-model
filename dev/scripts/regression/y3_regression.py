@@ -105,7 +105,7 @@ def stage_obs(out):
     from msfm.utils import catalog, files, observation
 
     for name in ("desy3_metacal_gamma_e1p_e2m", "desy3_metacal_gamma_no_psi_rot_e1p_e2m", "desy3_maglim_count"):
-        cache = os.path.join(REPO, "data/cache", f"{name}.npy")
+        cache = os.path.join(REPO, "data/desy3/cache", f"{name}.npy")
         assert os.path.exists(cache), f"{cache} missing; the Y3 catalogs are gone, so it cannot be rebuilt"
 
     conf = files.load_config(CONFIG)

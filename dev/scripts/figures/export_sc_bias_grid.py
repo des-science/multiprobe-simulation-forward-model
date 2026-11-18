@@ -14,7 +14,7 @@ point (the grid varies S8 and sigma_8, the fiducial sits at one place in it), bu
 cosmology export_sc_count_maps.py builds its maps at, so the figure marks its bias in the scatter
 to tie the two halves together. Same fit, same table, one row.
 
-The bias table is the tracked deliverable of that notebook, data/desy3_metacal_bias.h5 -- one file
+The bias table is the tracked deliverable of that notebook, data/desy3/desy3_metacal_bias.h5 -- one file
 with a "clean" (no correction) and a "contam" (contaminated with the ISD imprint of
 files/lss_systematics.tex before the fit) HDF5 group. See project_isd_systematics_bias_fit and
 project_source_clustering_bias_fit in the workspace memory for why the correction exists.
@@ -41,7 +41,7 @@ def parse_args():
     parser.add_argument("--config", default=os.path.join(REPO_DIR, "configs/v18/default.yaml"))
     parser.add_argument(
         "--bias_file",
-        default=os.path.join(REPO_DIR, "data/desy3_metacal_bias.h5"),
+        default=os.path.join(REPO_DIR, "data/desy3/desy3_metacal_bias.h5"),
         help="both arms, one HDF5 group each",
     )
     parser.add_argument("--output", default=None, help="path of the .h5 to write; defaults to the plotting cache")

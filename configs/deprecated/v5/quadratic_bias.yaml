@@ -6,12 +6,12 @@ dirs:
     grid: "/global/cfs/cdirs/des/cosmogrid/DESY3/grid"
     fiducial: "/global/cfs/cdirs/des/cosmogrid/DESY3/fiducial"
   # relative to the root of this repository
-  redshift_distributions: "data/redshift_distributions"
+  redshift_distributions: "data/desy3/redshift_distributions"
 
 files:
   # relative to the root of this repository
-  pixels: "data/deprecated/DESY3_pixels_512.h5"
-  noise: "data/DESY3_noise.h5"
+  pixels: "data/desy3/deprecated/DESY3_pixels_512.h5"
+  noise: "data/desy3/DESY3_noise.h5"
   grid_perms: "data/CosmoGridV1_perm_dirs.npy"
   grid_params: "data/CosmoGridV1_param_dirs.npy"
   meta_info: "data/CosmoGridV1_metainfo.h5"

@@ -3,12 +3,12 @@ dirs:
   # absolute on Clariden
   catalog: /users/athomsen/scratch/deep_lss/data/y3-cats
   # relative to the root of this repository
-  redshift_distributions: data/redshift_distributions
+  redshift_distributions: data/desy3/redshift_distributions
 
 files:
   # relative to the root of this repository
-  pixels: data/desy3_pixels_fiducial_512.h5
-  noise: data/desy3_noise_512.h5
+  pixels: data/desy3/desy3_pixels_fiducial_512.h5
+  noise: data/desy3/desy3_noise_512.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
 

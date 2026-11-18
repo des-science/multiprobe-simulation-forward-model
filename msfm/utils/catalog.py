@@ -9,9 +9,9 @@ LOGGER = logger.get_logger(__file__)
 
 
 def _cache_file(name):
-    """Resolve a catalog-derived cache map to data/cache/, creating the directory if needed.
+    """Resolve a catalog-derived cache map to data/desy3/cache/, creating the directory if needed.
 
-    data/cache/ is gitignored, so it is absent in a fresh clone, a new worktree and after a
+    data/desy3/cache/ is gitignored, so it is absent in a fresh clone, a new worktree and after a
     git clean. Creating it here rather than relying on it existing means the np.save at the end of
     an hours-long catalog pass cannot fail on a missing directory.
 
@@ -23,7 +23,7 @@ def _cache_file(name):
     """
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
-    cache_dir = os.path.join(repo_dir, "data", "cache")
+    cache_dir = os.path.join(repo_dir, "data", "desy3", "cache")
     os.makedirs(cache_dir, exist_ok=True)
     return os.path.join(cache_dir, name)
 

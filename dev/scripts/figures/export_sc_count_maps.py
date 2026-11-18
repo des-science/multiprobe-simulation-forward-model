@@ -16,7 +16,7 @@ performed on, for one cosmology, so that the same statement can be read off the 
 
 built exactly as postprocessing.postprocess_shape_noise builds it for the base patch, with the
 contamination C = <1/W> of files.get_metacal_systematics and the per cosmology bias of
-data/desy3_metacal_bias.h5. The two arms use the bias fitted *under their own contamination*, which
+data/desy3/desy3_metacal_bias.h5. The two arms use the bias fitted *under their own contamination*, which
 is the pair the pipeline actually chooses between: the clean arm is what the forward model would
 consume with no correction, the contaminated arm is what it does consume.
 
@@ -79,7 +79,7 @@ def parse_args():
     )
     parser.add_argument(
         "--bias_file",
-        default=os.path.join(REPO_DIR, "data/desy3_metacal_bias.h5"),
+        default=os.path.join(REPO_DIR, "data/desy3/desy3_metacal_bias.h5"),
         help="the tracked bias table of notebooks/sc_bias_fit_count.ipynb, one HDF5 group per arm",
     )
     parser.add_argument(

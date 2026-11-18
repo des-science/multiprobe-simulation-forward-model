@@ -79,7 +79,7 @@ esub msfm/apps/run_single_postprocessing.py \
     --mode=run --function=all --tasks="0" --n_jobs=1
 ```
 
-Before the first run, generate `data/desy3_noise_512.h5` — it exceeds the repository's file
+Before the first run, generate `data/desy3/desy3_noise_512.h5` — it exceeds the repository's file
 size limit and ships only as the notebook that builds it (see [Conventions](#conventions)).
 
 ## Usage
@@ -145,28 +145,32 @@ dev/                     exploratory analysis and audit notebooks/scripts; not p
 ### `data`
 
 CosmoGridV1 properties, survey masks, redshift distributions, and the catalog ellipticities
-used to generate shape noise. The top level is exactly the set of inputs the current production
-config reads; `data/cache/` holds regenerable catalog-derived maps and `data/deprecated/`
-frozen superseded ones. [`data/README.md`](data/README.md) documents where every file comes from
-and which notebook produces it.
+used to generate shape noise. Each survey has its own subdirectory (`data/desy3/`, later
+`data/desy6/`); the top level holds only survey-agnostic inputs. Within a survey directory, the
+flat files are exactly the inputs its production config reads, `cache/` holds regenerable
+catalog-derived maps and `deprecated/` frozen superseded ones.
+[`data/README.md`](data/README.md) documents where every file comes from and which notebook
+produces it.
 
 ### `notebooks`
 
-The production set — each notebook generates one product in `data/`; the table in
+The production set — each notebook generates one product in `data/`, under the same survey
+subdirectory (`notebooks/desy3/` for `data/desy3/`); the table in
 [`data/README.md`](data/README.md) maps them 1:1. The analysis and comparison notebooks that
 *consume* those products live in `dev/notebooks/` instead.
 
 ## Conventions
 
-- **`data/desy3_noise_512.h5` is not in the repository.** It exceeds the file size limit and
-  must be regenerated from the source galaxy catalog via
-  [`notebooks/noise_file.ipynb`](notebooks/noise_file.ipynb) before the first run.
+- **`data/desy3/desy3_noise_512.h5` is not in the repository.** It exceeds the file size limit
+  and must be regenerated from the source galaxy catalog via
+  [`notebooks/desy3/noise_file.ipynb`](notebooks/desy3/noise_file.ipynb) before the first run.
 - **`configs/vNN/` and `pipelines/vNN/` are versioned together.** A config generation and its
   submission commands always carry the same number; changing one without the other produces
   a run that does not match its own submission recipe.
-- **The `data/` top level is a closed set.** It is exactly what the current production config
-  reads — nothing else. Regenerable products go in `data/cache/`, superseded ones in
-  `data/deprecated/`, so that "is this file still used?" is answerable from the path alone.
+- **Each survey's `data/<survey>/` top level is a closed set.** It is exactly what that survey's
+  production config reads — nothing else. Regenerable products go in `data/<survey>/cache/`,
+  superseded ones in `data/<survey>/deprecated/`, so that "is this file still used?" is
+  answerable from the path alone. Nothing survey-specific sits at the `data/` top level.
 - **Write scientific-notation floats with an explicit decimal point.** In YAML, a bare `1e-3`
   parses as a *string*; `1.0e-3` parses as a float. The string silently propagates.
 

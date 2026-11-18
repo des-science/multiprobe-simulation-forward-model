@@ -158,7 +158,7 @@ def build_target(conf=None, count_map=None, kind="1pt"):
     mask = files.get_mask(conf, nest_out=False)
 
     if count_map is None:
-        # returns immediately from data/cache/desy3_metacal_count.npy if that cache exists
+        # returns immediately from data/desy3/cache/desy3_metacal_count.npy if that cache exists
         _, count_map = catalog.build_metacal_map_from_cat(conf, debug=False)
 
     assert count_map.shape == (

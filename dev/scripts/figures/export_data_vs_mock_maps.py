@@ -145,7 +145,7 @@ def load_desy3(msfm_conf):
 
     Mirrors deep_lss.utils.evaluation.evaluate_obs_des for the plain "DESy3" label: shear rotated
     into the frame of the rotated footprint, and the maglim counts corrected by the DES Y3 weight
-    map. The catalog maps come from data/cache/, which is why this needs no access to the catalogs.
+    map. The catalog maps come from data/desy3/cache/, which is why this needs no access to the catalogs.
     """
     wl_gamma_map = catalog.build_metacal_map_from_cat(msfm_conf)[0]
     gc_count_map = catalog.build_maglim_map_from_cat(msfm_conf)

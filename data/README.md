@@ -3,61 +3,77 @@
 Inputs to the forward model. Everything here is reached through an explicit `files:` or `dirs:`
 key in a config, resolved as `os.path.join(<repo root>, value)` — nothing globs or walks this
 directory. **The configs are therefore the single source of truth for the layout**, and a file
-moved without updating them fails silently.
+moved without updating them fails silently. The one hardcoded exception is the catalog cache
+directory, `data/desy3/cache/`, in `msfm/utils/catalog.py`.
 
 Run `dev/scripts/data_audit/check_config_paths.py --strict` after touching anything here. It
 resolves every path in every config and exits non-zero on a regression.
 
 ## Layout
 
+Each survey has its own subdirectory. The top level holds only what is not specific to a survey.
+
 | | |
 |---|---|
-| `data/*` (flat) | production inputs — the top level **is** the set the current model reads |
-| `data/cache/` | catalog-derived maps, gitignored, rebuilt on demand by `msfm/utils/catalog.py` |
-| `data/deprecated/` | superseded inputs, kept only so `configs/deprecated/` and v16/v17 still resolve. **Frozen** — retain the old uppercase names |
+| `data/*` (flat) | survey-agnostic inputs: `CosmoGridV1_metainfo.h5`, `healpy_data/`. A DES Y6 config may use them only if it lists them explicitly |
+| `data/desy3/` | DES Y3. Production inputs flat, plus `redshift_distributions/`, `cache/`, `obs/` and `deprecated/`. **Frozen** as the provenance of the v18 analysis |
+| `data/desy6/` | DES Y6, not created yet. Same internal layout as `desy3/` |
+| `data/deprecated/` | superseded survey-agnostic inputs (`CosmoGridV1_original_metainfo.h5`) |
 | `data/figures/` | figures embedded in the repository `README.md` |
+
+Within `desy3/`:
+
+| | |
+|---|---|
+| `desy3/*` (flat) | production inputs: the set the v18 model reads |
+| `desy3/cache/` | catalog-derived maps, gitignored, rebuilt on demand by `msfm/utils/catalog.py` |
+| `desy3/obs/` | Buzzard flock mock observations, gitignored |
+| `desy3/deprecated/` | superseded inputs, kept only so `configs/deprecated/` and v16/v17 still resolve. **Frozen**: they keep the old uppercase names |
 
 ## Production inputs
 
-These are exactly the `files:` / `dirs:` values of `configs/v18/default.yaml`, the current
+These are exactly the `files:` / `dirs:` values of `configs/v18/default.yaml`, the current Y3
 production config:
 
 ```yaml
 dirs:
-  redshift_distributions: data/redshift_distributions
+  redshift_distributions: data/desy3/redshift_distributions
 files:
-  pixels:              data/desy3_pixels_fiducial_512.h5
-  noise:               data/desy3_noise_512.h5
+  pixels:              data/desy3/desy3_pixels_fiducial_512.h5
+  noise:               data/desy3/desy3_noise_512.h5
   meta_info:           data/CosmoGridV1_metainfo.h5
   healpy_data:         data/healpy_data
-  metacal_systematics: data/desy3_metacal_systematics_STD32_512.h5
-  metacal_bias:        data/desy3_metacal_bias.h5
+  metacal_systematics: data/desy3/desy3_metacal_systematics_STD32_512.h5
+  metacal_bias:        data/desy3/desy3_metacal_bias.h5
   metacal_bias_arm:    contam
 ```
 
 `configs/v18/obs/*.yaml` vary only the shape-noise model, which swaps `metacal_bias_arm` for
 `clean` (`sc_no_sys`) or replaces the two `metacal_bias*` keys with
-`sc_calibration: data/desy3_sc_calibration_gatti.npy` (`sc_gatti`).
+`sc_calibration: data/desy3/desy3_sc_calibration_gatti.npy` (`sc_gatti`).
 
 ## Where every file comes from
 
 `notebooks/` is **production**: it holds exactly the notebooks that generate the contents of this
-directory, one slot per product. `dev/notebooks/` is **debugging**: analysis and comparison
-notebooks that consume these products rather than make them. That split is what decides where a
-notebook belongs.
+directory, one slot per product, under the same survey subdirectory (`notebooks/desy3/` for
+`data/desy3/`). `dev/notebooks/` is **debugging**: analysis and comparison notebooks that consume
+these products rather than make them. That split is what decides where a notebook belongs.
 
 ### Produced in this repository
 
+Paths are relative to `data/`.
+
 | file | size | produced by | tracked | read by |
 |---|---|---|---|---|
-| `desy3_pixels_fiducial_512.h5` | 63 M | `notebooks/pixel_file.ipynb` | yes | `files.pixels` |
-| `desy3_noise_512.h5` | 1.5 G | `notebooks/noise_file.ipynb` | **no** — too large for git, regenerate it | `files.noise` |
-| `desy3_metacal_bias.h5` | 8.5 M | `notebooks/sc_bias_fit_count.ipynb` (`clean`/`contam` HDF5 groups) | yes | `files.metacal_bias` + `files.metacal_bias_arm` |
-| `desy3_sc_calibration_gatti.npy` | 1 K | `notebooks/sc_calibration_gatti.ipynb` | yes | `files.sc_calibration` |
-| `cache/desy3_metacal_gamma_e1p_e2m.npy` | 193 M | `notebooks/build_des.ipynb` → `catalog.build_metacal_map_from_cat` | no | `msi/utils/ppc.py` |
-| `cache/desy3_metacal_count.npy` | 49 M | as above | no | `source_clustering_bias.py`, `msi/utils/ppc.py` |
-| `cache/desy3_maglim_count.npy` | 97 M | `notebooks/build_des.ipynb` → `catalog.build_maglim_map_from_cat` | no | `msi/utils/ppc.py` |
-| `cache/desy3_metacal_gamma_no_psi_rot_e1p_e2m.npy` | 193 M | `notebooks/build_des.ipynb` | no | diagnostic only, no production consumer |
+| `desy3/desy3_pixels_fiducial_512.h5` | 63 M | `notebooks/desy3/pixel_file.ipynb` | yes | `files.pixels` |
+| `desy3/desy3_noise_512.h5` | 1.5 G | `notebooks/desy3/noise_file.ipynb` | **no** — too large for git, regenerate it | `files.noise` |
+| `desy3/desy3_metacal_bias.h5` | 8.5 M | `notebooks/desy3/sc_bias_fit_count.ipynb` (`clean`/`contam` HDF5 groups) | yes | `files.metacal_bias` + `files.metacal_bias_arm` |
+| `desy3/desy3_sc_calibration_gatti.npy` | 1 K | `notebooks/desy3/sc_calibration_gatti.ipynb` | yes | `files.sc_calibration` |
+| `desy3/cache/desy3_metacal_gamma_e1p_e2m.npy` | 193 M | `notebooks/desy3/build_des.ipynb` → `catalog.build_metacal_map_from_cat` | no | `msi/utils/ppc.py` |
+| `desy3/cache/desy3_metacal_count.npy` | 49 M | as above | no | `source_clustering_bias.py`, `msi/utils/ppc.py` |
+| `desy3/cache/desy3_maglim_count.npy` | 97 M | `notebooks/desy3/build_des.ipynb` → `catalog.build_maglim_map_from_cat` | no | `msi/utils/ppc.py` |
+| `desy3/cache/desy3_metacal_gamma_no_psi_rot_e1p_e2m.npy` | 193 M | `notebooks/desy3/build_des.ipynb` | no | diagnostic only, no production consumer |
+| `desy3/obs/buzzard_flock*_obs_maps.h5` | 640 M | `notebooks/desy3/build_buzzard_flock.ipynb` | no | nothing here: copied into the deep_lss data dir, which `run_evaluation --include_mocks` reads |
 
 The `cache/` maps are rebuilt from `dirs.catalog` (the DES Y3 catalogs on scratch) whenever they
 are absent. That takes hours and needs a node that has the catalogs, so do not delete them
@@ -69,37 +85,59 @@ casually — but they are reproducible, which is why they are not in git.
 |---|---|
 | `CosmoGridV1_metainfo.h5` | CosmoGridV1, then **mutated in place** by `notebooks/permutations_list.ipynb` (opened `"r+"`) to rewrite the parameter paths |
 | `healpy_data/` | healpy ancillary data (full-sky quadrature weights), see its own `README.md` |
-| `redshift_distributions/*.txt` | DES Y3 n(z). Filenames are synthesized by `msfm/utils/filenames.py` from `survey.<sample>.z_bins`, so they cannot be renamed freely. `maglim_bin5/6` are unused — every config runs 4 maglim bins |
-| `desy3_metacal_systematics_STD32_512.h5` | exported by the `lss_sys` repository. `STD32` is that export's run label; `msfm/utils/configuration.py` asserts the file's `label` attribute against the bias table's `systematics_label`, so **the name, the attribute and the assert must stay in agreement** |
+| `desy3/redshift_distributions/*.txt` | DES Y3 n(z). Filenames are synthesized by `msfm/utils/filenames.py` from `survey.<sample>.z_bins`, so they cannot be renamed freely. `maglim_bin5/6` are unused — every config runs 4 maglim bins |
+| `desy3/desy3_metacal_systematics_STD32_512.h5` | exported by the `lss_sys` repository. `STD32` is that export's run label; `msfm/utils/configuration.py` asserts the file's `label` attribute against the bias table's `systematics_label`, so **the name, the attribute and the assert must stay in agreement** |
 | `figures/combined_moll+gnom.png` | plotted in `deep_lss_paper/paper_1/map_smoothing.ipynb`, embedded in the repository `README.md` |
 
 ### Notebooks that derive config *values* rather than files
 
 | notebook | fills in |
 |---|---|
-| `notebooks/config.ipynb` | `survey.{metacal,maglim}.n_gal`, `survey.Aeff` |
-| `notebooks/patches.ipynb` | `analysis.footprint.rotation.{y_rad,z_rad}` |
-| `notebooks/scale_cuts.ipynb` | `analysis.scale_cuts` |
+| `notebooks/desy3/config.ipynb` | `survey.{metacal,maglim}.n_gal`, `survey.Aeff` |
+| `notebooks/desy3/patches.ipynb` | `analysis.footprint.rotation.{y_rad,z_rad}` |
+| `notebooks/desy3/scale_cuts.ipynb` | `analysis.scale_cuts` |
 
 ## Naming
 
-`desy3_<product>[_<variant>][_<nside>].<ext>`, extending the convention already used by
-`redshift_distributions/desy3_nz_metacal_bin1.txt`.
+`<survey>/<survey>_<product>[_<variant>][_<nside>].<ext>`, for example
+`desy3/desy3_metacal_bias.h5`. This extends the convention already used by
+`desy3/redshift_distributions/desy3_nz_metacal_bin1.txt`.
 
-The leading product token echoes the **config key** that loads the file (`files.metacal_bias` →
+The survey prefix repeats the directory on purpose. A file copied out of the tree still says which
+survey it belongs to. The n(z) template in `filenames.py` and the cache names in `catalog.py` are
+built with that prefix too.
+
+The product token echoes the **config key** that loads the file (`files.metacal_bias` →
 `desy3_metacal_bias_*`), so a key and a filename are greppable from either direction. Where a file
 is specific to one shape-noise model, the trailing token is the literal value of
 `analysis.modelling.lensing.shape_noise.method` (`count`, `gatti`) — which is also how the two
 producing notebooks are named, `sc_bias_fit_count.ipynb` and `sc_calibration_gatti.ipynb`.
 
-Files under `deprecated/` keep their original names. The uppercase style is the signal that they
-are frozen.
+Files under `desy3/deprecated/` keep their original names. The uppercase style is the signal that
+they are frozen.
+
+### Moved into `desy3/` on 2026-11-18
+
+On branch `desy6`, every DES Y3 file and notebook moved one level down. Filenames did not change;
+`main` still has the old flat layout.
+
+| old | new |
+|---|---|
+| `data/desy3_*` | `data/desy3/desy3_*` |
+| `data/redshift_distributions/` | `data/desy3/redshift_distributions/` |
+| `data/cache/` | `data/desy3/cache/` |
+| `data/obs/` | `data/desy3/obs/` |
+| `data/deprecated/*`, except `CosmoGridV1_original_metainfo.h5` | `data/desy3/deprecated/*` |
+| `notebooks/*`, except `permutations_list.ipynb` | `notebooks/desy3/*` |
+
+Every config, `.gitignore`, `catalog.py` and the `dev/` scripts were updated in the same change.
 
 ### Renamed on 2026-08-07
 
 Old run logs and `dev/notes/wl_forward_model_audit_2026-07-11.md` predate this and use the old
 names. The `v11` and `v2` tags were opaque version markers; they are replaced by the thing that
-actually distinguishes the files.
+actually distinguishes the files. Paths are relative to `data/` as they were on that date, before
+the move into `desy3/`.
 
 | old | new |
 |---|---|
@@ -125,11 +163,17 @@ downstream — which is why `configuration.py` asserts on it.
 
 ## Traps
 
-- **`data/peaks/binning/*.h5` does not exist**, yet 21 live v16/v17 configs still set
+- **Frozen v18 run dirs embed the old flat paths.** Each run's `configs.yaml` carries the msfm
+  config it was trained with, for example `pixels: data/desy3_pixels_fiducial_512.h5`.
+  `deep_lss.apps.run_evaluation` reads `files.pixels` from it, so evaluating a frozen run against
+  this layout fails. Use a checkout of `main` for that.
+- **Switching branches does not move ignored files.** `git checkout main` brings back the tracked
+  Y3 files at the top level, but not `desy3/desy3_noise_512.h5`, `desy3/cache/` or `desy3/obs/`.
+- **`data/desy3/peaks/binning/*.h5` does not exist**, yet 21 live v16/v17 configs still set
   `files.peak_binning`. Only `msfm/apps/deprecated/run_peaks.py` reads that key and v18 dropped it.
-  Do not "fix" the gate by creating `data/peaks/` — it is a dangling key, not a missing file.
+  Do not "fix" the gate by creating `data/desy3/peaks/`; it is a dangling key, not a missing file.
 - **`deprecated/` is not the same as deleted.** The v16 and v17 configs are still live and still
-  read `deprecated/metacal_biases_desy3.h5` and `deprecated/nside256/`.
+  read `desy3/deprecated/metacal_biases_desy3.h5` and `desy3/deprecated/nside256/`.
 - **Regenerating a product writes wherever its notebook says.** If you rename a file here, update
   the producing notebook in the same change, or the next regeneration silently recreates the old
   name while every config keeps resolving to a now-stale file.

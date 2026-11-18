@@ -3,7 +3,7 @@ dirs:
   # absolute path on the SAN
   SANCosmoGrid: /home/ipa/refreg/data/data_products/CosmoGrid/processed/CosmoGrid/v11desy3
   # relative to the root of this repository
-  redshift_distributions: data/redshift_distributions
+  redshift_distributions: data/desy3/redshift_distributions
   connections:
     san:
       host: "login.phys.ethz.ch"
@@ -15,11 +15,11 @@ dirs:
 
 files:
   # relative to the root of this repository
-  pixels: data/deprecated/DESY3_pixels_v11_512.h5
-  noise: data/desy3_noise_512.h5
+  pixels: data/desy3/deprecated/DESY3_pixels_v11_512.h5
+  noise: data/desy3/desy3_noise_512.h5
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
-  peak_binning: data/peaks/binning/v7_linear_bias.h5
+  peak_binning: data/desy3/peaks/binning/v7_linear_bias.h5
 
 survey:
   name: DESy3

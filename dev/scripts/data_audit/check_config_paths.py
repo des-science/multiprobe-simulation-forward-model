@@ -27,24 +27,24 @@ import yaml
 REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 
 # Targets that do not exist at HEAD and are not expected to. They are dangling keys in retired
-# configs, plus `peak_binning`, which every live v16/v17 config still names although data/peaks/
-# has never existed here -- it is read only by msfm/apps/deprecated/run_peaks.py and v18 dropped
-# the key. Do NOT "fix" these by creating the files; that would hide real regressions.
+# configs, plus `peak_binning`, which every live v16/v17 config still names although
+# data/desy3/peaks/ has never existed here -- it is read only by msfm/apps/deprecated/run_peaks.py
+# and v18 dropped the key. Do NOT "fix" these by creating the files; that would hide real regressions.
 EXPECTED_MISSING = {
     "data/CosmoGridV1_param_dirs.npy",
     "data/CosmoGridV1_perm_dirs.npy",
-    "data/DESY3_noise.h5",
+    "data/desy3/DESY3_noise.h5",
     # note the reversed name: this is a typo in configs/deprecated/v8/linear_bias_octant.yaml, a
     # different string from the real DESY3_pixels_v11_octant_512.h5, so it was left frozen
-    "data/DESY3_pixels_v11_512_octant.h5",
-    "data/deprecated/nside256/DESY3_noise.h5",
-    "data/desy3_noise_1024.h5",
-    "data/desy3_pixels_fiducial_1024.h5",
-    "data/peaks/binning/v6_linear_bias.h5",
-    "data/peaks/binning/v7_linear_bias.h5",
-    "data/peaks/binning/v9_linear_bias.h5",
-    "data/peaks/binning/v10_linear_bias.h5",
-    "data/peaks/binning/v11_extended.h5",
+    "data/desy3/DESY3_pixels_v11_512_octant.h5",
+    "data/desy3/deprecated/nside256/DESY3_noise.h5",
+    "data/desy3/desy3_noise_1024.h5",
+    "data/desy3/desy3_pixels_fiducial_1024.h5",
+    "data/desy3/peaks/binning/v6_linear_bias.h5",
+    "data/desy3/peaks/binning/v7_linear_bias.h5",
+    "data/desy3/peaks/binning/v9_linear_bias.h5",
+    "data/desy3/peaks/binning/v10_linear_bias.h5",
+    "data/desy3/peaks/binning/v11_extended.h5",
 }
 
 # files: keys whose value is not a repo-relative path -- metacal_bias_arm selects an HDF5 group

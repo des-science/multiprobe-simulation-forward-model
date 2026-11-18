@@ -12,7 +12,7 @@
 #
 # Pass criterion: the OK count is unchanged (every target that resolved still resolves) and every
 # line in the diff is a path rewrite you intended. Several targets are ALREADY missing at HEAD --
-# data/peaks/**, the nside-1024 pair, the v5/v6/v7 grid .npy -- so a non-empty MISSING set is
+# data/desy3/peaks/**, the nside-1024 pair, the v5/v6/v7 grid .npy -- so a non-empty MISSING set is
 # expected and is not a regression by itself.
 set -u
 cd "$(dirname "$0")/../../.." || exit 1
