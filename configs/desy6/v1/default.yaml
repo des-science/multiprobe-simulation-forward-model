@@ -1,13 +1,13 @@
-# DES Y6 forward model, version 1. SKELETON (2026-11-18): msfm cannot run it until the Y6 code changes of
-# dev/notes/desy6_tfrecord_plan.md (section 4) are in and the data/desy6/ products exist.
+# DES Y6 forward model, version 1. SKELETON (2026-11-18): msfm cannot run it until the Y6 code changes are in and
+# the last two data/desy6/ products exist (files.metacal_systematics and files.metacal_bias).
 #
 # Base: configs/desy3/v18/default.yaml. Every key without a marker keeps its v18 value on purpose; that includes
 # the shape-noise model (count, with the imaging systematics imprinted on the source density).
-# The Y6 products and values come from `python -m msfm.apps.products.desy6 <step>` (plan section 5). Markers:
+# The Y6 products and values come from `python -m msfm.apps.products.desy6 <step>` (data/desy6/README.md). Markers:
 #   # <- step <name>                   that step writes the file
 #   # <- desy6 values: <dotted.key>    the step `config` writes this value from files.survey_values; do not edit
 #                                      it by hand (`config --check` catches a stale value)
-#   D<n> open                          modelling decision, plan section 9
+#   OPEN: ...                          a modelling choice still to be made for Y6
 dirs:
   # the public Y6 release as downloaded by Tomasz, read in place. Used: metadetect_2024-11-07.hdf5,
   # maglim_2024-11-07.hdf5, jointmask_DESY6_2024-06-04.hsp, 3x2pt_2025-07-28-20h_UNBLINDED_wmask_nob2.fits,
@@ -43,30 +43,30 @@ survey:
     map_types:
       input: [kg, ia, dg, dg]
       output: [kg, ia, sn, ds]
-    # the labels of the Y6 test projection. D2 open (distinct Y6 labels)
+    # the labels of the Y6 test projection. OPEN: distinct Y6 labels
     z_bins: [metacal1, metacal2, metacal3, metacal4]
     # in galaxies/deg^2, inside the nside-512 mask
-    n_gal: null # <- desy6 values: survey.metacal.n_gal
-    # mean and std of M_BIN1-4 in desy6_source_redshift.h5. Only until m is read from the projection (plan WP5)
+    n_gal: [7433.825377591532, 7635.582963085136, 7677.574950556799, 8182.75987826189] # <- desy6 values: survey.metacal.n_gal
+    # mean and std of M_BIN1-4 in desy6_source_redshift.h5. Only until m is read from the projection
     shear_bias:
       multiplicative:
-        mu: [-0.0034, 0.00646, 0.01594, 0.0017] # <- desy6 values: survey.metacal.shear_bias.multiplicative.mu
-        sigma: [0.00578, 0.00662, 0.00594, 0.0122] # <- desy6 values: survey.metacal.shear_bias.multiplicative.sigma
-    # IA pivot redshift. D4 open
+        mu: [-0.003397673790742481, 0.00645519707938863, 0.015939349904159923, 0.001698109169479922] # <- desy6 values: survey.metacal.shear_bias.multiplicative.mu
+        sigma: [0.005784359495438698, 0.006623822114448156, 0.005938030766082593, 0.01220024598003775] # <- desy6 values: survey.metacal.shear_bias.multiplicative.sigma
+    # IA pivot redshift, v18's. OPEN: the KP uses 0.3
     z0: 0.62
-    # metadetection response per bin, replaces R_gamma + R_s (plan WP4). KP Table 2: 0.856, 0.869, 0.819, 0.692
-    response: null # <- desy6 values: survey.metacal.response
-  # MagLim. The KP drops survey bin 2, so these are survey bins 1, 3, 4, 5, 6. D3 open
+    # metadetection response per bin, replaces R_gamma + R_s. DES: 0.856143, 0.868506, 0.819427, 0.691769
+    response: [0.8561433330298941, 0.868505678503587, 0.8194268015985411, 0.6917685743283779] # <- desy6 values: survey.metacal.response
+  # MagLim. The KP drops survey bin 2, so these are survey bins 1, 3, 4, 5, 6
   maglim:
     map_types:
       input: [dg]
       output: [dg]
     z_bins: [maglim1, maglim3, maglim4, maglim5, maglim6]
     # weighted, in galaxies/deg^2, inside the nside-512 mask
-    n_gal: null # <- desy6 values: survey.maglim.n_gal
+    n_gal: [406.3791156368063, 310.350946760715, 391.5827112999988, 305.6365876349676, 309.63682162262666] # <- desy6 values: survey.maglim.n_gal
     # no z_lims: the Y6 catalog is already binned (tomo_bin_k)
-  # in deg^2, the joint mask at nside 131072. Until step pixels has run, the value from DES's 3x2pt_pipeline_public.ipynb
-  Aeff: 4031.036 # <- desy6 values: survey.Aeff
+  # in deg^2, the joint mask at nside 131072, as in DES's 3x2pt_pipeline_public.ipynb (4031.036)
+  Aeff: 4031.03590997686 # <- desy6 values: survey.Aeff
 
 analysis:
   n_side: 512
@@ -80,11 +80,11 @@ analysis:
     # same ordering as in the CosmoGrid
     cosmo: [Om, s8, Ob, H0, ns, w0]
     bary: [bary_Mc, bary_nu]
-    # NLA model + first term of TATT (cross term). D4 open
+    # NLA model + first term of TATT (cross term). OPEN: the KP's IA model and priors
     ia:
       nla: [Aia, n_Aia]
       tatt: [bta]
-    # galaxy biasing, named by survey bin. D3 open
+    # galaxy biasing, named by survey bin. OPEN: whether downstream accepts these names
     bg:
       linear: [bg1, bg3, bg4, bg5, bg6]
       quadratic: [bg1_q, bg3_q, bg4_q, bg5_q, bg6_q]
@@ -95,9 +95,9 @@ analysis:
     rotation:
       y_rad: -0.125
       z_rad: -1.22
-    # fraction of an nside-512 pixel the joint mask must cover to enter the footprint (step pixels). REUSED from
-    # notebooks/desy3/pixel_file.ipynb as a start. D9 open: re-derive from footprint/coverage in the pixel file
-    coverage_threshold: 0.72
+    # fraction of an nside-512 pixel the joint mask must cover to enter the footprint (step pixels). Chosen as in Y3
+    # (0.72 there), so the footprint area matches the mask area: 0.73 gives +0.6% (step pixels logs the exact value)
+    coverage_threshold: 0.73
   # All angles are in arcmin. Only l_min = 30 is baked into the .tfrecords; the smoothing scales come later.
   scale_cuts:
     hard_cut: True
@@ -167,7 +167,7 @@ analysis:
       # baryons
       bary_Mc: [12.0, 15.0]
       bary_nu: [-2, 2.0]
-      # intrinsic alignment. D4 open
+      # intrinsic alignment. OPEN: the KP priors
       Aia: [-3, 3.0]
       n_Aia: [-4, 6.0]
       bta: [0.0, 2.0]
@@ -203,16 +203,16 @@ analysis:
     # baryons
     bary_Mc: 13.82
     bary_nu: 0.0
-    # intrinsic alignment. D4 open
+    # intrinsic alignment. OPEN: the KP fiducial values
     Aia: 0.5
     n_Aia: 1.5
     bta: 0.0
-    # galaxy clustering. D3 open
-    bg1: null
-    bg3: null
-    bg4: null
-    bg5: null
-    bg6: null
+    # galaxy clustering (corresponds to bg=1.5, n_bg=0.5)
+    bg1: 1.3460011
+    bg3: 1.5010278
+    bg4: 1.5707155
+    bg5: 1.6251594
+    bg6: 1.6702148
     rg: 0.8
     perturbations:
       Om: 0.01

@@ -47,10 +47,6 @@ EXPECTED_MISSING = {
     "data/desy3/peaks/binning/v11_extended.h5",
     # DES Y6 products named by configs/desy6/v1/default.yaml and not produced yet. Remove each line once
     # its step of msfm.apps.products.desy6 has written the file
-    "data/desy6/cache",
-    "data/desy6/desy6_survey_values.yaml",
-    "data/desy6/desy6_pixels_fiducial_512.h5",
-    "data/desy6/desy6_noise_512.h5",
     "data/desy6/desy6_metacal_systematics_512.h5",
     "data/desy6/desy6_metacal_bias.h5",
 }

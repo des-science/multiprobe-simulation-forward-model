@@ -1,0 +1,35 @@
+about: 'Written by msfm.apps.products.desy6 values; step config copies these into the config lines marked ''# <- desy6 values:
+  <dotted.key>''. Per-bin values are keyed by survey bin label.'
+survey:
+  Aeff: 4031.03590997686
+  metacal:
+    n_gal:
+      metacal1: 7433.825377591532
+      metacal2: 7635.582963085136
+      metacal3: 7677.574950556799
+      metacal4: 8182.75987826189
+    response:
+      metacal1: 0.8561433330298941
+      metacal2: 0.868505678503587
+      metacal3: 0.8194268015985411
+      metacal4: 0.6917685743283779
+    shear_bias:
+      multiplicative:
+        mu:
+          metacal1: -0.003397673790742481
+          metacal2: 0.00645519707938863
+          metacal3: 0.015939349904159923
+          metacal4: 0.001698109169479922
+        sigma:
+          metacal1: 0.005784359495438698
+          metacal2: 0.006623822114448156
+          metacal3: 0.005938030766082593
+          metacal4: 0.01220024598003775
+  maglim:
+    n_gal:
+      maglim1: 406.3791156368063
+      maglim2: 293.0367297207813
+      maglim3: 310.350946760715
+      maglim4: 391.5827112999988
+      maglim5: 305.6365876349676
+      maglim6: 309.63682162262666
