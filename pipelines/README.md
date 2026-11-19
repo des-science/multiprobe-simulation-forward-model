@@ -25,10 +25,10 @@ their configs (`configs/vNN/` to `configs/desy3/vNN/`). They are Perlmutter-era 
 
 | version | status | configs | notes |
 |---|---|---|---|
-| v1 | in preparation | `configs/desy6/v1/` | First DES Y6 forward model, see `dev/notes/desy6_tfrecord_plan.md`. |
+| v1 | in preparation | `configs/desy6/v1/` | First DES Y6 forward model. |
 
 `desy6/products/run.sh <pixels|maps|noise>` submits a compute-node step of the Y6 data products
-(`msfm.apps.products.desy6`, see `data/README.md`) after running its `--dry-run` on the login node.
+(`msfm.apps.products.desy6`, see `data/desy6/README.md`) after running its `--dry-run` on the login node.
 It is a daint script (account `lp184`, `torch_env` in the `pytorch/v2.9.1:v2` uenv), not a
 Perlmutter one.
 

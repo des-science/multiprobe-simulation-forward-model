@@ -147,19 +147,18 @@ dev/                     exploratory analysis and audit notebooks/scripts; not p
 ### `data`
 
 CosmoGridV1 properties, survey masks, redshift distributions, and the catalog ellipticities
-used to generate shape noise. Each survey has its own subdirectory (`data/desy3/`, later
-`data/desy6/`); the top level holds only survey-agnostic inputs. Within a survey directory, the
-flat files are exactly the inputs its production config reads, `cache/` holds regenerable
-catalog-derived maps and `deprecated/` frozen superseded ones.
-[`data/README.md`](data/README.md) documents where every file comes from and which notebook
-produces it.
+used to generate shape noise. Each survey has its own subdirectory with its own README, which
+says where every file comes from: [`data/desy3/`](data/desy3/README.md) and
+[`data/desy6/`](data/desy6/README.md). The top level holds only survey-agnostic inputs, see
+[`data/README.md`](data/README.md).
 
 ### `notebooks`
 
-The production set — each notebook generates one product in `data/`, under the same survey
-subdirectory (`notebooks/desy3/` for `data/desy3/`); the table in
-[`data/README.md`](data/README.md) maps them 1:1. The analysis and comparison notebooks that
-*consume* those products live in `dev/notebooks/` instead.
+The DES Y3 production set: each notebook in `notebooks/desy3/` generates one product in
+`data/desy3/` ([`data/desy3/README.md`](data/desy3/README.md) maps them 1:1). DES Y6 uses a script
+instead, `msfm/apps/products/desy6.py`. The exception is `products.ipynb`, in both
+`notebooks/desy3/` and `notebooks/desy6/`, which reviews a survey's products and writes nothing.
+The analysis and comparison notebooks that *consume* the products live in `dev/notebooks/`.
 
 ## Conventions
 
