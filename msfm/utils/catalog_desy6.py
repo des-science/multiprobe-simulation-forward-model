@@ -9,8 +9,7 @@ shape-noise statistics.
 The maps hold every survey bin along axis 1, in survey-bin order (tomo_bin_k is survey bin k + 1); the config's z_bins
 select from them. Positions and shears are rotated into the footprint frame exactly as for Y3 (catalog.py).
 
-The joint mask is read with healsparse (mask_area, rotated_mask_coverage), imported only there, since it is in neither
-tf_env nor torch_env yet.
+The joint mask is read with healsparse (mask_coverage), imported only there, since only torch_env has it.
 """
 
 import os
@@ -36,9 +35,18 @@ N_LENS_BINS = 6
 
 # shear step of the metadetection images, deltag in 3x2pt_pipeline_public.ipynb
 DELTA_G = 0.01
-# mean response per source bin, KP Table 2 (https://arxiv.org/abs/2601.14559); the full catalog must reproduce it
-RESPONSE_KP = [0.856, 0.869, 0.819, 0.692]
-RESPONSE_KP_ATOL = 5e-3
+# per-bin statistics that 3x2pt_pipeline_public.ipynb prints for the full catalogs (cells 7, 14, 25 and 26), as
+# (values, tolerance), the tolerance being one unit of the last digit printed; the full catalogs must reproduce them
+SOURCE_DES = {
+    "n": ([33707071, 34580888, 34646416, 36727798], 0),
+    "response": ([0.856143, 0.868506, 0.819427, 0.691769], 1e-6),
+    "n_eff": ([2.047, 2.097, 2.138, 2.320], 1e-3),
+    "sigma_e": ([0.2657, 0.2865, 0.2821, 0.3474], 1e-4),
+}
+LENS_DES = {
+    "n": ([1852538, 1335294, 1413738, 1783834, 1391521, 1409280], 0),
+    "n_eff": ([0.1276, 0.0920, 0.0974, 0.1228, 0.0959, 0.0970], 1e-4),
+}
 # mean m per source bin, Table III of the methods paper as quoted in 3x2pt_pipeline_public.ipynb
 M_MEAN_DES = [-3.4e-3, 6.46e-3, 15.94e-3, 1.7e-3]
 M_MEAN_DES_ATOL = 1e-5
@@ -48,10 +56,6 @@ MASK_NSIDE = 131072
 # len(mask.valid_pixels) * pixarea in 3x2pt_pipeline_public.ipynb, in deg^2
 AREA_DES = 4031.036
 AREA_DES_ATOL = 1e-3
-# valid_pixels of the whole mask needs ~450 GB (DES), so the area is counted a few coverage pixels at a time
-MASK_COV_PIXELS_PER_READ = 16
-# analysis pixels per batch when sampling the mask
-MASK_SAMPLE_BATCH = 16384
 
 
 def release_path(conf, key):
@@ -84,82 +88,43 @@ def m_prior(conf):
     return mu, sigma
 
 
-def mask_area(conf):
-    """Area of the joint mask in deg^2, counted at its full resolution as DES does.
+def mask_coverage(conf, n_side):
+    """Fraction of every n_side pixel that the joint mask covers, in celestial coordinates, and the mask area.
+
+    healsparse counts the full-resolution pixels of the mask inside each n_side pixel, so the area is exact.
 
     Args:
         conf (dict): A DES Y6 config.
+        n_side (int): Resolution of the coverage map.
 
     Returns:
-        float: The area in deg^2, equal to DES's value within AREA_DES_ATOL.
+        tuple: coverage (n_pix,) in RING ordering, between 0 and 1, and the area in deg^2
     """
     import healsparse
 
     path = release_path(conf, "mask")
-    coverage = healsparse.HealSparseCoverage.read(path)
-    assert coverage.nside_sparse == MASK_NSIDE, f"{path}: nside {coverage.nside_sparse}, not {MASK_NSIDE}"
-
-    cov_pix = np.flatnonzero(coverage.coverage_mask)
-    n_valid = 0
-    for chunk in np.array_split(cov_pix, int(np.ceil(cov_pix.size / MASK_COV_PIXELS_PER_READ))):
-        n_valid += healsparse.HealSparseMap.read(path, pixels=chunk.tolist()).valid_pixels.size
-
-    area = n_valid * hp.nside2pixarea(MASK_NSIDE, degrees=True)
-    LOGGER.info(
-        f"joint mask: {cov_pix.size} coverage pixels, {n_valid} valid pixels, {area:.3f} deg^2 (DES {AREA_DES})"
-    )
-    assert abs(area - AREA_DES) < AREA_DES_ATOL, f"the mask area {area:.4f} deg^2 differs from DES's {AREA_DES}"
-    return area
-
-
-def rotated_mask_coverage(conf, sample_nside):
-    """Fraction of every analysis.n_side pixel of the rotated footprint frame that the joint mask covers.
-
-    Each pixel is sampled at the centres of its sub-pixels at sample_nside. The centres are rotated back to the sky
-    with catalog.survey_pix_to_angles, the inverse of the rotation the catalog maps use, and looked up in the
-    full-resolution mask. Only pixels near the mask's coverage pixels are sampled; all others stay at zero.
-
-    Args:
-        conf (dict): A DES Y6 config.
-        sample_nside (int): Resolution of the sampling points, a multiple of analysis.n_side.
-
-    Returns:
-        np.ndarray: coverage (n_pix,) in RING ordering, between 0 and 1.
-    """
-    import healsparse
-
-    n_side = conf["analysis"]["n_side"]
-    n_pix = hp.nside2npix(n_side)
-    assert sample_nside % n_side == 0, f"sample nside {sample_nside} is no multiple of {n_side}"
-    n_sub = (sample_nside // n_side) ** 2
-
-    path = release_path(conf, "mask")
-    # kept bit-packed in memory, a few GB
     mask = healsparse.HealSparseMap.read(path)
     assert mask.nside_sparse == MASK_NSIDE, f"{path}: nside {mask.nside_sparse}, not {MASK_NSIDE}"
     assert np.dtype(mask.dtype) == np.bool_, f"{path}: {mask.dtype} map, not boolean"
 
-    # candidates: pixels whose centre lies in a coverage pixel of the mask or in one of its neighbours
-    nside_cov = mask.nside_coverage
-    covered = mask.coverage_mask.copy()
-    neighbours = hp.get_all_neighbours(nside_cov, np.flatnonzero(covered), nest=True).ravel()
-    covered[neighbours[neighbours >= 0]] = True
-    ra, dec = catalog.survey_pix_to_angles(conf, np.arange(n_pix), n_side)
-    candidates = np.flatnonzero(covered[hp.ang2pix(nside_cov, ra, dec, nest=True, lonlat=True)])
+    coverage = mask.fracdet_map(n_side).generate_healpix_map(nest=False).astype(np.float64)
+    coverage[coverage == hp.UNSEEN] = 0.0
+    assert np.all((coverage >= 0) & (coverage <= 1)), f"{path}: coverage outside [0, 1]"
 
-    coverage = np.zeros(n_pix)
-    for batch in np.array_split(candidates, int(np.ceil(candidates.size / MASK_SAMPLE_BATCH))):
-        # the NEST children of a pixel tile it exactly
-        sub = (hp.ring2nest(n_side, batch)[:, None] * n_sub + np.arange(n_sub)).ravel()
-        ra, dec = catalog.survey_pix_to_angles(conf, hp.nest2ring(sample_nside, sub), sample_nside)
-        inside = mask.get_values_pos(ra, dec, lonlat=True)
-        coverage[batch] = inside.reshape(batch.size, n_sub).mean(axis=1)
-
+    area = np.sum(coverage) * hp.nside2pixarea(n_side, degrees=True)
     LOGGER.info(
-        f"rotated mask: sampled {candidates.size} pixels at nside {sample_nside} ({n_sub} points each), "
-        f"{np.sum(coverage > 0)} touch the mask"
+        f"joint mask at nside {n_side}: {np.sum(coverage > 0)} pixels touch it, {area:.3f} deg^2 (DES {AREA_DES})"
     )
-    return coverage
+    assert abs(area - AREA_DES) < AREA_DES_ATOL, f"the mask area {area:.4f} deg^2 differs from DES's {AREA_DES}"
+    return coverage, area
+
+
+def _check_against_des(sample, stats, reference):
+    """Asserts that every per-bin statistic in stats agrees with DES's value in reference, within its tolerance."""
+    for key, (des, atol) in reference.items():
+        ours = np.asarray(stats[key])
+        assert np.all(np.abs(ours - np.asarray(des)) <= atol), f"{sample} {key} {ours} differs from DES's {des}"
+    LOGGER.info(f"{sample} {', '.join(reference)} agree with 3x2pt_pipeline_public.ipynb")
 
 
 def _read(group, column, max_objects=None):
@@ -201,7 +166,7 @@ def build_metacal_maps(conf, sign_e1=1, sign_e2=-1, apply_shear_rotation=True, m
     """Shear and count maps of every metadetection source bin, in the rotated footprint frame at analysis.n_side.
 
     The shear map is sum(w e) / (R sum(w)) per pixel, as eq. (10) of https://arxiv.org/pdf/2403.02314, with the scalar
-    R = (R11 + R22) / 2 of metadetect_response. No mean shear is subtracted (plan D8). The signs and the spin-2
+    R = (R11 + R22) / 2 of metadetect_response. No mean shear is subtracted, as in Y3. The signs and the spin-2
     rotation follow build_metacal_map_from_cat for Y3.
 
     Args:
@@ -222,6 +187,7 @@ def build_metacal_maps(conf, sign_e1=1, sign_e2=-1, apply_shear_rotation=True, m
     gamma = np.zeros((n_pix, N_SOURCE_BINS, 2))
     count = np.zeros((n_pix, N_SOURCE_BINS), dtype=np.int32)
     response = np.zeros(N_SOURCE_BINS)
+    stats = {key: np.zeros(N_SOURCE_BINS) for key in ("n", "n_eff", "sigma_e")}
     with h5py.File(release_path(conf, "metadetect"), "r") as mdet:
         for step in ("noshear", "1p", "1m", "2p", "2m"):
             assert sorted(mdet[step].keys()) == [f"tomo_bin_{i}" for i in range(N_SOURCE_BINS)], f"{step} bins"
@@ -247,15 +213,14 @@ def build_metacal_maps(conf, sign_e1=1, sign_e2=-1, apply_shear_rotation=True, m
             var = (np.sum(w**2 * (e1 - mean_e1) ** 2) + np.sum(w**2 * (e2 - mean_e2) ** 2)) / sum_wr**2
             sigma_e = np.sqrt(0.5 * var * sum_w**2 / sum_w2)
             n_eff = sum_w**2 / sum_w2 / area_arcmin
+            stats["n"][i], stats["n_eff"][i], stats["sigma_e"][i] = e1.size, n_eff, sigma_e
             LOGGER.info(
                 f"source bin {i + 1}: N = {e1.size}, n_eff = {n_eff:.3f} arcmin^-2, sigma_e = {sigma_e:.4f}, "
-                f"R11 = {R11:.4f}, R22 = {R22:.4f}, R = {response[i]:.4f} (KP {RESPONSE_KP[i]}), "
-                f"mean e = ({mean_e1:.2e}, {mean_e2:.2e})"
+                f"R11 = {R11:.4f}, R22 = {R22:.4f}, R = {response[i]:.6f}, mean e = ({mean_e1:.2e}, {mean_e2:.2e})"
             )
 
     if max_objects is None:
-        off = np.abs(response - RESPONSE_KP) > RESPONSE_KP_ATOL
-        assert not np.any(off), f"response {response} differs from KP Table 2 {RESPONSE_KP} by > {RESPONSE_KP_ATOL}"
+        _check_against_des("source", {"response": response, **stats}, SOURCE_DES)
 
     return gamma, count, response
 
@@ -316,6 +281,7 @@ def build_maglim_maps(conf, max_objects=None):
 
     count = np.zeros((n_pix, N_LENS_BINS), dtype=np.int32)
     weighted_count = np.zeros((n_pix, N_LENS_BINS))
+    stats = {key: np.zeros(N_LENS_BINS) for key in ("n", "n_eff")}
     with h5py.File(release_path(conf, "maglim"), "r") as maglim:
         assert sorted(maglim.keys()) == [f"tomo_bin_{i}" for i in range(N_LENS_BINS)], "MagLim bins"
 
@@ -332,10 +298,14 @@ def build_maglim_maps(conf, max_objects=None):
             weighted_count[:, i] = np.bincount(pix, weights=w, minlength=n_pix)
 
             n_eff = np.sum(w) ** 2 / np.sum(w**2) / area_arcmin
+            stats["n"][i], stats["n_eff"][i] = w.size, n_eff
             LOGGER.info(
                 f"lens bin {i + 1}: N = {w.size}, mean weight = {np.mean(w):.5f}, n_eff = {n_eff:.4f} arcmin^-2"
             )
             if max_objects is None:
                 assert abs(np.mean(w) - 1) < 1e-3, f"lens bin {i + 1}: the weights average {np.mean(w)}, not 1"
+
+    if max_objects is None:
+        _check_against_des("lens", stats, LENS_DES)
 
     return count, weighted_count

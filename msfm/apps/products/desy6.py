@@ -5,9 +5,9 @@ Created November 2026
 Author: Arne Thomsen
 
 Derives the DES Y6 data products in data/desy6/ and the data-derived config values from the public Y6 release,
-one step per product (dev/notes/desy6_tfrecord_plan.md, section 5). Every step reads its inputs from dirs.catalog,
-writes only to the paths its config keys name (under data/desy6/), stops on a failed check, and records its inputs,
-outputs and the msfm commit in files.provenance.
+one step per product (data/desy6/README.md). Every step reads its inputs from dirs.catalog,
+writes only to the paths its config keys name (under data/desy6/) and stops on a failed check. With --provenance, it
+requires committed code and records its inputs, outputs and the msfm commit in files.provenance.
 
 Steps, in order:
     nz       n(z) text files of all 4 source and 6 lens bins, from the 3x2pt FITS
@@ -46,7 +46,7 @@ import healpy as hp
 import numpy as np
 import yaml
 
-from msfm.utils import catalog_desy6, files, filenames, logger
+from msfm.utils import catalog, catalog_desy6, files, filenames, logger
 
 LOGGER = logger.get_logger(__file__)
 
@@ -66,8 +66,8 @@ VALUE_MARKER = re.compile(
 # config sample key -> (n(z) HDU of the 3x2pt FITS, number of survey bins it must hold)
 NZ_HDUS = {"metacal": ("nz_source", catalog_desy6.N_SOURCE_BINS), "maglim": ("nz_lens", catalog_desy6.N_LENS_BINS)}
 
-# step pixels: the mask is sampled at this resolution, 256 points per nside-512 pixel
-MASK_SAMPLE_NSIDE = 8192
+# step pixels: the mask is rotated at this resolution, the one of the Y3 mask (notebooks/desy3/pixel_file.ipynb)
+MASK_ROTATE_NSIDE = 4096
 # patches 1-3 are the base patch rotated by 180 deg in phi and/or mirrored at the equator; mirroring flips gamma_2
 PATCH_GAMMA_2_SIGN = [1, 1, -1, -1]
 
@@ -194,10 +194,12 @@ def _mirror_pix(pix, n_side):
 def step_pixels(conf, args):
     """Writes the pixel file in the layout files.load_pixel_file reads, as notebooks/desy3/pixel_file.ipynb did for Y3.
 
-    The joint mask is rotated into the footprint frame with the catalogs' rotation. A pixel enters the footprint when
-    the mask covers at least analysis.footprint.coverage_threshold of it. Every survey bin gets the same patches, stored
-    once and hard-linked under each bin label. There is no maglim/systematics group, since the Y6 lens weights are per
-    galaxy. The mask area at full resolution goes into the attributes, for step values.
+    As in Y3, the mask is rotated into the footprint frame (the rotation of the catalog maps) at nside 4096, then
+    downsampled to analysis.n_side. The Y6 mask comes at nside 131072, so it is first degraded to nside 4096, keeping
+    the covered fraction of each pixel. A pixel enters the footprint when the mask covers at least
+    analysis.footprint.coverage_threshold of it. Every survey bin gets the same patches, stored once and hard-linked
+    under each bin label. There is no maglim/systematics group, since the Y6 lens weights are per galaxy. The mask
+    area, exact at full resolution, goes into the attributes, for step values.
 
     Returns:
         tuple: (input paths, output paths), or None with --dry-run
@@ -218,8 +220,12 @@ def step_pixels(conf, args):
         assert not missing, f"survey.{sample}.z_bins names survey bins {missing} that Y6 does not have"
     pix_area = hp.nside2pixarea(n_side, degrees=True)
 
-    area = catalog_desy6.mask_area(conf)
-    coverage = catalog_desy6.rotated_mask_coverage(conf, MASK_SAMPLE_NSIDE)
+    coverage_sky, area = catalog_desy6.mask_coverage(conf, MASK_ROTATE_NSIDE)
+    rotation = conf["analysis"]["footprint"]["rotation"]
+    rotator = hp.Rotator(rot=(0, -rotation["y_rad"], rotation["z_rad"]), eulertype="Y", deg=False)
+    assert np.allclose(rotator.mat, catalog._get_footprint_rotation_matrix(conf)), "not the catalog maps' rotation"
+    coverage = hp.ud_grade(rotator.rotate_map_pixel(coverage_sky), n_side)
+    del coverage_sky
     rotated_area = np.sum(coverage) * pix_area
     assert abs(rotated_area / area - 1) < 1e-2, f"the rotated mask covers {rotated_area:.1f} deg^2, not {area:.1f}"
 
@@ -229,13 +235,15 @@ def step_pixels(conf, args):
     patches = np.stack([patch_0, _rotate_pix(patch_0, n_side, 2), mirrored, _rotate_pix(mirrored, n_side, 2)])
     assert np.unique(patches).size == patches.size, "the four rotated patches overlap: choose new footprint.rotation"
 
-    # for the threshold (plan D9): the footprint area at other thresholds, and the mean coverage inside it
+    # the threshold is chosen as in Y3, so the footprint area matches the mask area
+    area_threshold = np.sort(coverage)[::-1][int(round(area / pix_area)) - 1]
     thresholds = sorted({0.5, 0.6, 0.8, 0.9, threshold})
     areas = ", ".join(f"{t}: {np.sum(coverage >= t) * pix_area:.1f}" for t in thresholds)
     LOGGER.info(
-        f"footprint at threshold {threshold}: {patch_0.size} pixels, {patch_0.size * pix_area:.1f} deg^2, mean "
-        f"coverage {np.mean(coverage[patch_0]):.4f}; mask {area:.1f} deg^2, rotated {rotated_area:.1f} deg^2; "
-        f"area by threshold {{{areas}}} deg^2"
+        f"footprint at threshold {threshold}: {patch_0.size} pixels, {patch_0.size * pix_area:.1f} deg^2 "
+        f"({patch_0.size * pix_area / area - 1:+.2%} vs the mask), mean coverage {np.mean(coverage[patch_0]):.4f}; "
+        f"the mask area is preserved at threshold {area_threshold:.4f}; mask {area:.1f} deg^2, rotated "
+        f"{rotated_area:.1f} deg^2; area by threshold {{{areas}}} deg^2"
     )
 
     # padded data vector: all n_side pixels of every n_side_down pixel the base patch touches, NEST
@@ -253,7 +261,7 @@ def step_pixels(conf, args):
         )
         f.attrs["area_deg2"] = area
         f.attrs["coverage_threshold"] = threshold
-        f.attrs["sample_nside"] = MASK_SAMPLE_NSIDE
+        f.attrs["rotate_nside"] = MASK_ROTATE_NSIDE
         f.attrs["rotation_y_rad"] = conf["analysis"]["footprint"]["rotation"]["y_rad"]
         f.attrs["rotation_z_rad"] = conf["analysis"]["footprint"]["rotation"]["z_rad"]
 
@@ -354,8 +362,11 @@ def step_values(conf, args):
         expected = (footprint_conf["rotation"]["y_rad"], footprint_conf["rotation"]["z_rad"])
         assert made_with == (*expected, footprint_conf["coverage_threshold"]), f"stale pixel file: {made_with}"
         footprint = f["footprint/patches"][0]
+        coverage = f["footprint/coverage"][:].astype(np.float64)
         area = float(f.attrs["area_deg2"])
     footprint_area = footprint.size * hp.nside2pixarea(n_side, degrees=True)
+    # the galaxies follow the mask, so the footprint should hold about the same fraction of both
+    mask_fraction = np.sum(coverage[footprint]) / np.sum(coverage)
 
     survey = {"Aeff": area, "metacal": {}, "maglim": {}}
     for sample, key, n_bins in (
@@ -366,11 +377,15 @@ def step_values(conf, args):
         assert count.shape == (hp.nside2npix(n_side), n_bins), f"{_rel(maps[key])}: shape {count.shape}"
         inside = np.sum(count[footprint], axis=0, dtype=np.float64)
         fraction = inside / np.sum(count, axis=0, dtype=np.float64)
-        # the maps and the mask share the rotation, so only the galaxies of the dropped edge pixels are lost
-        assert np.all(fraction > 0.95), f"{sample}: only {fraction} of the galaxies lie in the footprint"
+        assert np.all(
+            np.abs(fraction - mask_fraction) < 0.02
+        ), f"{sample}: {fraction} of the galaxies lie in the footprint, but {mask_fraction:.4f} of the mask"
         n_gal = inside / footprint_area
         survey[sample]["n_gal"] = {f"{sample}{i + 1}": float(n_gal[i]) for i in range(n_bins)}
-        LOGGER.info(f"{sample} ({key}): n_gal = {n_gal / 60**2} arcmin^-2, in the footprint {fraction}")
+        LOGGER.info(
+            f"{sample} ({key}): n_gal = {n_gal / 60**2} arcmin^-2, in the footprint {fraction} "
+            f"(mask {mask_fraction:.4f})"
+        )
 
     response = np.load(response_path)
     assert response.shape == (catalog_desy6.N_SOURCE_BINS,) and np.all(response > 0), f"response {response}"
@@ -667,6 +682,11 @@ def main(argv=None):
         default=None,
         help="catalog steps: use the first N rows of each catalog, write nothing",
     )
+    parser.add_argument(
+        "--provenance",
+        action="store_true",
+        help="for production runs: refuse uncommitted msfm/ or configs/, record the step in files.provenance",
+    )
     args = parser.parse_args(argv)
     if args.check and args.step != "config":
         parser.error("--check only applies to the step config")
@@ -679,11 +699,14 @@ def main(argv=None):
     if conf["survey"]["name"] != SURVEY_NAME:
         raise ValueError(f"{args.config} is a {conf['survey']['name']} config, these products are {SURVEY_NAME}")
 
-    writes = not (args.dry_run or args.check or args.max_objects is not None)
-    commit = _clean_commit() if writes else None
+    # checked before the step runs, so a dry run with --provenance catches uncommitted code too
+    commit = _clean_commit() if args.provenance else None
     result = STEPS[args.step](conf, args)
     if result is not None:
-        _record_provenance(conf, args.config, args.step, commit, *result)
+        for path in result[1]:
+            LOGGER.info(f"wrote {os.path.abspath(path)}")
+        if args.provenance:
+            _record_provenance(conf, args.config, args.step, commit, *result)
 
 
 if __name__ == "__main__":

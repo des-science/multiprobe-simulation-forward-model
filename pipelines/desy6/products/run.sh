@@ -4,21 +4,22 @@
 #   pipelines/desy6/products/run.sh <pixels|maps|noise> [extra step arguments]
 #   DRYRUN=1 pipelines/desy6/products/run.sh maps      # print the sbatch command, submit nothing
 #
-# nz, values and config run on the login node without this wrapper (dev/notes/desy6_tfrecord_plan.md, 5.5).
+# nz, values and config run on the login node without this wrapper (data/desy6/README.md).
 # Before submitting, the step's --dry-run runs on the login node, so a missing input or a broken environment fails
 # here and not in the queue.
 #
 # Variables:
 #   CONFIG        config relative to the repo, default configs/desy6/v1/default.yaml
-#   TIME          wall clock, default 01:00:00
-#   PARTITION     default normal
+#   TIME          wall clock, default 00:30:00
+#   PARTITION     default debug: each step fits its 30 min limit (one job at a time there)
 #   ACCOUNT       default lp184
 #   UENV          default pytorch/v2.9.1:v2, with view default
 #   PY            default ~/dlss/torch_env/bin/python
 #   LOGDIR        default $SCRATCH/msfm_desy6_products
 #   DRYRUN=1      print the sbatch command instead of submitting
 #
-# msfm/ and configs/ must be committed: the step records the commit it runs on, and refuses to write otherwise.
+# Extra arguments go to the step, e.g. --provenance for a production run: the preflight then also refuses uncommitted
+# msfm/ or configs/.
 set -euo pipefail
 
 die() { echo "run.sh: $*" >&2; exit 1; }
@@ -31,8 +32,8 @@ esac
 
 REPO_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 CONFIG=${CONFIG:-configs/desy6/v1/default.yaml}
-TIME=${TIME:-01:00:00}
-PARTITION=${PARTITION:-normal}
+TIME=${TIME:-00:30:00}
+PARTITION=${PARTITION:-debug}
 ACCOUNT=${ACCOUNT:-lp184}
 UENV=${UENV:-pytorch/v2.9.1:v2}
 PY=${PY:-$HOME/dlss/torch_env/bin/python}
@@ -40,10 +41,6 @@ LOGDIR=${LOGDIR:-${SCRATCH:?SCRATCH is not set, set LOGDIR}/msfm_desy6_products}
 
 cd "$REPO_DIR"
 [[ -f $CONFIG ]] || die "no config $CONFIG in $REPO_DIR"
-# the same check as the step's own, so it fails here and not in the queue
-CHANGES=$(git status --porcelain -- msfm configs)
-[[ -z $CHANGES ]] || die "commit msfm and configs first:
-$CHANGES"
 
 STEP_CMD=("$PY" -m msfm.apps.products.desy6 "$STEP" --config "$CONFIG" "$@")
 
