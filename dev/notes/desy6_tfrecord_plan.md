@@ -1,7 +1,7 @@
 # DES Y6 training set: plan for msfm
 
 Written 2026-11-15. Updated 2026-11-18: the Y3/Y6 split on disk, the config skeleton, and section 5
-(products and config values from one script, written but not run yet, see 5.5). It builds on
+(products and config values from one script; status in `data/desy6/README.md`). It builds on
 `desy6_inventory.md` (2026-11-15) and supersedes it where the two disagree. Since the inventory was
 written:
 
@@ -96,7 +96,7 @@ From the public release `y6a2_files/y6_psf/final_version`. Only keys were listed
 
 **Missing.** The Gold catalog (not downloaded) and the **survey-property maps**. The user has the
 survey-property maps in `/capstor/store/cscs/userlab/lp184/athomsen` and will run `lss_sys` on them
-(D5, section 5.3).
+(D5, `data/desy6/README.md`).
 
 **Used** (section 5): metadetection, MagLim, the joint mask, the 3x2pt FITS (n(z)), and the `M_BIN*`
 columns of `desy6_source_redshift.h5` (m prior). Nothing else from the download.
@@ -127,7 +127,7 @@ columns of `desy6_source_redshift.h5` (m prior). Nothing else from the download.
    - Y6 products go in `data/desy6/` and come from one config-driven script (section 5), not from
      notebooks.
    - Each step writes to the path its config key names, never to a literal.
-   - `data/README.md` gains a Y6 table.
+   - `data/desy6/README.md` describes the Y6 products.
 5. **Projection guard.** Before reading a permutation, msfm checks that:
    - the file has every configured bin key;
    - its `nz/<key>` mean redshift matches the configured survey n(z) within a tolerance;
@@ -258,7 +258,7 @@ of v18. Y6 uses one command-line script instead, for three reasons:
 - they carry hidden state;
 - the steps that read the 149 GB metadetection file need batch jobs.
 
-The steps serve the same purposes as the Y3 production notebooks (table in 5.3). Most of those
+The steps serve the same purposes as the Y3 production notebooks (see `data/desy6/README.md`). Most of those
 notebooks were already thin wrappers around msfm (`catalog.py`, `source_clustering_bias.py`). The
 script is a thin driver in the same way: the logic lives in msfm, where the observation path needs
 the Y6 reader (WP3) anyway. `pixel_file.ipynb` is the exception, because its logic is inline. It
@@ -274,14 +274,15 @@ There is no `notebooks/desy6/`.
   path.
 - **Submission.** One wrapper, `pipelines/desy6/products/run.sh <step>`, submits the compute-node
   steps. Every `sbatch` waits for the user's OK.
-- **Checks.** Each step asserts its checks (5.3) and stops on a failure. Nothing depends on someone
+- **Checks.** Each step asserts its checks (listed in `data/desy6/README.md`) and stops on a failure. Nothing depends on someone
   looking at a plot.
-- **Provenance.** Each step writes its record to the tracked `data/desy6/provenance.yaml`
-  (`files.provenance`). There is one record per step, replaced on a rerun, and git keeps the
-  history. A record holds:
+- **Provenance** (opt-in, `--provenance`, for production runs). Without the flag a step only
+  writes its outputs, so the code can keep changing during development. With it, the step refuses
+  uncommitted `msfm/` or `configs/` and writes its record to the tracked
+  `data/desy6/provenance.yaml` (`files.provenance`). There is one record per step, replaced on a
+  rerun, and git keeps the history. A record holds:
   - its inputs, with size and mtime;
-  - the msfm commit. A step that writes refuses to run while `msfm/` or `configs/` have
-    uncommitted changes, so the commit is the code that ran;
+  - the msfm commit, which is the code that ran;
   - the config, the command and the date;
   - its outputs, with sha256.
 - **Review.** One read-only notebook, `dev/notebooks/y6/products.ipynb`, plots every product,
@@ -294,25 +295,11 @@ There is no `notebooks/desy6/`.
   `default` repository. Debug job 5385066 confirmed `sbatch --uenv`, healsparse and msfm from this
   checkout on a compute node.
 
-### 5.3 Steps
+### 5.3 Steps and status
 
-They run in this order: `nz` → `pixels` → `maps` → `values` → `config` → `noise` → `sc_bias`.
-`sc_bias` comes after `config` because the count model reads `n_gal` from the config.
-
-**Lens bins.** All six survey bins are produced: n(z), maps and `n_gal`. The config then selects
-bins 1, 3, 4, 5 and 6 through `z_bins`, because the KP excludes bin 2. Tomasz is fixing the
-projection to carry all six (2026-11-18).
-
-| step | output (`data/desy6/`) | inputs | Y3 counterpart | checks | runs on |
-|---|---|---|---|---|---|
-| `nz` | `redshift_distributions/desy6_nz_metacal_bin{1-4}.txt`, `desy6_nz_maglim_bin{1-6}.txt` | 3x2pt FITS, HDUs `nz_source` and `nz_lens` | none; the Y3 n(z) came from outside the repo | the values equal the FITS columns; the shared z grid | login node |
-| `pixels` | `desy6_pixels_fiducial_512.h5`: the rotated mask at nside 512 only, with patches for every survey bin (stored once, hard-linked under each label), the rotated coverage (`footprint/coverage`) and the full-resolution area (attribute `area_deg2`, read by `values`) | `.hsp` at full resolution: the area counted 16 coverage pixels at a time (`valid_pixels` of the whole mask needs ~450 GB, DES); the coverage sampled at 256 points per pixel (nside 8192), rotated back with `catalog.survey_pix_to_angles` | `pixel_file` + `patches` | no pixel appears twice in the four patches. The area against DES's 4031.036 deg²; the rotated coverage sums to it within 1%. The layout is the one `load_pixel_file` reads, with no `maglim/systematics` group, since the Y6 lens weights are per galaxy. **Coverage threshold** `analysis.footprint.coverage_threshold`, Y3's 0.72 as a start (D9); FW says the Y6 mask has more small-scale structure *(paper)* | compute node |
-| `maps` | in `dirs.cache`: `desy6_metacal_{gamma_e1p_e2m,count,response}.npy`, `desy6_maglim_{count,weighted_count}.npy`, all survey bins | metadetection (all five steps), MagLim. No cuts: the release is the fiducial selection (`totmaskgood`, `shear_v2_extramask_good` all True) | `build_des` | R from `1p/1m/2p/2m` (Δg = 0.01) against KP Table 2 (0.856, 0.869, 0.819, 0.692 *(paper)*) within 5e-3; the MagLim weights average 1; the mean shear is logged, not subtracted (D8) | compute node |
-| `values` | `desy6_survey_values.yaml`, keyed by bin label | maps (including the response the shear maps were calibrated with), pixel file, `desy6_source_redshift.h5` (`M_BIN*` only) | `config` | n_gal = count in the footprint / footprint area, raw counts for the sources, weighted for MagLim; over 95% of the galaxies in the footprint; the pixel file's rotation and threshold equal the config's; the m means against DES's notebook ([-3.4, 6.46, 15.94, 1.7]e-3) within 1e-5; `Aeff` from the pixel file | login or compute node |
-| `config` | the marked lines of `configs/desy6/v1/default.yaml` (5.4) | the values file | none; done by hand for Y3 | reparse, then every marked key equals the values file | login node |
-| `noise` | `desy6_noise_512.h5`, untracked, ~2.2 GB: (e1/R, e2/R, w, pix) per survey bin, float32, at `metacal<k>/cat` | metadetection `noshear`, the response and count map of `maps` | `noise_file` | per bin, the galaxies' pixels reproduce the count map of `maps` exactly; `load_noise_file` reads the configured bins back with the right row count | compute node |
-| `sc_bias` | `desy6_metacal_bias.h5`, `clean` and `contam` arms | `dg/<source>` of all 2500 grid cosmologies at `perm_0000` from the Y6 projection, the count map, the systematics file | `sc_bias_fit_count` (the fit is `source_clustering_bias.py`) | `b ≥ 0`, multi-start; `systematics_label` agrees with the systematics file (`configuration.py:9-50`) | compute node, after the production projection |
-| (external) | `desy6_metacal_systematics_<label>_512.h5` | an `lss_sys` run on the Y6 survey-property maps in `/capstor/store/cscs/userlab/lp184/athomsen` | as for Y3, external | label, attribute and guard agree | **TODO, the user's run** |
+What each step does, its checks, its results and its status are in `data/desy6/README.md`, the
+reference while the steps run. `sc_bias` comes after `config` because the count model reads `n_gal`
+from the config.
 
 ### 5.4 The config values
 
@@ -334,77 +321,14 @@ The config holds three kinds of value:
 - `--check` changes nothing and exits non-zero if the two disagree. It runs before any production
   submission.
 
-A number can then be traced from its config line to the values file, and from there to
-`provenance.yaml`.
+A number can then be traced from its config line to the values file, and, after a run with
+`--provenance`, from there to `provenance.yaml`.
 
 **Rejected: merging the values file in at load time.** Run dirs embed the config, the numbers would
 no longer be visible in it, and it would change the loader Y3 uses.
 
 **`footprint.rotation` is a choice.** The config takes the Y3 angles and says in a comment that they
 are reused. `pixels` fails if the four rotated Y6 patches overlap; new angles are chosen only then.
-
-### 5.5 Status (2026-11-18, during the daint maintenance)
-
-Code lives in `msfm/apps/products/desy6.py` (the script) and `msfm/utils/catalog_desy6.py` (the
-reader: release file names, response, maps). **Nothing has run in a real environment yet.** The
-code was written while the cluster was down, and per the user it is only syntax-checked and read,
-with no fake-library test harnesses.
-
-| step | state |
-|---|---|
-| housekeeping (5.6) | done |
-| `nz` | written. Its checks are based on the real FITS tables, read with h5py/numpy |
-| `maps` | written: R from the sheared catalogs, saved as `desy6_metacal_response.npy`; no cuts; maps of all survey bins in `dirs.cache` |
-| `config` | written: marker rewrite, reparse checks, `--check` |
-| `pixels` | written: area at full resolution, rotated coverage by sub-pixel sampling, Y3 patch symmetries, padded data vector. Needs an environment with `healsparse` (≥ 1.10.1, as DES) |
-| `values` | written: n_gal, R, the m prior (its check runs on the real `M_BIN` samples: max deviation 4.8e-6) and `Aeff`. `pixels` now reads its file back through `files.load_pixel_file` |
-| `noise` | written: the shapes with the maps' signs, ψ rotation and R; shares the unsheared-catalog reader with `maps` |
-| `sc_bias` | later: needs the production projection and the user's `lss_sys` run |
-| `pipelines/desy6/products/run.sh` | written: submits `pixels`, `maps` or `noise` (1 CPU node, `torch_env` in the pytorch uenv, `lp184`) after their `--dry-run` on the login node; refuses uncommitted changes in `msfm/` or `configs/`; `DRYRUN=1` prints the `sbatch` line |
-| `dev/notebooks/y6/products.ipynb` | written, read-only: provenance (sha256 of every output against the record), n(z), the coverage threshold (histogram, area and interior holes vs threshold, for D9), patches and padding, values vs published numbers plus `config --check`, maps and mean shear (D8), noise file, and the κ_E × δ_g sign / κ_B × δ_g null test (Knox errors, 7 bands in ℓ 30–1000) |
-
-Flags: `--dry-run` (lists the inputs and outputs) on every step but `config`, whose dry run is
-`--check`; `--max-objects N` (a catalog slice, writes nothing) on `maps` and `noise`. Config keys added for
-the steps: `dirs.cache`, `files.provenance`, `files.survey_values`,
-`analysis.footprint.coverage_threshold`. Every not-yet-produced path is
-in `EXPECTED_MISSING` of `check_config_paths.py`; prune each entry once its step has run.
-
-First commands after the maintenance, on the login node in `torch_env` (from the repo root):
-
-```bash
-uenv run --view=default pytorch/v2.9.1:v2 -- ~/dlss/torch_env/bin/python -m msfm.apps.products.desy6 nz --config configs/desy6/v1/default.yaml
-uenv run --view=default pytorch/v2.9.1:v2 -- ~/dlss/torch_env/bin/python -m msfm.apps.products.desy6 maps --config configs/desy6/v1/default.yaml --max-objects 100000
-```
-
-Then, after a commit (so `provenance.yaml` records a clean one), the compute-node steps, each
-`sbatch` with the user's OK, and the login-node steps in between:
-
-```bash
-pipelines/desy6/products/run.sh pixels   # needs healsparse in torch_env
-pipelines/desy6/products/run.sh maps
-uenv run --view=default pytorch/v2.9.1:v2 -- ~/dlss/torch_env/bin/python -m msfm.apps.products.desy6 values --config configs/desy6/v1/default.yaml
-uenv run --view=default pytorch/v2.9.1:v2 -- ~/dlss/torch_env/bin/python -m msfm.apps.products.desy6 config --config configs/desy6/v1/default.yaml
-pipelines/desy6/products/run.sh noise
-```
-
-Open points to verify on the first real runs:
-- the KP Table 2 response values come from an automated paper read. The `maps` check stops if R
-  differs by more than 5e-3;
-- the e1/e2 sign and ψ convention is Y3's until the κ_E × δ_g sign test;
-- the Y6 n(z) grid starts at z = 0.00 (n = 0 there); check it once the n(z) loader reads Y6 labels
-  (WP2);
-- `pixels` uses only `HealSparseCoverage.read`, `HealSparseMap.read` (whole, and with `pixels=`),
-  `valid_pixels` and `get_values_pos`. Its memory assumes the bit-packed mask stays packed when read
-  (a few GB; ~28 GB unpacked).
-
-### 5.6 Housekeeping before the first step (done 2026-11-18)
-
-The skeleton and `data/README.md` described Y6 notebooks at first. Since then:
-
-- the `# <- <notebook>.ipynb` comments became step markers;
-- `footprint.rotation` got the Y3 angles with a reuse comment;
-- `data/README.md` names the step as each product's source, and lists `desy6_source_redshift.h5` as
-  a fifth input (its m columns only).
 
 ---
 
@@ -490,7 +414,7 @@ measured unpinned packing as ~4x slower, so pinning is not optional.
    4. the `configs/desy6/v1/default.yaml` skeleton (written 2026-11-18; `null` marks the values
       that the product steps fill in).
 2. **Phase B, the catalogs are already here.** These are the product steps of section 5, in order:
-   1. housekeeping (5.6, done);
+   1. housekeeping (done);
    2. `nz`, which needs no new reader code;
    3. `pixels`, once an environment with `healsparse` exists;
    4. `maps`, `values`, `config` and `noise`, after WP3 and WP4;
@@ -529,9 +453,13 @@ measured unpinned packing as ~4x slower, so pinning is not optional.
 - **D7.** Lens bias stays linear (v18), not KP's nonlinear fiducial.
 - **D8.** Mean shear. KP subtracts it from the data *(paper)*; v18 does not subtract it anywhere.
   This affects only the observation, not the tfrecords.
-- **D9.** Mask coverage threshold, `analysis.footprint.coverage_threshold`. Starts at Y3's 0.72;
-  re-derive it from `footprint/coverage` in the pixel file after the first `pixels` run, which also
-  logs the footprint area at 0.5–0.9 and the mean coverage inside it.
+- **D9 (decided 2026-11-19).** Mask coverage threshold, `analysis.footprint.coverage_threshold`:
+  **0.73**, chosen as in Y3 so the footprint area matches the mask area. Y3's 0.72 gives 4178.3 deg²
+  against a 4183.5 deg² mask (−0.1%). For Y6 the exact value is 0.735, and 0.73 gives 4055.2 against
+  4031.0 deg² (+0.6%). Partial coverage is handled as in Y3: footprint pixels count as fully
+  observed, and n_gal (galaxies in the footprint ÷ footprint area) absorbs the missing coverage on
+  average. The per-pixel coverage pattern is not modeled. Mean coverage in the footprint: 0.92 for
+  Y3, 0.88 for Y6.
 - **D10.** IA amplitude n(z): the mean n(z), as in v18, or each permutation's own `nz/<bin>`.
 
 **Questions for Tomasz**
