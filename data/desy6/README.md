@@ -258,6 +258,39 @@ with a combined S/N of at most 2.1 in size.
 The lens weight maps pass too (2026-11-20). The raw counts follow F = 1/w with slope 0.91 to 1.37
 (jackknife errors 0.08 to 0.33), and the counts corrected by w are flat within 1.3σ in every bin.
 
+`dev/scripts/observation/data_vs_mock.py` runs the observation path
+(`observation.forward_model_observation_map` on the cached maps, the four variants y3-deep-lss
+evaluates) and compares the result with the forward model. The same run on Y3 (v18) is the
+reference. Results (2026-11-20):
+
+- **Observation path:** it runs on Y6 unchanged, and every check passes in all four variants
+  (shapes, zero padding, the tfrecords' Cl shape, the ψ rotation acting only on lensing and the
+  weights only on clustering).
+- **Noise model:** at the observed source counts, the `count` shape noise against the real
+  galaxies rotated in place, as the ratio of the per-pixel κ variance:
+
+  | source bin | 1 | 2 | 3 | 4 |
+  |---|---|---|---|---|
+  | count / in_place, Y6 | 0.982 | 0.985 | 0.993 | 1.003 |
+  | count / in_place, Y3 | 0.990 | 0.988 | 0.993 | 0.996 |
+
+  The Cl above ℓ = 1000 gives the same ratios. The scatter between realizations is about 0.3%, so
+  the `count` model's noise is up to 2% low in Y6 bins 1 and 2, about 1% more than in Y3.
+- **Data vs mock:** only indicative so far. The Y6 mock is the grid smoke test at S8 ≈ 0.9 with b_sc
+  sampled from [0.5, 1.5], against Y3's fiducial mock with the fitted b_sc.
+
+  | lensing | Y6 | Y3 |
+  |---|---|---|
+  | Cl ratio data / mock, ℓ < 200 | 0.73 to 0.78 | 0.98 to 1.00 |
+  | Cl ratio data / mock, ℓ > 1000 | 0.96 to 0.99 | 1.00 to 1.01 |
+
+  - **Lensing:** the low-ℓ deficit is the mock's higher S8.
+  - **Lens counts:** in both surveys they depend on the galaxy bias each mock draws from its prior
+    (Y3's maglim1 is at 0.74 too).
+
+  The clean comparison needs the fitted bias table and a fiducial mock, both from the production
+  projection.
+
 ## Open
 
 - The n(z) grid starting at z = 0 needs a check once the n(z) loader reads Y6 bin labels. n(z) is
