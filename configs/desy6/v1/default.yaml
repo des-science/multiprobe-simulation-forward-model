@@ -8,6 +8,8 @@
 #   # <- desy6 values: <dotted.key>    the step `config` writes this value from files.survey_values; do not edit
 #                                      it by hand (`config --check` catches a stale value)
 #   OPEN: ...                          a modelling choice still to be made for Y6
+#   TODO: ...                          missing before msfm can run this config
+# TODO: msfm does not check yet that a DESy6 config gets Y6 inputs (the files: paths, the projection's bin keys)
 dirs:
   # the public Y6 release as downloaded by Tomasz, read in place. Used: metadetect_2024-11-07.hdf5,
   # maglim_2024-11-07.hdf5, jointmask_DESY6_2024-06-04.hsp, 3x2pt_2025-07-28-20h_UNBLINDED_wmask_nob2.fits,
@@ -15,24 +17,27 @@ dirs:
   catalog: /capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/data_desy6a2
   # relative to the root of this repository
   redshift_distributions: data/desy6/redshift_distributions # <- step nz
-  # catalog maps of every survey bin and the source response, gitignored
+  # catalog maps of every survey bin and the source response, gitignored; msfm.utils.catalog loads the maps from here
   cache: data/desy6/cache # <- step maps
 
 files:
   # relative to the root of this repository
   pixels: data/desy6/desy6_pixels_fiducial_512.h5 # <- step pixels
   noise: data/desy6/desy6_noise_512.h5 # <- step noise
-  # inputs, outputs and msfm commit of every product step
+  # inputs, outputs and msfm commit of every product step.
+  # TODO: only step nz has a record; rerun pixels, maps, values and noise with --provenance
   provenance: data/desy6/provenance.yaml
   # the data-derived values, per bin label; step config writes them into the lines marked "desy6 values"
   survey_values: data/desy6/desy6_survey_values.yaml # <- step values
   # survey-agnostic: the only inputs shared with Y3
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
-  # Y6 imaging systematics of the sources, from an lss_sys run on the Y6 survey-property maps (not downloaded yet).
-  # The lss_sys run label goes into the name, as for Y3
+  # Y6 imaging systematics of the sources, from an lss_sys run on the Y6 survey-property maps.
+  # TODO: the lss_sys run, then put its run label into the file name, as for Y3
   metacal_systematics: data/desy6/desy6_metacal_systematics_512.h5
-  # source clustering bias, fit against this forward model on the Y6 projection
+  # source clustering bias, fit against this forward model on the Y6 projection.
+  # TODO: step sc_bias, once files.metacal_systematics and the full projection exist. RANGE_1PT in
+  # msfm.utils.source_clustering_bias is fixed and clips the denser Y6 counts
   metacal_bias: data/desy6/desy6_metacal_bias.h5 # <- step sc_bias
   metacal_bias_arm: contam
 
@@ -47,16 +52,20 @@ survey:
     z_bins: [metacal1, metacal2, metacal3, metacal4]
     # in galaxies/deg^2, inside the nside-512 mask
     n_gal: [7433.825377591532, 7635.582963085136, 7677.574950556799, 8182.75987826189] # <- desy6 values: survey.metacal.n_gal
-    # mean and std of M_BIN1-4 in desy6_source_redshift.h5. Only until m is read from the projection
+    # mean and std of M_BIN1-4 in desy6_source_redshift.h5.
+    # TODO: apply each realization's m from the projection (attr shearm) instead of drawing it from this prior
     shear_bias:
       multiplicative:
         mu: [-0.003397673790742481, 0.00645519707938863, 0.015939349904159923, 0.001698109169479922] # <- desy6 values: survey.metacal.shear_bias.multiplicative.mu
         sigma: [0.005784359495438698, 0.006623822114448156, 0.005938030766082593, 0.01220024598003775] # <- desy6 values: survey.metacal.shear_bias.multiplicative.sigma
-    # IA pivot redshift, v18's. OPEN: the KP uses 0.3
+    # IA pivot redshift, v18's. OPEN: the KP uses 0.3, Table 3 in https://arxiv.org/pdf/2601.14559
     z0: 0.62
-    # metadetection response per bin, replaces R_gamma + R_s. DES: 0.856143, 0.868506, 0.819427, 0.691769
+    # metadetection response per bin, replaces R_gamma + R_s; the cached shear maps are already divided by it.
+    # DES: 0.856143, 0.868506, 0.819427, 0.691769
     response: [0.8561433330298941, 0.868505678503587, 0.8194268015985411, 0.6917685743283779] # <- desy6 values: survey.metacal.response
-  # MagLim. The KP drops survey bin 2, so these are survey bins 1, 3, 4, 5, 6
+  # MagLim. The KP drops survey bin 2 (Sec. IV.8 in https://arxiv.org/pdf/2601.14559), so these are survey bins
+  # 1, 3, 4, 5, 6. OPEN: lens magnification, not modelled in v18; the KP samples it per bin with Gaussian priors
+  # (Table 3 in https://arxiv.org/pdf/2601.14559)
   maglim:
     map_types:
       input: [dg]
@@ -70,7 +79,6 @@ survey:
 
 analysis:
   n_side: 512
-  n_pix: 3145728
   # minimal n_side_for the networks, determines the padding of the data vectors
   n_side_down: 16
   # number of cut outs from the full sky
@@ -80,15 +88,15 @@ analysis:
     # same ordering as in the CosmoGrid
     cosmo: [Om, s8, Ob, H0, ns, w0]
     bary: [bary_Mc, bary_nu]
-    # NLA model + first term of TATT (cross term). OPEN: the KP's IA model and priors
+    # NLA model + first term of TATT (cross term). OPEN: the KP's fiducial is TATT with bta fixed at 1 and A2, eta2
+    # sampled, Sec. IV.1 and Table 3 in https://arxiv.org/pdf/2601.14559
     ia:
       nla: [Aia, n_Aia]
       tatt: [bta]
-    # galaxy biasing, named by survey bin. OPEN: whether downstream accepts these names
+    # galaxy biasing, named by survey bin. OPEN: whether downstream accepts these names.
     bg:
       linear: [bg1, bg3, bg4, bg5, bg6]
       quadratic: [bg1_q, bg3_q, bg4_q, bg5_q, bg6_q]
-      stochasticity: [rg]
   footprint:
     # REUSED from configs/desy3/v18/default.yaml (a choice). Step pixels asserts that the four rotated Y6 patches
     # do not overlap; new angles are chosen only if that fails
@@ -129,11 +137,13 @@ analysis:
       # whether to include the TATT cross-term on top of NLA
       extended_nla: True
       nla:
+        # OPEN: the per-bin IA amplitude from the fiducial n(z), as in v18, or from each realization's own n(z)
         truncate_nz: True
         z_min_quantile: 0.05
         z_max_quantile: 0.95
     clustering:
       store: True
+      # linear per-bin bias, as v18 and the KP's fiducial model (Sec. IV.1 in https://arxiv.org/pdf/2601.14559)
       power_law_biasing: False
       per_bin_biasing: True
       # in addition to linear biasing
@@ -168,7 +178,8 @@ analysis:
       # baryons
       bary_Mc: [12.0, 15.0]
       bary_nu: [-2, 2.0]
-      # intrinsic alignment. OPEN: the KP priors
+      # intrinsic alignment. OPEN: the KP's A1 in [-1, 3] and eta1 Gaussian with mean 0 and variance 3 on [-5, 5],
+      # Table 3 in https://arxiv.org/pdf/2601.14559
       Aia: [-3, 3.0]
       n_Aia: [-4, 6.0]
       bta: [0.0, 2.0]
@@ -178,7 +189,6 @@ analysis:
       bg4: [0.8, 3.0]
       bg5: [0.8, 3.0]
       bg6: [0.8, 3.0]
-      rg: [0.6, 1.0]
       Om_s8_border_points:
         [
           [0.1, 1.4],
@@ -189,10 +199,6 @@ analysis:
           [0.1, 0.9],
         ]
   fiducial:
-    # CosmoGrid. There is no Y6 fiducial projection yet
-    n_cosmos: 17 # 1 + 2 * n_perts
-    n_perms_per_cosmo: 1000
-    n_noise_per_signal: 10
     # from Table 1 in https://arxiv.org/pdf/2201.07771
     Om: 0.26
     s8: 0.84
@@ -204,7 +210,8 @@ analysis:
     # baryons
     bary_Mc: 13.82
     bary_nu: 0.0
-    # intrinsic alignment. OPEN: the KP fiducial values
+    # intrinsic alignment. OPEN: the DES Y6 synthetic data use A1 = 0.13 and eta1 = 2.0, Table 3 in
+    # https://arxiv.org/pdf/2601.14859
     Aia: 0.5
     n_Aia: 1.5
     bta: 0.0
@@ -214,21 +221,3 @@ analysis:
     bg4: 1.5707155
     bg5: 1.6251594
     bg6: 1.6702148
-    rg: 0.8
-    perturbations:
-      Om: 0.01
-      s8: 0.015
-      H0: 2.0
-      Ob: 0.001
-      ns: 0.02
-      w0: 0.05
-      bary_Mc: 0.1
-      bary_nu: 0.1
-      Aia: 0.1
-      n_Aia: 0.2
-      bta: 0.1
-      bg1: 0.1
-      bg3: 0.1
-      bg4: 0.1
-      bg5: 0.1
-      bg6: 0.1
