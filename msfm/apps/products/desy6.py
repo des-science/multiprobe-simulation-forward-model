@@ -5,10 +5,10 @@ Created November 2026
 Author: Arne Thomsen
 
 Derives the DES Y6 data products in data/desy6/ and the data-derived config values from the public Y6 release,
-one step per product (data/desy6/README.md). The steps read the release from dirs.catalog, and step systematics reads
-an lss_sys export (--source). Every step writes only to the paths its config keys name (under data/desy6/) and stops
-on a failed check. With --provenance, it requires committed code and records its inputs, outputs and the msfm commit
-in files.provenance.
+one step per product (data/desy6/README.md). The steps read the release from dirs.catalog, step systematics reads
+an lss_sys export and step sc_bias the Y6 CosmoGrid projection (both --source). Every step writes only to the paths
+its config keys name (under data/desy6/) and stops on a failed check. With --provenance, it requires committed code
+and records its inputs, outputs and the msfm commit in files.provenance.
 
 Steps, in order:
     nz           n(z) text files of all 4 source and 6 lens bins, from the 3x2pt FITS
@@ -19,7 +19,7 @@ Steps, in order:
     values       n_gal, m prior and Aeff, written into the config lines marked "# <- step values: <dotted.key>"
     noise        shape-noise file: (e1 / R, e2 / R, w, pix) per galaxy of every source bin
     systematics  source imaging-systematics maps, copied from the nside-512 export of an lss_sys run
-    sc_bias      source-clustering bias table                                      (not implemented yet)
+    sc_bias      source-clustering bias table, fit per cosmology on the projection's perm_0000
 
 Usage:
     python -m msfm.apps.products.desy6 nz --config configs/desy6/v1/default.yaml
@@ -31,9 +31,14 @@ Usage:
     python -m msfm.apps.products.desy6 noise --config configs/desy6/v1/default.yaml   # compute node, ~2 GB out
     python -m msfm.apps.products.desy6 systematics --config configs/desy6/v1/default.yaml \
         --source <lss_sys>/output/desy6/<label>/<label>_512.h5
+    python -m msfm.apps.products.desy6 sc_bias --config configs/desy6/v1/default.yaml --source <projection> \
+        --max-cosmologies 1   # smoke test
+    python -m msfm.apps.products.desy6 sc_bias --config configs/desy6/v1/default.yaml \
+        --source <projection>   # compute node, minutes
 
 --dry-run lists a step's inputs and outputs and writes nothing. --max-objects N runs a catalog step on the first N
-rows of every catalog and writes nothing, so a partial map can never pass for the product.
+rows of every catalog and writes nothing, so a partial map can never pass for the product. --max-cosmologies N does
+the same for step sc_bias with the first N grid cosmologies.
 """
 
 import argparse
@@ -45,6 +50,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 import h5py
 import healpy as hp
@@ -52,6 +58,7 @@ import numpy as np
 import yaml
 
 from msfm.utils import catalog, catalog_desy6, configuration, files, filenames, logger
+from msfm.utils import source_clustering_bias as scb
 
 LOGGER = logger.get_logger(__file__)
 
@@ -84,6 +91,11 @@ MAPS_FILES = {
     "metacal_response": "metacal_response.npy",
     "maglim_count": "maglim_count.npy",
 }
+
+# step sc_bias: the permutation every cosmology is fit on, as for Y3, and the arms of the table with whether the
+# forward model of each imprints the imaging systematics (shape_noise.survey_systematics)
+SC_BIAS_PERM = 0
+SC_BIAS_ARMS = {"clean": False, "contam": True}
 
 
 def _out_path(rel_path):
@@ -683,6 +695,135 @@ def step_systematics(conf, args):
     return inputs, [out_path]
 
 
+def step_sc_bias(conf, args):
+    """Fits the source-clustering bias table files.metacal_bias, as notebooks/desy3/sc_bias_fit_count.ipynb did for
+    Y3: per cosmology and source bin, the b whose Poisson-sampled counts on the projection's dg/<bin> at perm_0000
+    match the one-point function of the observed counts of step maps. One HDF5 group per arm: clean, without imaging
+    systematics, and contam, with the contamination of step systematics imprinted. files.metacal_bias_arm picks one.
+
+    --source is the projection root, which holds grid/ and, once projected, fiducial/. The table is written to a
+    temporary file and checked first: every fit finite and positive, and a config pointing at it passes
+    files.read_metacal_bias and configuration.print_and_check_modeling_in_config, which matches each arm's
+    systematics label against the forward model. --max-cosmologies N fits the first N grid cosmologies, runs the same
+    checks and writes nothing.
+
+    Returns:
+        tuple: (input paths, output paths), or None with --dry-run or --max-cosmologies
+    """
+    source = os.path.abspath(args.source)
+    pixel_path = _out_path(conf["files"]["pixels"])
+    count_path = _maps_path(conf, "metacal_count")
+    sys_path = _out_path(conf["files"]["metacal_systematics"])
+    meta_path = os.path.join(REPO_DIR, conf["files"]["meta_info"])
+    inputs = [source, pixel_path, count_path, sys_path, meta_path]
+    out_path = _out_path(conf["files"]["metacal_bias"])
+
+    # every grid cosmology, or the first N; the fiducial one only in a full run, and only once it is projected
+    cosmo_dirs = scb.get_cosmogrid_dirs(conf, source, with_fiducial=False)
+    if args.max_cosmologies is not None:
+        cosmo_dirs = dict(list(cosmo_dirs.items())[: args.max_cosmologies])
+    else:
+        fiducial_dir = os.path.join(source, "fiducial", "cosmo_fiducial")
+        if os.path.isdir(fiducial_dir):
+            cosmo_dirs["fiducial"] = fiducial_dir
+        else:
+            LOGGER.warning(f"{fiducial_dir} does not exist, so the table gets no fiducial key")
+    with_bary = conf["analysis"]["modelling"]["baryonified"]
+    missing = [
+        key
+        for key, cosmo_dir in cosmo_dirs.items()
+        if not os.path.isfile(
+            filenames.get_filename_full_maps(os.path.join(cosmo_dir, f"perm_{SC_BIAS_PERM:04d}"), with_bary=with_bary)
+        )
+    ]
+    LOGGER.info(f"{len(cosmo_dirs) - len(missing)} of {len(cosmo_dirs)} cosmologies have perm_{SC_BIAS_PERM:04d}")
+    if args.dry_run:
+        return _dry_run("sc_bias", inputs, [out_path])
+    if missing:
+        raise FileNotFoundError(f"{len(missing)} cosmologies have no projection under {source}, e.g. {missing[:3]}")
+    for path in inputs[1:]:
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"{_rel(path)} does not exist")
+
+    # the target, the same for both arms. The histogram has to reach the largest observed count, or it drops pixels
+    _, count_map = catalog.build_metacal_map_from_cat(conf, debug=False)
+    target, n_bar, mask = scb.build_target(conf, count_map=count_map)
+    max_count = count_map[mask].max(axis=0)
+    assert np.all(
+        max_count <= len(target[0])
+    ), f"the largest footprint counts {max_count} exceed shape_noise.bias_fit_max_count {len(target[0])}"
+    LOGGER.info(f"largest footprint count per source bin {max_count}, histogram up to {len(target[0])}")
+
+    with h5py.File(sys_path, "r") as f:
+        sys_label = str(f.attrs["label"])
+    # the fit pairs the contamination, in base-patch order, with the footprint pixels in ascending order
+    contamination = files.get_metacal_systematics(conf)
+    _, patches, _, _ = files.load_pixel_file(conf)
+    assert np.array_equal(patches["metacal"][0][0], np.flatnonzero(mask)), "the base patch is not the sorted mask"
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = os.path.join(tmp_dir, os.path.basename(out_path))
+        biases = {}
+        for i, (arm, systematics) in enumerate(SC_BIAS_ARMS.items()):
+            biases[arm] = scb.fit_bias_table(
+                conf,
+                cosmo_dirs,
+                tmp_path,
+                target=target,
+                n_bar=n_bar,
+                mask=mask,
+                perm=SC_BIAS_PERM,
+                contamination=contamination if systematics else None,
+                systematics_label=sys_label if systematics else None,
+                group=arm,
+                mode="w" if i == 0 else "a",
+            )
+        _check_bias_table(conf, tmp_path, biases)
+
+        if args.max_cosmologies is not None:
+            LOGGER.info(f"--max-cosmologies {args.max_cosmologies}: the table passed every check, nothing is written")
+            return None
+        shutil.copyfile(tmp_path, out_path)
+        assert _sha256(out_path) == _sha256(tmp_path), f"{_rel(out_path)}: the copy differs from the checked table"
+    return inputs, [out_path]
+
+
+def _check_bias_table(conf, path, biases):
+    """Every fit is finite and positive (0 is the lower bound of the fit), every loss finite, and each arm reads
+    back unchanged through the loader and passes the checks the pipelines run on its config."""
+    z_bins = conf["survey"]["metacal"]["z_bins"]
+    table, loss = {}, {}
+    with h5py.File(path, "r") as f:
+        # the row order of the stacked losses
+        keys = list(f["clean"]["keys"].asstr()[:])
+        for arm in SC_BIAS_ARMS:
+            assert list(f[arm]["keys"].asstr()[:]) == keys and set(biases[arm]) == set(keys), f"{arm}: keys differ"
+            table[arm] = np.array([biases[arm][key] for key in keys])
+            loss[arm] = f[arm]["loss"][:]
+            assert np.all(np.isfinite(table[arm])) and np.all(table[arm] > 0), f"{arm}: a bias is not positive"
+            assert np.all(np.isfinite(loss[arm])), f"{arm}: a loss is not finite"
+
+    for arm, systematics in SC_BIAS_ARMS.items():
+        check_conf = copy.deepcopy(conf)
+        check_conf["files"]["metacal_bias"] = path
+        check_conf["files"]["metacal_bias_arm"] = arm
+        check_conf["analysis"]["modelling"]["lensing"]["shape_noise"]["survey_systematics"] = systematics
+        for key in keys:
+            read = files.read_metacal_bias(key, check_conf)
+            assert np.array_equal(read, biases[arm][key]), f"{arm}/{key}: read back {read}, fit {biases[arm][key]}"
+        configuration.print_and_check_modeling_in_config(check_conf)
+
+    for i, z_bin in enumerate(z_bins):
+        clean, contam = table["clean"][:, i], table["contam"][:, i]
+        LOGGER.info(
+            f"{z_bin}: b clean {np.median(clean):.3f} [{clean.min():.3f}, {clean.max():.3f}], "
+            f"contam {np.median(contam):.3f} [{contam.min():.3f}, {contam.max():.3f}], "
+            f"median contam / clean {np.median(contam / clean):.3f}, "
+            f"loss clean max {loss['clean'][:, i].max():.3g}, contam max {loss['contam'][:, i].max():.3g}"
+        )
+    LOGGER.info(f"bias table of {len(keys)} cosmologies checked")
+
+
 STEPS = {
     "nz": step_nz,
     "pixels": step_pixels,
@@ -690,8 +831,11 @@ STEPS = {
     "values": step_values,
     "noise": step_noise,
     "systematics": step_systematics,
+    "sc_bias": step_sc_bias,
 }
 CATALOG_STEPS = {"maps", "noise"}
+# the steps that read an input from outside the release, given as --source
+SOURCE_STEPS = {"systematics", "sc_bias"}
 # the code a step runs: changes elsewhere (data/desy6, notebooks) don't change a product
 CODE_PATHS = ("msfm", "configs")
 
@@ -758,7 +902,17 @@ def main(argv=None):
         default=None,
         help="catalog steps: use the first N rows of each catalog, write nothing",
     )
-    parser.add_argument("--source", default=None, help="systematics only: the nside-512 export of the lss_sys run")
+    parser.add_argument(
+        "--max-cosmologies",
+        type=int,
+        default=None,
+        help="sc_bias only: fit the first N grid cosmologies, write nothing",
+    )
+    parser.add_argument(
+        "--source",
+        default=None,
+        help="systematics: the nside-512 export of the lss_sys run; sc_bias: the projection root, which holds grid/",
+    )
     parser.add_argument(
         "--provenance",
         action="store_true",
@@ -769,8 +923,10 @@ def main(argv=None):
         parser.error("--check only applies to the step values")
     if args.max_objects is not None and (args.step not in CATALOG_STEPS or args.max_objects < 1):
         parser.error(f"--max-objects takes a positive number and applies to {sorted(CATALOG_STEPS)}")
-    if (args.source is not None) != (args.step == "systematics"):
-        parser.error("--source is required by the step systematics and applies to no other step")
+    if args.max_cosmologies is not None and (args.step != "sc_bias" or args.max_cosmologies < 1):
+        parser.error("--max-cosmologies takes a positive number and applies to the step sc_bias")
+    if (args.source is not None) != (args.step in SOURCE_STEPS):
+        parser.error(f"--source is required by the steps {sorted(SOURCE_STEPS)} and applies to no other step")
 
     conf = files.load_config(args.config)
     if conf["survey"]["name"] != SURVEY_NAME:

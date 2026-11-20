@@ -57,6 +57,8 @@ pipelines/daint/desy6/products/run.sh <step>    # PARTITION, TIME, LOGDIR; DRYRU
 - `values --check` writes nothing and exits 1 if a value in the config is stale.
 - `--max-objects N` (`maps`, `noise`) reads the first N rows of each catalog and writes nothing. A
   smoke test.
+- `--max-cosmologies N` (`sc_bias`) fits the first N grid cosmologies, runs every check and writes
+  nothing. The same kind of smoke test.
 - `--provenance` is for production runs. The step then refuses uncommitted `msfm/` or `configs/`,
   and records its inputs, outputs (sha256) and the msfm commit in `provenance.yaml`.
 
@@ -223,11 +225,25 @@ pixels it contains.
 
 ### `sc_bias`: source-clustering bias (not written yet)
 
-Will write `desy6_metacal_bias.h5` (`clean` and `contam` arms), as Y3's `sc_bias_fit_count.ipynb`.
-v1 uses `count` shape noise with the systematics of step `systematics` imprinted, like v18, so the
-bias must be fit against that model, and `configuration.py` checks that the labels agree. It is
-blocked on the Y6 projection: the fit uses `dg/<source>` of all 2500 grid cosmologies at
-`perm_0000`, and only test files exist so far.
+- **Writes** `desy6_metacal_bias.h5`, as Y3's `sc_bias_fit_count.ipynb`: per cosmology and source
+  bin, the b whose Poisson-sampled counts on the projection's `dg/<bin>` at `perm_0000` match the
+  one-point function of the observed counts of `maps` (`source_clustering_bias.fit_bias_table`).
+  One group per arm: `clean` (no imaging systematics) and `contam` (the contamination of
+  `systematics` imprinted), picked by `files.metacal_bias_arm`. v1 uses `contam`, since its forward
+  model imprints the same systematics. `--source` is the projection root, which holds `grid/` and,
+  once projected, `fiducial/`; without it the table has no `fiducial` key.
+- **Checks:** every selected cosmology has its `perm_0000` file before anything runs; n_bar agrees
+  with `survey.metacal.n_gal` to 5%; the histogram reaches the largest footprint count
+  (`bias_fit_max_count`); the base patch is the sorted mask, the order the fit pairs the
+  contamination with. The table is written to a temporary file first: every b finite and positive,
+  every loss finite, and each arm reads back unchanged through `files.read_metacal_bias` and passes
+  `configuration.print_and_check_modeling_in_config`, which matches the arm's systematics label
+  against its forward model. A failed check writes nothing.
+- **Status:** blocked on the Y6 projection, since only the test files of `cosmo_000001` exist.
+  On those (`--max-cosmologies 1`, 12 s per arm on one core), b is 0.87, 1.29, 1.61, 2.69 in
+  `clean` and 0.81, 1.19, 1.45, 1.90 in `contam`: as for Y3, the imprint widens the counts, so the
+  fit needs less bias, most in the highest bin. The contamination also lowers the loss in every
+  bin. The largest footprint counts are 293, 359, 280, 260 against the histogram's 400.
 
 ## Review
 
