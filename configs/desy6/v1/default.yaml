@@ -1,5 +1,5 @@
 # DES Y6 forward model, version 1. SKELETON (2026-11-18): msfm cannot run it until the Y6 code changes are in and
-# the last two data/desy6/ products exist (files.metacal_systematics and files.metacal_bias).
+# the last data/desy6/ product exists (files.metacal_bias).
 #
 # Base: configs/desy3/v18/default.yaml. Every key without a marker keeps its v18 value on purpose; that includes
 # the shape-noise model (count, with the imaging systematics imprinted on the source density).
@@ -24,16 +24,16 @@ files:
   pixels: data/desy6/desy6_pixels_fiducial_512.h5 # <- step pixels
   noise: data/desy6/desy6_noise_512.h5 # <- step noise
   # inputs, outputs and msfm commit of every product step.
-  # TODO: only step nz has a record; rerun pixels, maps, values and noise with --provenance
+  # TODO: only step nz has a record; rerun pixels, maps, values, noise and systematics with --provenance
   provenance: data/desy6/provenance.yaml
   # survey-agnostic: the only inputs shared with Y3
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
-  # Y6 imaging systematics of the sources, from an lss_sys run on the Y6 survey-property maps.
-  # TODO: the lss_sys run, then put its run label into the file name, as for Y3
-  metacal_systematics: data/desy6/desy6_metacal_systematics_512.h5
+  # Y6 imaging systematics of the sources: lss_sys run metadetect_sources_MAIN19, Y3's method on the 19 DES Y6
+  # survey-property templates. The file name carries the run label, as for Y3
+  metacal_systematics: data/desy6/desy6_metacal_systematics_MAIN19_512.h5 # <- step systematics
   # source clustering bias, fit against this forward model on the Y6 projection.
-  # TODO: step sc_bias, once files.metacal_systematics and the full projection exist
+  # TODO: step sc_bias, once the full projection exists
   metacal_bias: data/desy6/desy6_metacal_bias.h5 # <- step sc_bias
   metacal_bias_arm: contam
 

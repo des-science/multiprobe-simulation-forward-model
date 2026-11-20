@@ -5,19 +5,21 @@ Created November 2026
 Author: Arne Thomsen
 
 Derives the DES Y6 data products in data/desy6/ and the data-derived config values from the public Y6 release,
-one step per product (data/desy6/README.md). Every step reads its inputs from dirs.catalog,
-writes only to the paths its config keys name (under data/desy6/) and stops on a failed check. With --provenance, it
-requires committed code and records its inputs, outputs and the msfm commit in files.provenance.
+one step per product (data/desy6/README.md). The steps read the release from dirs.catalog, and step systematics reads
+an lss_sys export (--source). Every step writes only to the paths its config keys name (under data/desy6/) and stops
+on a failed check. With --provenance, it requires committed code and records its inputs, outputs and the msfm commit
+in files.provenance.
 
 Steps, in order:
-    nz       n(z) text files of all 4 source and 6 lens bins, from the 3x2pt FITS
-    pixels   pixel file: the rotated nside-512 footprint, its four patches and the padded data vector, from the mask,
-             and the MagLim weight maps that correct the observed lens counts, from the catalog
-    maps     shear and count maps of every source and lens bin, and the source response, in dirs.cache, where the
-             builders of msfm.utils.catalog load them
-    values   n_gal, m prior and Aeff, written into the config lines marked "# <- step values: <dotted.key>"
-    noise    shape-noise file: (e1 / R, e2 / R, w, pix) per galaxy of every source bin
-    sc_bias  source-clustering bias table                                          (not implemented yet)
+    nz           n(z) text files of all 4 source and 6 lens bins, from the 3x2pt FITS
+    pixels       pixel file: the rotated nside-512 footprint, its four patches and the padded data vector, from the
+                 mask, and the MagLim weight maps that correct the observed lens counts, from the catalog
+    maps         shear and count maps of every source and lens bin, and the source response, in dirs.cache, where the
+                 builders of msfm.utils.catalog load them
+    values       n_gal, m prior and Aeff, written into the config lines marked "# <- step values: <dotted.key>"
+    noise        shape-noise file: (e1 / R, e2 / R, w, pix) per galaxy of every source bin
+    systematics  source imaging-systematics maps, copied from the nside-512 export of an lss_sys run
+    sc_bias      source-clustering bias table                                      (not implemented yet)
 
 Usage:
     python -m msfm.apps.products.desy6 nz --config configs/desy6/v1/default.yaml
@@ -27,6 +29,8 @@ Usage:
     python -m msfm.apps.products.desy6 values --config configs/desy6/v1/default.yaml
     python -m msfm.apps.products.desy6 values --config configs/desy6/v1/default.yaml --check   # exit 1 if stale
     python -m msfm.apps.products.desy6 noise --config configs/desy6/v1/default.yaml   # compute node, ~2 GB out
+    python -m msfm.apps.products.desy6 systematics --config configs/desy6/v1/default.yaml \
+        --source <lss_sys>/output/desy6/<label>/<label>_512.h5
 
 --dry-run lists a step's inputs and outputs and writes nothing. --max-objects N runs a catalog step on the first N
 rows of every catalog and writes nothing, so a partial map can never pass for the product.
@@ -38,6 +42,7 @@ import datetime
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -54,7 +59,7 @@ REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 SURVEY_NAME = "DESy6"
 OUT_ROOT = "data/desy6"
 CONFIG_ROOT = "configs/desy6"
-STEP_ORDER = ["nz", "pixels", "maps", "values", "noise", "sc_bias"]
+STEP_ORDER = ["nz", "pixels", "maps", "values", "noise", "systematics", "sc_bias"]
 
 # a config line whose value the step values writes: "<key>: <value> # <- step values: <dotted.key>"
 VALUE_MARKER = re.compile(
@@ -603,12 +608,88 @@ def step_noise(conf, args):
     return inputs, [out_path]
 
 
+def step_systematics(conf, args):
+    """Copies the source imaging-systematics maps of an lss_sys run, its nside-512 export (--source), to
+    files.metacal_systematics, the file files.get_metacal_systematics reads. Y3's file was copied by hand. lss_sys
+    keeps its output out of git, so this copy and its provenance record tie the forward model to the run.
+
+    The export is checked before anything is written: the layout the loader expects, the mask of step pixels as its
+    footprint, and the run label in the file name, since configuration.py matches that label against the bias table.
+    It must also read through files.get_metacal_systematics, which asserts that the run covers the whole footprint.
+    Last, the observed source counts of step maps must rise with the contamination C in every bin.
+
+    Returns:
+        tuple: (input paths, output paths), or None with --dry-run
+    """
+    source = os.path.abspath(args.source)
+    pixel_path = _out_path(conf["files"]["pixels"])
+    count_path = _maps_path(conf, "metacal_count")
+    inputs = [source, pixel_path, count_path]
+    out_path = _out_path(conf["files"]["metacal_systematics"])
+    if args.dry_run:
+        return _dry_run("systematics", inputs, [out_path])
+    for path in inputs:
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"{_rel(path)} does not exist")
+
+    n_side, n_bins = conf["analysis"]["n_side"], catalog_desy6.N_SOURCE_BINS
+    n_pix = hp.nside2npix(n_side)
+    # the loader reads bin{i} for the i-th configured bin
+    survey_bins = [files.get_z_bin_number(z) for z in conf["survey"]["metacal"]["z_bins"]]
+    assert survey_bins == list(range(1, n_bins + 1)), f"survey.metacal.z_bins must be all {n_bins} survey bins"
+
+    with h5py.File(source, "r") as f:
+        label = str(f.attrs["label"])
+        assert str(f.attrs["ordering"]) == "RING", f"ordering {f.attrs['ordering']}"
+        assert int(f.attrs["nside"]) == n_side, f"nside {f.attrs['nside']}, not analysis.n_side {n_side}"
+        assert int(f.attrs["n_bins"]) == n_bins, f"{f.attrs['n_bins']} bins"
+        assert str(f.attrs["off_footprint"]) == "zero", f"off_footprint {f.attrs['off_footprint']}"
+        assert catalog_desy6.RELEASE_FILES["mask"] in str(f.attrs["footprint"]), f"footprint {f.attrs['footprint']}"
+        assert set(f) == {f"bin{i}" for i in range(n_bins)}, f"groups {sorted(f)}"
+        for i in range(n_bins):
+            for dataset in ("contamination", "weight"):
+                values = f[f"bin{i}/{dataset}"][:]
+                assert values.shape == (n_pix,), f"bin{i}/{dataset}: shape {values.shape}"
+                assert np.all(np.isfinite(values)) and np.all(values >= 0), f"bin{i}/{dataset}: negative or NaN"
+        LOGGER.info(f"lss_sys run {label!r}, lss_sys {str(f.attrs['git_sha'])[:8]}")
+
+    # <survey>_metacal_systematics_<run label token>_<nside>.h5, as Y3's desy3_metacal_systematics_STD32_512.h5
+    expected = f"{conf['survey']['name'].lower()}_metacal_systematics_{label.rsplit('_', 1)[-1]}_{n_side}.h5"
+    assert os.path.basename(out_path) == expected, f"files.metacal_systematics must be named {expected} for {label}"
+
+    # the source itself goes through the loader, so a failed check writes nothing
+    source_conf = copy.deepcopy(conf)
+    source_conf["files"]["metacal_systematics"] = source
+    contamination = files.get_metacal_systematics(source_conf)
+    weight = files.get_metacal_systematics(source_conf, dataset="weight")
+
+    # base-patch order, as the loader returns it; the count map is in the same footprint frame
+    _, patches, _, _ = files.load_pixel_file(conf)
+    count = np.load(count_path)
+    assert count.shape == (n_pix, n_bins), f"{_rel(count_path)}: shape {count.shape}"
+    count = count[patches["metacal"][0][0]].astype(np.float64)
+    for i in range(n_bins):
+        c, raw = contamination[:, i], count[:, i] / np.mean(count[:, i])
+        corrected = count[:, i] * weight[:, i] / np.mean(count[:, i] * weight[:, i])
+        r = np.corrcoef(c, raw)[0, 1]
+        LOGGER.info(
+            f"source bin {i + 1}: C in [{c.min():.3f}, {c.max():.3f}], std {c.std():.4f}; counts vs C: r = {r:.3f}, "
+            f"slope {np.polyfit(c, raw, 1)[0]:.3f}, W-corrected {np.polyfit(c, corrected, 1)[0]:.3f}"
+        )
+        assert r > 0, f"source bin {i + 1}: the observed counts fall with the contamination (r = {r:.3f})"
+
+    shutil.copyfile(source, out_path)
+    assert _sha256(out_path) == _sha256(source), f"{_rel(out_path)}: the copy differs from {source}"
+    return inputs, [out_path]
+
+
 STEPS = {
     "nz": step_nz,
     "pixels": step_pixels,
     "maps": step_maps,
     "values": step_values,
     "noise": step_noise,
+    "systematics": step_systematics,
 }
 CATALOG_STEPS = {"maps", "noise"}
 # the code a step runs: changes elsewhere (data/desy6, notebooks) don't change a product
@@ -677,6 +758,7 @@ def main(argv=None):
         default=None,
         help="catalog steps: use the first N rows of each catalog, write nothing",
     )
+    parser.add_argument("--source", default=None, help="systematics only: the nside-512 export of the lss_sys run")
     parser.add_argument(
         "--provenance",
         action="store_true",
@@ -687,6 +769,8 @@ def main(argv=None):
         parser.error("--check only applies to the step values")
     if args.max_objects is not None and (args.step not in CATALOG_STEPS or args.max_objects < 1):
         parser.error(f"--max-objects takes a positive number and applies to {sorted(CATALOG_STEPS)}")
+    if (args.source is not None) != (args.step == "systematics"):
+        parser.error("--source is required by the step systematics and applies to no other step")
 
     conf = files.load_config(args.config)
     if conf["survey"]["name"] != SURVEY_NAME:

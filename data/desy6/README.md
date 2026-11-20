@@ -14,8 +14,8 @@ all of them from the public Y6 release, `msfm/apps/products/desy6.py`, for
 | `maps` | `cache/` | no | done 2026-11-20, with the unrotated shear |
 | `values` | the marked lines of the config | yes | done 2026-11-20, lens n_gal from the weight maps |
 | `noise` | `desy6_noise_512.h5` | no | done 2026-11-19 |
+| `systematics` | `desy6_metacal_systematics_MAIN19_512.h5` | yes | done 2026-11-20, `lss_sys` run `metadetect_sources_MAIN19` |
 | `sc_bias` | `desy6_metacal_bias.h5` | yes | not written, blocked (see below) |
-| external | `desy6_metacal_systematics_<label>_512.h5` | yes | TODO: an `lss_sys` run |
 
 Paths not produced yet are in `EXPECTED_MISSING` of `dev/scripts/data_audit/check_config_paths.py`.
 Remove each once its step has run.
@@ -61,7 +61,7 @@ pipelines/desy6/products/run.sh <step>    # PARTITION, TIME, LOGDIR; DRYRUN=1 pr
   and records its inputs, outputs (sha256) and the msfm commit in `provenance.yaml`.
 
 Every step stops on a failed check. The order is `nz` → `pixels` → `maps` → `values` → `noise` →
-`sc_bias`.
+`systematics` → `sc_bias`.
 
 All survey bins are produced: 4 source and 6 lens bins. The config picks lens bins 1 and 3–6
 through `survey.maglim.z_bins`, since the KP drops bin 2.
@@ -190,16 +190,44 @@ pixels it contains.
 - **Check:** each bin's pixels reproduce the `maps` count map exactly.
 - **Result:** 139.7M galaxies, 2.2 GB. About a minute on one node.
 
+### `systematics`: source imaging systematics
+
+- **Writes** `desy6_metacal_systematics_MAIN19_512.h5`, a byte copy of the nside-512 export of an
+  `lss_sys` run, passed as `--source`. `lss_sys` keeps its output out of git, so the copy and its
+  provenance record are what tie the forward model to the run. Y3's file was copied by hand.
+- **The run:** `metadetect_sources_MAIN19` (`lss_sys` commit `63b7b37`), Y3's method applied
+  unchanged to the metadetection sources and the 19 DES Y6 survey-property templates, on this
+  directory's mask. Source:
+  `/users/athomsen/repos/lss_sys/output/desy6/metadetect_sources_MAIN19/metadetect_sources_MAIN19_512.h5`.
+  Per bin, `contamination` = ⟨1/W⟩ imprints the survey on a clean model and `weight` = ⟨W⟩
+  corrects observed counts. v1 uses only `contamination` (`shape_noise.survey_systematics`).
+- **Checks:** the layout `files.get_metacal_systematics` reads (RING, nside 512, 4 bins, zero off
+  the footprint, finite); its footprint is the mask of `pixels`; the file name carries the run
+  label, which `configuration.py` matches against the bias table; the loader reads it, which
+  asserts that the run covers every footprint pixel; and the observed source counts of `maps` rise
+  with C in every bin. A failed check writes nothing.
+- **Result:** all 309,226 footprint pixels covered. Over the footprint:
+
+  | source bin | 1 | 2 | 3 | 4 |
+  |---|---|---|---|---|
+  | std of C, Y6 | 0.070 | 0.079 | 0.096 | 0.153 |
+  | std of C, Y3 | 0.056 | 0.084 | 0.097 | 0.224 |
+  | corr(counts, C), Y6 | 0.34 | 0.37 | 0.47 | 0.66 |
+  | slope of counts on C, raw, Y6 | 1.12 | 1.19 | 1.18 | 1.04 |
+  | slope, corrected by W, Y6 | 0.13 | 0.20 | 0.19 | 0.05 |
+  | slope, raw, Y3 | 1.18 | 1.04 | 1.07 | 1.03 |
+  | slope, corrected by W, Y3 | 0.19 | 0.06 | 0.08 | 0.03 |
+
+  The counts are normalized to unit mean. W removes most of the trend but not all of it, in Y3 as in Y6.
+  Seconds on a login node.
+
 ### `sc_bias`: source-clustering bias (not written yet)
 
 Will write `desy6_metacal_bias.h5` (`clean` and `contam` arms), as Y3's `sc_bias_fit_count.ipynb`.
-It is blocked on two inputs:
-
-- **The Y6 imaging-systematics file**, from an `lss_sys` run on the Y6 survey-property maps. v1 uses
-  `count` shape noise with the systematics imprinted, like v18, so the bias must be fit against that
-  model, and `configuration.py` checks that the labels agree.
-- **The Y6 projection.** The fit uses `dg/<source>` of all 2500 grid cosmologies at `perm_0000`;
-  only test files exist so far.
+v1 uses `count` shape noise with the systematics of step `systematics` imprinted, like v18, so the
+bias must be fit against that model, and `configuration.py` checks that the labels agree. It is
+blocked on the Y6 projection: the fit uses `dg/<source>` of all 2500 grid cosmologies at
+`perm_0000`, and only test files exist so far.
 
 ## Review
 
