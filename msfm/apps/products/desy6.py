@@ -11,7 +11,8 @@ requires committed code and records its inputs, outputs and the msfm commit in f
 
 Steps, in order:
     nz       n(z) text files of all 4 source and 6 lens bins, from the 3x2pt FITS
-    pixels   pixel file: the rotated nside-512 footprint, its four patches and the padded data vector, from the mask
+    pixels   pixel file: the rotated nside-512 footprint, its four patches and the padded data vector, from the mask,
+             and the MagLim weight maps that correct the observed lens counts, from the catalog
     maps     shear, count and weighted-count maps of every source and lens bin, and the source response, in dirs.cache
     values   n_gal, response, m prior and Aeff, per bin label, in files.survey_values
     config   writes files.survey_values into the config lines marked "# <- desy6 values: <dotted.key>"
@@ -198,16 +199,20 @@ def step_pixels(conf, args):
     downsampled to analysis.n_side. The Y6 mask comes at nside 131072, so it is first degraded to nside 4096, keeping
     the covered fraction of each pixel. A pixel enters the footprint when the mask covers at least
     analysis.footprint.coverage_threshold of it. Every survey bin gets the same patches, stored once and hard-linked
-    under each bin label. There is no maglim/systematics group, since the Y6 lens weights are per galaxy. The mask
-    area, exact at full resolution, goes into the attributes, for step values.
+    under each bin label. The mask area, exact at full resolution, goes into the attributes, for step values.
+
+    The group maglim/systematics holds the ENet weights of every lens bin as a pixel-level w = 1 / <F> on the base
+    patch (catalog_desy6.maglim_weight_maps), in the two layouts files.get_clustering_systematics reads. As for Y3,
+    they multiply the observed counts (apply_maglim_sys_map of observation.forward_model_observation_map) and stay out
+    of the forward model.
 
     Returns:
         tuple: (input paths, output paths), or None with --dry-run
     """
-    mask_path = catalog_desy6.release_path(conf, "mask")
+    inputs = [catalog_desy6.release_path(conf, key) for key in ("mask", "maglim")]
     out_path = _out_path(conf["files"]["pixels"])
     if args.dry_run:
-        return _dry_run("pixels", [mask_path], [out_path])
+        return _dry_run("pixels", inputs, [out_path])
 
     n_side, n_side_down = conf["analysis"]["n_side"], conf["analysis"]["n_side_down"]
     assert conf["analysis"]["n_patches"] == len(PATCH_GAMMA_2_SIGN), "the patch symmetries make four patches"
@@ -254,6 +259,9 @@ def step_pixels(conf, args):
     assert np.array_equal(data_vec[patch_to_data_vec], nest_patch_0), "base patch pixels missing from the data vector"
     LOGGER.info(f"data vector: {data_vec.size} pixels, {data_vec.size // n_children} at nside {n_side_down}")
 
+    # averaged over children at the resolution the mask is rotated at
+    lens_weights, lens_filled = catalog_desy6.maglim_weight_maps(conf, patch_0, MASK_ROTATE_NSIDE)
+
     with h5py.File(out_path, "w") as f:
         f.attrs["info"] = (
             f"DES Y6 {catalog_desy6.RELEASE_FILES['mask']}, rotated by analysis.footprint.rotation, at nside {n_side}. "
@@ -286,14 +294,34 @@ def step_pixels(conf, args):
                 for i_bin in range(1, n_bins + 1):
                     group[f"{sample}{i_bin}"] = f[f"footprint/{name}"]
 
-    # the pipeline's loader reads the file back
+        sys_group = f.create_group("maglim/systematics")
+        sys_group.attrs["info"] = (
+            f"ENet weights w = 1 / <F> of {catalog_desy6.RELEASE_FILES['maglim']} on the base patch, from the "
+            "per-galaxy weights (catalog_desy6.maglim_weight_maps). They multiply the observed counts. map: "
+            "base-patch order; data_vector: data_vec order, 0 in the padding; filled: no galaxy in the pixel, "
+            "neighbour mean"
+        )
+        for i_bin in range(1, catalog_desy6.N_LENS_BINS + 1):
+            dv = np.zeros(data_vec.size, dtype=np.float32)
+            dv[patch_to_data_vec] = lens_weights[:, i_bin - 1]
+            sys_group.create_dataset(f"map/maglim{i_bin}", data=lens_weights[:, i_bin - 1], dtype="f4")
+            sys_group.create_dataset(f"data_vector/maglim{i_bin}", data=dv)
+            sys_group.create_dataset(f"filled/maglim{i_bin}", data=lens_filled[:, i_bin - 1])
+
+    # the pipeline's loaders read the file back
     data_vec_back, patches_back, patch_to_data_vec_back, signs_back = files.load_pixel_file(conf)
     assert np.array_equal(data_vec_back, data_vec) and np.array_equal(signs_back, PATCH_GAMMA_2_SIGN), "read back"
     for sample in survey_bins:
         assert all(np.array_equal(p, patches) for p in patches_back[sample]), f"{sample} patches read back"
         assert all(np.array_equal(p, patch_to_data_vec) for p in patch_to_data_vec_back[sample]), f"{sample} read back"
+    used_weights = lens_weights[:, np.array(_survey_bins(conf, "maglim")) - 1].astype(np.float32)
+    sys_map = files.get_clustering_systematics(conf, pixel_type="map")
+    sys_dv = files.get_clustering_systematics(conf, pixel_type="data_vector")
+    assert np.array_equal(sys_map, used_weights), "maglim systematics map read back"
+    assert np.array_equal(sys_dv[patch_to_data_vec], used_weights), "maglim systematics data vector read back"
+    assert np.count_nonzero(sys_dv) == used_weights.size, "maglim systematics data vector: padding not 0"
 
-    return [mask_path], [out_path]
+    return inputs, [out_path]
 
 
 def step_maps(conf, args):

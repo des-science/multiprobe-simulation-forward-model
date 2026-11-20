@@ -57,6 +57,12 @@ MASK_NSIDE = 131072
 AREA_DES = 4031.036
 AREA_DES_ATOL = 1e-3
 
+# the MagLim ENet weights are a map at this nside (ENET_256fit_1024pred_19tpl in desy6kp_cats_2024-11-07.hdf5)
+LENS_WEIGHT_NSIDE = 1024
+# gates of maglim_weight_maps; measured: correlation 0.993 to 0.996, totals within 3e-5
+LENS_WEIGHT_MIN_CORR = 0.98
+LENS_WEIGHT_TOTAL_RTOL = 1e-3
+
 
 def release_path(conf, key):
     """Absolute path of a release file in dirs.catalog."""
@@ -309,3 +315,112 @@ def build_maglim_maps(conf, max_objects=None):
         _check_against_des("lens", stats, LENS_DES)
 
     return count, weighted_count
+
+
+def _fill_from_neighbours(values, known, region, n_side):
+    """Gives each unknown pixel of region the mean of its known neighbours, outwards until all are known.
+
+    Returns:
+        tuple: values on region, number of passes
+    """
+    full = np.zeros(hp.nside2npix(n_side))
+    ok = np.zeros(full.size, dtype=bool)
+    full[region[known]], ok[region[known]] = values[known], True
+    todo = region[~known]
+    n_pass = 0
+    while todo.size:
+        neighbours = hp.get_all_neighbours(n_side, todo)
+        safe = np.where(neighbours >= 0, neighbours, 0)
+        usable = (neighbours >= 0) & ok[safe]
+        n_usable = usable.sum(axis=0)
+        fill = n_usable > 0
+        assert np.any(fill), f"{todo.size} pixels without a known neighbour"
+        mean = np.sum(np.where(usable, full[safe], 0.0), axis=0) / np.maximum(n_usable, 1)
+        full[todo[fill]], ok[todo[fill]] = mean[fill], True
+        todo = todo[~fill]
+        n_pass += 1
+    return full[region], n_pass
+
+
+def maglim_weight_maps(conf, patch, sub_nside, fill_rings=2):
+    """Pixel-level ENet weights w = 1 / <F> of every MagLim bin on the base patch, to correct the observed counts.
+
+    The release has the ENet weight per galaxy only. It is constant inside each nside-1024 pixel (checked), so every
+    such pixel holding a galaxy gives the weight map there. Each patch pixel is split into its sub_nside children, whose
+    centres are rotated back to the sky and looked up in that map, without interpolating across the empty pixels. The
+    observed count of a pixel is the clean one times the area mean of the contamination F = 1 / w, so the weight is
+    1 / <F> over the children with a value. Pixels without any take the mean <F> of their neighbours, which may lie up
+    to fill_rings outside the patch, since some patch pixels have no neighbours in it.
+
+    Two checks against the per-galaxy weights, in the frame of the count maps: the mean galaxy weight of each pixel
+    follows w, and the counts times w sum to the weighted counts. The weights keep the catalog's normalization.
+
+    Args:
+        conf (dict): A DES Y6 config.
+        patch (np.ndarray): RING pixels of the base patch at analysis.n_side, in the rotated footprint frame.
+        sub_nside (int): Resolution of the children the contamination is averaged over.
+        fill_rings (int, optional): Rings of neighbours around the patch that may fill its empty pixels. Defaults to 2.
+
+    Returns:
+        tuple: weights (len(patch), N_LENS_BINS) and filled (len(patch), N_LENS_BINS) bool, in survey-bin order
+    """
+    n_side = conf["analysis"]["n_side"]
+    n_pix = hp.nside2npix(n_side)
+
+    region = patch
+    for _ in range(fill_rings):
+        neighbours = hp.get_all_neighbours(n_side, region).ravel()
+        region = np.union1d(region, neighbours[neighbours >= 0])
+    patch_in_region = np.searchsorted(region, patch)
+    assert np.array_equal(region[patch_in_region], patch), "the patch is not inside the fill region"
+
+    # the sky pixel under the centre of every child
+    n_child = (sub_nside // n_side) ** 2
+    children = hp.nest2ring(sub_nside, (hp.ring2nest(n_side, region)[:, None] * n_child + np.arange(n_child)).ravel())
+    ra, dec = catalog.survey_pix_to_angles(conf, children, sub_nside)
+    child_sky_pix = hp.ang2pix(LENS_WEIGHT_NSIDE, ra, dec, lonlat=True).reshape(region.size, n_child)
+    del children, ra, dec
+
+    weights = np.zeros((patch.size, N_LENS_BINS))
+    filled = np.zeros((patch.size, N_LENS_BINS), dtype=bool)
+    with h5py.File(release_path(conf, "maglim"), "r") as maglim:
+        for i in range(N_LENS_BINS):
+            group = maglim[f"tomo_bin_{i}"]
+            ra, dec, w = group["RA"][:], group["DEC"][:], group["weight"][:].astype(np.float64)
+            assert np.all(w > 0), f"lens bin {i + 1}: non-positive weights"
+
+            sky_pix = hp.ang2pix(LENS_WEIGHT_NSIDE, ra, dec, lonlat=True)
+            order = np.argsort(sky_pix, kind="stable")
+            sky_pix_sorted, w_sorted = sky_pix[order], w[order]
+            occupied, first = np.unique(sky_pix_sorted, return_index=True)
+            spread = np.max(np.maximum.reduceat(w_sorted, first) / np.minimum.reduceat(w_sorted, first) - 1)
+            assert spread < 1e-6, f"lens bin {i + 1}: the weight varies by {spread} inside an nside-1024 pixel"
+            w_sky = np.zeros(hp.nside2npix(LENS_WEIGHT_NSIDE))
+            w_sky[occupied] = w_sorted[first]
+
+            w_child = w_sky[child_sky_pix]
+            known = w_child > 0
+            n_known = known.sum(axis=1)
+            contamination = np.sum(np.where(known, 1 / np.where(known, w_child, 1.0), 0.0), axis=1)
+            contamination /= np.maximum(n_known, 1)
+            contamination, n_pass = _fill_from_neighbours(contamination, n_known > 0, region, n_side)
+            weights[:, i] = 1 / contamination[patch_in_region]
+            filled[:, i] = n_known[patch_in_region] == 0
+
+            pix = catalog.survey_angles_to_pix(conf, ra, dec, n_side)
+            count = np.bincount(pix, minlength=n_pix)[patch]
+            weighted_count = np.bincount(pix, weights=w, minlength=n_pix)[patch]
+            has = count > 0
+            corr = np.corrcoef(weighted_count[has] / count[has], weights[has, i])[0, 1]
+            total = np.sum(count * weights[:, i]) / np.sum(weighted_count)
+            LOGGER.info(
+                f"lens bin {i + 1}: {occupied.size} nside-{LENS_WEIGHT_NSIDE} pixels with a weight, "
+                f"{np.mean(known[patch_in_region]):.3f} of the patch children; {filled[:, i].sum()} patch pixels "
+                f"filled ({n_pass} passes); w in [{weights[:, i].min():.3f}, {weights[:, i].max():.3f}], std "
+                f"{weights[:, i].std():.4f}; corr with the mean galaxy weight {corr:.4f}; sum N w / sum w_gal "
+                f"{total:.6f}"
+            )
+            assert corr > LENS_WEIGHT_MIN_CORR, f"lens bin {i + 1}: w does not follow the galaxy weights ({corr})"
+            assert abs(total - 1) < LENS_WEIGHT_TOTAL_RTOL, f"lens bin {i + 1}: N w sums to {total} of the weights"
+
+    return weights, filled

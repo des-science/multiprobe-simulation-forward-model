@@ -141,7 +141,8 @@ analysis:
       # whether to include a stochasticity in the galaxy biasing. This scales the [-pi, pi] interval from which the
       # random phases with which the alm coefficients are multiplied are drawn. Set to Null to discard.
       stochasticity: False
-      # the MagLim weights are per galaxy in Y6, so there are no survey systematics maps to apply
+      # as in v18: the ENet weight maps in the pixel file (step pixels) correct the observed counts
+      # (apply_maglim_sys_map of observation.forward_model_observation_map) and stay out of the forward model
       maglim_survey_systematics_map: False
   normalization:
     lensing: [1, 1, 1, 1]
