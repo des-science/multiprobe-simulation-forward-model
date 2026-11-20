@@ -8,6 +8,7 @@ Functions to handle the configuration and read in the survey files on the data v
 """
 
 import os
+import re
 import h5py
 import warnings
 import numpy as np
@@ -431,8 +432,23 @@ def load_noise_file(conf=None):
     return tomo_gamma_cat
 
 
+def get_z_bin_number(z_bin):
+    """Return the survey bin number that a z_bins label ends in, e.g. 3 for "maglim3".
+
+    Args:
+        z_bin (str): A label from survey.<sample>.z_bins.
+
+    Returns:
+        int: The survey bin number.
+    """
+    match = re.search(r"(\d+)$", z_bin)
+    assert match, f"The z_bins label {z_bin} does not end in a bin number"
+    return int(match.group(1))
+
+
 def load_redshift_distributions(galaxy_sample, conf=None):
-    """Load the redshift distributions from disk to memory.
+    """Load the redshift distributions from disk to memory. The files are <survey>_nz_<sample>_bin<k>.txt, with
+    <survey> the lower-case survey.name and k the bin number of each survey.<sample>.z_bins label.
 
     Args:
         galaxy_sample (str): Either "metacal" or "maglim".
@@ -450,13 +466,14 @@ def load_redshift_distributions(galaxy_sample, conf=None):
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
     redshift_dir = os.path.join(repo_dir, conf["dirs"]["redshift_distributions"])
-
-    n_z_bins = len(conf["survey"][galaxy_sample]["z_bins"])
+    prefix = conf["survey"]["name"].lower()
 
     tomo_z = []
     tomo_nz = []
-    for i_tomo in range(1, n_z_bins + 1):
-        z_dist_file = filenames.get_filename_z_distribution(redshift_dir, galaxy_sample, i_tomo)
+    for z_bin in conf["survey"][galaxy_sample]["z_bins"]:
+        z_dist_file = filenames.get_filename_z_distribution(
+            redshift_dir, galaxy_sample, get_z_bin_number(z_bin), prefix=prefix
+        )
         z_dist = np.loadtxt(z_dist_file)
 
         tomo_z.append(z_dist[:, 0])
