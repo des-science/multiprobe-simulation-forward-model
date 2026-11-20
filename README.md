@@ -109,17 +109,19 @@ built with.
 
 ### Submission
 
-Submission commands live in [`pipelines/`](pipelines/), one directory per survey and
-forward-model generation, mirroring `configs/` 1:1. Two modes, documented with their trade-offs in
-[`pipelines/README.md`](pipelines/README.md):
+Submission commands live in [`pipelines/`](pipelines/), sorted by cluster first,
+`pipelines/<cluster>/<survey>/<version>/`; below the cluster they mirror `configs/<survey>/<version>/`.
+[`pipelines/README.md`](pipelines/README.md) lists which cluster runs what: DES Y3 ran on Perlmutter
+(`pipelines/perlmutter/`, frozen) and DES Y6 runs on daint (`pipelines/daint/`). Two modes:
 
-- **esub / shared queue** — `pipe.yaml` (grid and fiducial production, run via `epipe`) and
-  `esub/obs_commands.sh` (ad-hoc single-postprocessing commands) are copy-paste command
-  listings that queue one job-array element per output file.
-- **packed / exclusive-node queue** — executables under `pipelines/common/packed/` that hand-pack
-  many tasks onto whole nodes, each pinned to a NUMA domain. This exists because the binding
-  limit is memory *bandwidth*, not capacity: the spherical harmonic transforms saturate a NUMA
-  domain's controllers well before its RAM fills, so the packing density is tuned to that knee.
+- **esub / shared queue** (Perlmutter only) — `pipe.yaml` (grid and fiducial production, run via
+  `epipe`) and `esub/obs_commands.sh` (ad-hoc single-postprocessing commands) are copy-paste
+  command listings that queue one job-array element per output file.
+- **packed / exclusive-node queue** — per-cluster executors (`pipelines/<cluster>/common/`) that
+  hand-pack many tasks onto whole nodes, each pinned to a NUMA domain, and call the apps through
+  the cluster-agnostic `pipelines/common/run_packed.py`. This exists because the binding limit is
+  memory *bandwidth*, not capacity: the spherical harmonic transforms saturate a NUMA domain's
+  controllers well before its RAM fills, so the packing density is tuned to that knee.
 
 ## How the forward model works
 
@@ -137,7 +139,7 @@ msfm/
   fiducial_pipeline.py   tf.data generator for the fiducial dataset
   grid_pipeline.py       tf.data generator for the cosmology-grid dataset
 configs/                 forward-model configs, <survey>/<version>/ (desy3/, desy6/) -- see its README.md
-pipelines/               submission commands, mirroring configs/ 1:1 -- see its README.md
+pipelines/               submission commands, <cluster>/<survey>/<version>/ -- see its README.md
 data/                    inputs to the forward model -- see its README.md
 notebooks/               the notebooks that produce data/, one per product
 dev/                     exploratory analysis and audit notebooks/scripts; not part of the
@@ -165,7 +167,7 @@ The analysis and comparison notebooks that *consume* the products live in `dev/n
 - **`data/desy3/desy3_noise_512.h5` is not in the repository.** It exceeds the file size limit
   and must be regenerated from the source galaxy catalog via
   [`notebooks/desy3/noise_file.ipynb`](notebooks/desy3/noise_file.ipynb) before the first run.
-- **`configs/<survey>/vNN/` and `pipelines/<survey>/vNN/` are versioned together.** A config generation and its
+- **`configs/<survey>/vNN/` and `pipelines/<cluster>/<survey>/vNN/` are versioned together.** A config generation and its
   submission commands always carry the same number; changing one without the other produces
   a run that does not match its own submission recipe.
 - **Each survey's `data/<survey>/` top level is a closed set.** It is exactly what that survey's
@@ -180,9 +182,9 @@ The analysis and comparison notebooks that *consume* the products live in `dev/n
 | Symptom | Cause and fix |
 |---|---|
 | `FileNotFoundError: .../desy3_noise_512.h5` | The noise file is not shipped. Generate it with `notebooks/noise_file.ipynb`. |
-| esub reports that a config or app path does not exist | The esub command listings use paths relative to their own pipeline directory. Run them with `cwd = pipelines/vNN`, regardless of which file the command text lives in. |
+| esub reports that a config or app path does not exist | The esub command listings use paths relative to their own pipeline directory. Run them with `cwd = pipelines/perlmutter/desy3/vNN`, regardless of which file the command text lives in. |
 | A parameter behaves as if it were disabled, with no error | A bare `1e-3` in the config YAML parsed as a string. Write `1.0e-3`. |
-| A packed node job is killed at its walltime cap | The cap is per packed node, not per task. See `pipelines/common/packed/README.md` for the sizing arithmetic. |
+| A packed node job is killed at its walltime cap | The cap is per packed node, not per task. See the cluster's README (`pipelines/perlmutter/README.md`, `pipelines/daint/README.md`) for the sizing arithmetic. |
 
 ## Companion repositories
 

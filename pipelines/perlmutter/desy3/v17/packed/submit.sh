@@ -2,8 +2,8 @@
 # Clean-start submission of the v17 baseline postprocessing on regular QOS (whole CPU nodes),
 # packing many tasks per node -- WITHOUT esub. This is the single source of truth for the run: it
 # holds all per-chain configuration and exports it to the generic executors in
-# ../../../common/packed/ (packed_node.slurm / merge_node.slurm, which call run_packed.py -- a
-# ~30-line import-and-call driver shared by every pipeline version). Nothing runs until this
+# ../../../common/ (packed_node.slurm / merge_node.slurm, which call ../../../../common/run_packed.py
+# -- a ~30-line import-and-call driver shared by every pipeline version). Nothing runs until this
 # script is invoked.
 #
 # Usage:
@@ -26,11 +26,11 @@ cd "$(dirname "$0")"
 
 # --- fixed paths -----------------------------------------------------------------------------
 REPO=/global/homes/a/athomsen/multiprobe-simulation-forward-model
-# the generic executors, shared with v18 and any future version -- see ../../../common/packed/README.md
-COMMON_PACKED=$REPO/pipelines/common/packed
+# the Perlmutter executors, shared with v18 and any future version -- see ../../../README.md
+COMMON_PACKED=$REPO/pipelines/perlmutter/common
 # absolute path to the driver, exported to the slurm scripts. It must be absolute: Slurm copies
 # the batch script into /var/spool/slurmd/<job>, so the executors cannot locate it themselves.
-DRIVER=$COMMON_PACKED/run_packed.py
+DRIVER=$REPO/pipelines/common/run_packed.py
 # CONFIG / DATA_ROOT default to the v17 baseline but can be overridden from the environment for a
 # parallel run (e.g. the B-mode Cls study: CONFIG_OVERRIDE=configs/desy3/v17/baseline_bmode.yaml with a
 # separate DATA_ROOT_OVERRIDE so the completed baseline tfrecords are never touched). JOB_SUFFIX is

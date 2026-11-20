@@ -13,8 +13,9 @@ configs/<survey>/<version>/<subversion>.yaml
 | `desy3/v17/`, `desy3/v16/` | earlier DES Y3 generations, still read by their pipelines and studies |
 | `desy3/deprecated/` | v5 to v15 and `marcel` |
 
-Versions are numbered per survey, so Y6 starts again at `v1`. `pipelines/<survey>/<version>/`
-holds the submission scripts for the config of the same name.
+Versions are numbered per survey, so Y6 starts again at `v1`. `pipelines/<cluster>/<survey>/<version>/`
+holds the submission scripts for the config of the same name, on the cluster it runs on (DES Y3 on
+`perlmutter`, DES Y6 on `daint`).
 
 A config's repo paths (`files:`, `dirs:`) lie either directly in `data/`, for the inputs shared by
 all surveys, or under `data/<survey.name in lower case>/`. msfm raises on any other `data/` path

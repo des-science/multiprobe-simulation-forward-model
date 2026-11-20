@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Submits one compute-node step of the DES Y6 data products (msfm.apps.products.desy6) as a single-node CPU job.
 #
-#   pipelines/desy6/products/run.sh <pixels|maps|noise> [extra step arguments]
-#   DRYRUN=1 pipelines/desy6/products/run.sh maps      # print the sbatch command, submit nothing
+#   pipelines/daint/desy6/products/run.sh <pixels|maps|noise> [extra step arguments]
+#   DRYRUN=1 pipelines/daint/desy6/products/run.sh maps      # print the sbatch command, submit nothing
 #
 # nz and values run on the login node without this wrapper (data/desy6/README.md).
 # Before submitting, the step's --dry-run runs on the login node, so a missing input or a broken environment fails
@@ -30,7 +30,7 @@ case $STEP in
     *) die "usage: run.sh <pixels|maps|noise> [extra step arguments]; nz and values run on the login node" ;;
 esac
 
-REPO_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+REPO_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
 CONFIG=${CONFIG:-configs/desy6/v1/default.yaml}
 TIME=${TIME:-00:30:00}
 PARTITION=${PARTITION:-debug}

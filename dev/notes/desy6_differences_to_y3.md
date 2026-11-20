@@ -67,8 +67,8 @@ arXiv:2511.04681. Y6 side: `configs/desy6/v1/default.yaml`, `data/desy6/README.m
 
 ## Plumbing (no effect on the model)
 
-- Layout: Y3 under `configs/desy3/`, `data/desy3/`, `notebooks/desy3/`, `pipelines/desy3/`; Y6
-  next to it under `desy6/`. Configs are versioned per survey (`desy6/v1`).
+- Layout: Y3 under `configs/desy3/`, `data/desy3/`, `notebooks/desy3/`, `pipelines/perlmutter/desy3/`;
+  Y6 next to it under `desy6/` (`pipelines/daint/desy6/`). Configs are versioned per survey (`desy6/v1`).
 - Products: one script with checks, `msfm.apps.products.desy6` (steps `nz`, `pixels`, `maps`,
   `values`, `noise`, `sc_bias`); `values` writes the marked config lines. In Y3, notebooks and
   hand-copied numbers. `--provenance` records inputs, outputs and the msfm commit.

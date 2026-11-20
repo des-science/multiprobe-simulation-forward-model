@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Minimal esub-free driver for the msfm postprocessing apps, shared across pipeline versions.
+"""Minimal esub-free driver for the msfm postprocessing apps, shared across clusters and pipeline versions.
 
 esub `--mode=run` ultimately does just two things with an app (see esub.py):
   - function main : consume the `main(indices, args)` generator
@@ -14,6 +14,7 @@ imported by path and handed the leftover CLI args verbatim -- exactly the arg
 list esub would forward -- so the forward model, filenames and output contents
 are bit-for-bit identical to the esub pipeline. No Python in msfm was changed.
 """
+
 import argparse
 import importlib.util
 import sys

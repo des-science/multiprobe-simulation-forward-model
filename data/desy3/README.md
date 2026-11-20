@@ -88,7 +88,7 @@ not change.
 | `data/deprecated/*`, except `CosmoGridV1_original_metainfo.h5` | `data/desy3/deprecated/*` |
 | `notebooks/*`, except `permutations_list.ipynb` | `notebooks/desy3/*` |
 | `configs/{v16,v17,v18,deprecated}/` | `configs/desy3/...` |
-| `pipelines/{v17,v18,deprecated}/` | `pipelines/desy3/...` |
+| `pipelines/{v17,v18,deprecated}/` | `pipelines/desy3/...`, then on 2026-11-20 `pipelines/perlmutter/desy3/{v17,v18}` and `pipelines/deprecated/<cluster>/desy3/...` |
 
 **Renamed on 2026-08-07.** Old run logs and `dev/notes/wl_forward_model_audit_2026-07-11.md` use the
 old names (paths relative to `data/` as it was then).

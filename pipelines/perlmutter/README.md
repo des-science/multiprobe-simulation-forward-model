@@ -1,14 +1,33 @@
-# Shared packed regular-QOS infrastructure
+# Perlmutter (NERSC)
+
+Everything here runs on Perlmutter's CPU nodes only: NERSC paths (`/global/...`, `/pscratch/...`),
+the `m5030`/`des` accounts, `--constraint=cpu` and the `shared`/`regular` QOS. This is where the DES Y3
+tfrecords were produced, and the Y3 analysis is frozen, so these scripts are kept as its record and
+are not ported anywhere else.
+
+| path | what |
+|---|---|
+| `common/perlmutter_setup.sh` | thread-count environment, sourced by the esub commands via `--source_file=` |
+| `common/packed_node.slurm`, `common/merge_node.slurm` | the packed regular-QOS executors (below) |
+| `desy3/v17/` | `pipe.yaml` and `esub/obs_commands.sh` (esub, shared QOS) and `packed/` (regular QOS) |
+| `desy3/v18/packed/` | v18 is packed-only: `submit.sh` (grid + fiducial) and `submit_obs.sh` (benchmark and mock arms) |
+
+The esub command listings run with `cwd = pipelines/perlmutter/desy3/vNN`; their `../../../../msfm`
+and `../../../../configs/...` paths only resolve from that depth. The packed scripts use absolute
+paths under `REPO=/global/homes/a/athomsen/multiprobe-simulation-forward-model`, so that checkout
+must have this layout.
+
+## Packed regular-QOS infrastructure
 
 Version-agnostic building blocks for running msfm postprocessing apps on `--qos=regular` (whole
 CPU nodes), packing many tasks per node, each pinned to a NUMA domain, instead of esub's
-`--qos=shared` jobarrays. Used by `../../desy3/v17/packed/{submit.sh,submit_single_mock.sh}` and
-`../../desy3/v18/packed/{submit.sh,submit_obs.sh}` — those per-version scripts hold the actual chain/arm
+`--qos=shared` jobarrays. Used by `desy3/v17/packed/{submit.sh,submit_single_mock.sh}` and
+`desy3/v18/packed/{submit.sh,submit_obs.sh}` — those per-version scripts hold the actual chain/arm
 configuration (paths, `N_TOTAL`, per-chain `SLOTS`/`OMP`) and just point here for the executors.
 See each version's own `packed/README.md` for its measured numbers, cost table and how-to-run
 examples.
 
-## Why not the default esub/shared chain
+### Why not the default esub/shared chain
 
 `--qos=shared` maps to the 70-node `shared_milan_ss11` pool, which is chronically saturated by
 other users' multi-day jobs — sometimes only a handful of tasks run at a time (ETA can be weeks).
@@ -16,7 +35,7 @@ The `regular_milan_ss11` pool is ~2850 nodes with idle capacity, and short singl
 backfill quickly. But regular QOS is **node-exclusive**, so a plain jobarray would waste a
 128-core node on one small task. We therefore hand-pack many tasks onto each node.
 
-## Why no esub
+### Why no esub
 
 esub earns its keep on a farm of *independent* shared-QOS jobarray tasks: it maintains a
 `done.dat` of finished indices and offers `rerun_missing`. On packed full nodes that buys
@@ -26,7 +45,7 @@ output is absent or a short/partial stub. `run_packed.py` calls the app's `main`
 exact arg list esub would forward, so outputs are bit-for-bit identical to the esub pipeline. No
 Python in `msfm` was modified.
 
-## Why pinning is mandatory (not just a NUMA nicety)
+### Why pinning is mandatory (not just a NUMA nicety)
 
 **Each task must be pinned to one NUMA domain with `numactl` — measured ~4x slower without it.**
 Two independent reasons:
@@ -43,7 +62,7 @@ Two independent reasons:
    keeps each task's memory on its local controllers, so the 8 domains' controllers are used
    evenly and accesses don't cross the die.
 
-## How the packing is sized — pack to the bandwidth knee, not the RAM ceiling
+### How the packing is sized — pack to the bandwidth knee, not the RAM ceiling
 
 Each `regular` node is **8 NUMA domains × 16 cores (32 HW threads) × ~64 GB** (2× EPYC 7763,
 ~503 GB usable). Keep **`SLOTS` a multiple of 8** so `SLOTS/8` tasks land on each domain evenly,
@@ -63,14 +82,14 @@ on the exact same knee. Don't assume it transfers to a workload that hasn't been
 24/10 as the current default, not a law of physics, and remeasure if a new chain's per-task
 memory/compute profile looks meaningfully different.
 
-## Files
+### Files
 
-- `run_packed.py` — ~30-line driver: imports the target app by path and calls its `main`/`merge`
-  directly, forwarding all other CLI args verbatim.
-- `packed_node.slurm` — generic executor: runs `$SLOTS` `numactl`-pinned `run_packed.py` tasks in
+- `../common/run_packed.py` — ~30-line driver, shared with daint: imports the target app by path
+  and calls its `main`/`merge` directly, forwarding all other CLI args verbatim.
+- `common/packed_node.slurm` — generic executor: runs `$SLOTS` `numactl`-pinned `run_packed.py` tasks in
   parallel, `SLOTS/8` per NUMA domain. All config arrives via `--export=ALL`; the caller's
   `sbatch --output=...` overrides this file's fallback `#SBATCH --output`.
-- `merge_node.slurm` — single-node `run_packed.py --function=merge`. Reads `TASKS` (default `"0"`,
+- `common/merge_node.slurm` — single-node `run_packed.py --function=merge`. Reads `TASKS` (default `"0"`,
   a dummy value the grid/fiducial apps' glob-based `merge()` ignores); callers whose `merge()`
   actually needs the index list (`run_single_postprocessing.py`) must `export TASKS=<full list>`
   before submitting.

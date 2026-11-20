@@ -4,7 +4,7 @@
 # grid/fiducial production chain. Sibling of submit.sh in this directory, simplified to a single
 # "chain" and sized so everything fits on ONE node in ONE array element.
 #
-# Why not the default esub/shared chain: see ../../../common/packed/README.md -- shared QOS is a
+# Why not the default esub/shared chain: see ../../../README.md -- shared QOS is a
 # saturated 70-node pool (ETA can be weeks), regular QOS has idle capacity but is node-exclusive,
 # so we hand-pack many tasks onto one node instead of burning a whole node per ~2 GB task.
 #
@@ -18,18 +18,18 @@
 #   ./submit_single_mock.sh                  # fresh run: submit every index
 #   ./submit_single_mock.sh --rerun          # submit only indices whose obs_maps file is missing
 #
-# Reuses ../../../common/packed/{run_packed.py,packed_node.slurm,merge_node.slurm} unchanged -- no
+# Reuses ../../../../common/run_packed.py and ../../../common/{packed_node.slurm,merge_node.slurm} unchanged -- no
 # msfm Python was touched. merge_node.slurm's merge() needs the FULL index range (not the dummy
 # --tasks=0 the grid/fiducial chains use), since run_single_postprocessing.merge() reads exactly
 # the {cosmo_name}{suffix_out}_obs_maps_{index:04}.h5 files named by the indices it is given (see
-# ../../../common/packed/merge_node.slurm's header) -- so TASKS is exported explicitly below.
+# ../../../common/merge_node.slurm's header) -- so TASKS is exported explicitly below.
 
 set -euo pipefail
 cd "$(dirname "$0")"
 
 REPO=/global/homes/a/athomsen/multiprobe-simulation-forward-model
-COMMON_PACKED=$REPO/pipelines/common/packed
-DRIVER=$COMMON_PACKED/run_packed.py
+COMMON_PACKED=$REPO/pipelines/perlmutter/common
+DRIVER=$REPO/pipelines/common/run_packed.py
 
 # --- this run's configuration (mirrors ../esub/obs_commands.sh's sc_fixed_sys block, see above) -
 APP=$REPO/msfm/apps/run_single_postprocessing.py

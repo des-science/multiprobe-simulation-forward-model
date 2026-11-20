@@ -141,10 +141,11 @@ columns of `desy6_source_redshift.h5` (m prior). Nothing else from the download.
 
 **Why this name.** Configs are grouped by survey, `configs/<survey>/<version>/<subversion>.yaml`,
 and versions restart per survey. Y3 moved to `configs/desy3/{v16,v17,v18,deprecated}/` and its
-pipelines to `pipelines/desy3/` on 2026-11-18. y3-deep-lss already builds
+pipelines to `pipelines/desy3/` on 2026-11-18 (since 2026-11-20 sorted by cluster first,
+`pipelines/perlmutter/desy3/`). y3-deep-lss already builds
 `configs/$VERSION/$SUBVERSION.yaml`, `data/$VERSION/$SUBVERSION` and `runs/$VERSION/$SUBVERSION`,
 so `VERSION=desy6/v1 SUBVERSION=default` puts the survey into every downstream path. Pipelines go
-in `pipelines/desy6/v1/`.
+in `pipelines/daint/desy6/v1/`.
 
 **How it is built.** It starts as a copy of `configs/desy3/v18/default.yaml`, and its header names
 Y3 v18 as the base. The table lists only what changes.
@@ -303,7 +304,7 @@ There is no `notebooks/desy6/`.
 - **Inputs.** From `dirs.catalog`, which points at Tomasz's download, read in place.
 - **Outputs.** Every output goes to the path its config key names. Nothing is written to a literal
   path.
-- **Submission.** One wrapper, `pipelines/desy6/products/run.sh <step>`, submits the compute-node
+- **Submission.** One wrapper, `pipelines/daint/desy6/products/run.sh <step>`, submits the compute-node
   steps. Every `sbatch` waits for the user's OK.
 - **Checks.** Each step asserts its checks (listed in `data/desy6/README.md`) and stops on a failure. Nothing depends on someone
   looking at a plot.
@@ -382,12 +383,12 @@ are reused. `pixels` fails if the four rotated Y6 patches overlap; new angles ar
 
 **Executor**
 
-- Reuse `pipelines/common/packed/run_packed.py` unchanged. It already calls the apps' `main`/`merge`
+- Reuse `pipelines/common/run_packed.py` unchanged. It already calls the apps' `main`/`merge`
   without esub.
-- Add one generic `pipelines/common/daint/packed_node.slurm`: a single srun step with
+- Add one generic `pipelines/daint/common/packed_node.slurm`: a single srun step with
   `4 × k` tasks bound to the four Grace NUMA domains, `OMP_NUM_THREADS = TF_NUM_INTRAOP_THREADS =
   72 / k`, each task taking its index slice from `SLURM_PROCID`.
-- `pipelines/desy6/v1/daint/submit.sh grid|fiducial` keeps the v18 packed interface: `DRY_RUN`, `ARRAY`,
+- `pipelines/daint/desy6/v1/submit.sh grid|fiducial` keeps the v18 packed interface: `DRY_RUN`, `ARRAY`,
   `--rerun`, `SKIP_MERGE`.
 - Submissions go through the `submit` skill, and every `sbatch` waits for your OK.
 
@@ -469,7 +470,8 @@ measured unpinned packing as ~4x slower, so pinning is not optional.
 **Decisions**
 
 - **D1.** Settled 2026-11-18: `configs/desy6/v1/default.yaml` and `pipelines/desy6/v1/`, with Y3
-  under `configs/desy3/` and `pipelines/desy3/`.
+  under `configs/desy3/` and `pipelines/desy3/`. Since 2026-11-20 the pipelines are sorted by cluster
+  first: `pipelines/daint/desy6/v1/` and `pipelines/perlmutter/desy3/`.
 - **D2 (settled 2026-11-20).** Bin labels: Y3's (`metacal1-4`, `maglim1-6`), as Tomasz writes them in
   the test files. The projection guard tells the surveys apart by `shearm`, so distinct labels are
   not needed. Revisit only if the production projection changes them.
