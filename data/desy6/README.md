@@ -132,6 +132,21 @@ follows w (correlation 0.993 to 0.996, where a wrong frame gives 0); and the cou
 the weighted counts within 3×10⁻⁵, so the catalog's normalization and the weighted n_gal of step
 `values` carry over.
 
+**Against the paper:** the rms of the weights reproduces σ_weight of arXiv:2601.14484 (Sec. III.2),
+which publishes no weight map. Per galaxy it agrees to the printed digit in every bin:
+
+| bin | paper | per galaxy | per nside-1024 pixel | nside-512 map |
+|---|---|---|---|---|
+| 1 | 2.5% | 2.46% | 2.48% | 2.31% |
+| 2 | 1.9% | 1.87% | 1.89% | 1.76% |
+| 3 | 1.7% | 1.66% | 1.69% | 1.52% |
+| 4 | 3.0% | 2.97% | 3.01% | 2.81% |
+| 5 | 1.4% | 1.37% | 1.39% | 1.28% |
+| 6 | 3.9% | 3.91% | 3.98% | 3.62% |
+
+The nside-512 map is 7-9% lower in every bin, as expected from averaging the four nside-1024
+pixels it contains.
+
 ### `maps`: catalog maps
 
 - **Writes** to `cache/` (gitignored), full sky at nside 512 in the footprint frame: the shear
