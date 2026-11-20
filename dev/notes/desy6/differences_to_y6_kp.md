@@ -42,9 +42,34 @@ work in `plan.md`.
 
 | # | aspect | KP | ours | note |
 |---|---|---|---|---|
-| 7 | source n(z) | 7 modes shared by the 4 bins, u ~ N(0, 1) on [-3, 3] (FW Sec. III.6) | each realization is projected with one draw from `desy6_source_redshift.h5` (80760 realizations) | both describe DES's source n(z) uncertainty; we did not check how the modes were built. Open (Tomasz): possibly only 20 realizations grid-wide |
-| 8 | shear calibration m | Gaussian per bin, with small covariances with the u modes (KP Sec. II.5) | the realization's own m (`shearm`), drawn jointly with its n(z), applied by msfm | same marginal per bin (above) |
-| 9 | lens n(z) | 3 modes per bin, u ~ N(0, 1) on [-3, 3] (FW Sec. III.6) | each realization is projected with one draw from `desy6_lens_redshift.h5` (~3000 per bin) | |
+| 7 | source n(z) | 7 modes shared by the 4 bins, u ~ N(0, 1) on [-3, 3] (FW Sec. III.6) | each realization is projected with one draw from `desy6_source_redshift.h5` (80760 realizations) | both describe DES's source n(z) uncertainty; we did not check how the modes were built. The rows are taken in file order, not drawn at random (below) |
+| 8 | shear calibration m | Gaussian per bin, with small covariances with the u modes (KP Sec. II.5) | the realization's own m (`shearm`), drawn jointly with its n(z), applied by msfm | same marginal per bin (above), up to the offset of the rows used (below) |
+| 9 | lens n(z) | 3 modes per bin, u ~ N(0, 1) on [-3, 3] (FW Sec. III.6) | each realization is projected with one draw from `desy6_lens_redshift.h5` (~3000 per bin) | row = source row mod the bin's set size (below) |
+
+### Realization assignment (rows 7-9): accepted for v1
+
+User decision 2026-11-20: fine for v1, may be revisited. A fix needs a re-projection with the rows
+shuffled.
+
+A re-scan of all 50,000 files on 2026-11-20 (`claude/tmp/desy6_rescan/`) found that the file of
+cosmology c (in sorted directory order) and permutation p carries source row 20c + p. Its lens rows
+are that number modulo each lens set's size. The grid therefore uses rows 0-49,999 of the 80,760,
+each once and in file order. The KP instead samples its modes independently of cosmology.
+
+The source ensemble is ordered along its rows. Block means of ⟨z⟩ and m drift by tens of standard
+errors, and the lag-1 autocorrelation along the rows is 0.2-0.8. Three consequences:
+
+- **The rows used are offset from the full ensemble**, by up to a third of its σ: ⟨z⟩ of metacal1
+  -0.29σ, m of metacal4 -0.33σ.
+- **The nuisances correlate with cosmology.** A cosmology's 20 permutations carry consecutive rows,
+  so their mean ⟨z⟩ and m follow the cosmology order. Correlation with the per-cosmology mean is
+  |r| ≤ 0.19 for H0, 0.12 for w0 and about 0.05 for Om and s8, against a noise level of 0.02.
+- **Less spread within a cosmology.** ⟨z⟩ varies 51-73% as much across a cosmology's permutations
+  as across the ensemble.
+
+The lens ensembles were not checked for the same drift. The two test permutations' n(z), about 2σ
+low, are rows 0 and 1, at the low start of the ensemble. The effect on the posteriors is not
+measured.
 
 ## Inherent to a map-level analysis on CosmoGridV1
 

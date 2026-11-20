@@ -15,10 +15,10 @@ all of them from the public Y6 release, `msfm/apps/products/desy6.py`, for
 | `values` | the marked lines of the config | yes | done 2026-11-20, lens n_gal from the weight maps |
 | `noise` | `desy6_noise_512.h5` | no | done 2026-11-19 |
 | `systematics` | `desy6_metacal_systematics_MAIN19_512.h5` | yes | done 2026-11-20, `lss_sys` run `metadetect_sources_MAIN19` |
-| `sc_bias` | `desy6_metacal_bias.h5` | yes | not written, blocked (see below) |
+| `sc_bias` | `desy6_metacal_bias.h5` | yes | done 2026-11-20, the 2500 grid cosmologies, no `fiducial` key |
 
-Paths not produced yet are in `EXPECTED_MISSING` of `dev/scripts/data_audit/check_config_paths.py`.
-Remove each once its step has run.
+A path that a config names before its step has run goes into `EXPECTED_MISSING` of
+`dev/scripts/data_audit/check_config_paths.py` until the step writes it. No DES Y6 path is there now.
 
 ## Inputs
 
@@ -223,7 +223,7 @@ pixels it contains.
   The counts are normalized to unit mean. W removes most of the trend but not all of it, in Y3 as in Y6.
   Seconds on a login node.
 
-### `sc_bias`: source-clustering bias (not written yet)
+### `sc_bias`: source-clustering bias
 
 - **Writes** `desy6_metacal_bias.h5`, as Y3's `sc_bias_fit_count.ipynb`: per cosmology and source
   bin, the b whose Poisson-sampled counts on the projection's `dg/<bin>` at `perm_0000` match the
@@ -239,11 +239,18 @@ pixels it contains.
   every loss finite, and each arm reads back unchanged through `files.read_metacal_bias` and passes
   `configuration.print_and_check_modeling_in_config`, which matches the arm's systematics label
   against its forward model. A failed check writes nothing.
-- **Status:** blocked on the Y6 projection, since only the test files of `cosmo_000001` exist.
-  On those (`--max-cosmologies 1`, 12 s per arm on one core), b is 0.87, 1.29, 1.61, 2.69 in
-  `clean` and 0.81, 1.19, 1.45, 1.90 in `contam`: as for Y3, the imprint widens the counts, so the
-  fit needs less bias, most in the highest bin. The contamination also lowers the loss in every
-  bin. The largest footprint counts are 293, 359, 280, 260 against the histogram's 400.
+- **Status:** run on the 2500 grid cosmologies, 4 min per arm on one node (288 processes, one per
+  core, with `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1`). The projection has no `fiducial/` yet, so
+  the table has no `fiducial` key.
+
+  | | metacal1 | metacal2 | metacal3 | metacal4 |
+  |---|---|---|---|---|
+  | b `clean`, median (range) | 1.02 (0.44-2.57) | 1.41 (0.56-3.51) | 1.69 (0.62-4.11) | 2.76 (0.93-6.61) |
+  | b `contam` / `clean`, median | 0.93 | 0.94 | 0.89 | 0.71 |
+  | largest loss, `clean` → `contam` | 5.6 → 4.8 | 5.4 → 4.5 | 4.8 → 3.8 | 4.4 → 2.3 |
+
+  As for Y3, the imprint widens the counts, so the fit needs less bias, most in the highest bin, and
+  the loss falls. The largest footprint counts are 293, 359, 280, 260 against the histogram's 400.
 
 ## Review
 
@@ -288,8 +295,8 @@ reference. Results (2026-11-20):
   - **Lens counts:** in both surveys they depend on the galaxy bias each mock draws from its prior
     (Y3's maglim1 is at 0.74 too).
 
-  The clean comparison needs the fitted bias table and a fiducial mock, both from the production
-  projection.
+  The clean comparison needs a grid mock with the fitted bias table; a fiducial mock also needs a
+  fiducial projection.
 
 ## Open
 

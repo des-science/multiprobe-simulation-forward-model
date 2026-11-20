@@ -20,7 +20,6 @@ files:
   healpy_data: data/healpy_data
   # lss_sys run metadetect_sources_MAIN19, Y3's method on the 19 DES Y6 survey-property templates
   metacal_systematics: data/desy6/desy6_metacal_systematics_MAIN19_512.h5 # <- step systematics
-  # TODO: not written yet, step sc_bias needs the full Y6 projection
   metacal_bias: data/desy6/desy6_metacal_bias.h5 # <- step sc_bias
   metacal_bias_arm: contam
 

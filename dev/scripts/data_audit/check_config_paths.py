@@ -45,9 +45,6 @@ EXPECTED_MISSING = {
     "data/desy3/peaks/binning/v9_linear_bias.h5",
     "data/desy3/peaks/binning/v10_linear_bias.h5",
     "data/desy3/peaks/binning/v11_extended.h5",
-    # DES Y6 products named by configs/desy6/v1/default.yaml and not produced yet. Remove each line once
-    # its step of msfm.apps.products.desy6 has written the file
-    "data/desy6/desy6_metacal_bias.h5",
 }
 
 # files: keys whose value is not a repo-relative path -- metacal_bias_arm selects an HDF5 group
