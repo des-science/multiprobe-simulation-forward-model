@@ -13,7 +13,7 @@ Steps, in order:
     nz       n(z) text files of all 4 source and 6 lens bins, from the 3x2pt FITS
     pixels   pixel file: the rotated nside-512 footprint, its four patches and the padded data vector, from the mask,
              and the MagLim weight maps that correct the observed lens counts, from the catalog
-    maps     shear, count and weighted-count maps of every source and lens bin, and the source response, in dirs.cache
+    maps     shear and count maps of every source and lens bin, and the source response, in dirs.cache
     values   n_gal, response, m prior and Aeff, per bin label, in files.survey_values
     config   writes files.survey_values into the config lines marked "# <- desy6 values: <dotted.key>"
     noise    shape-noise file: (e1 / R, e2 / R, w, pix) per galaxy of every source bin
@@ -78,7 +78,6 @@ MAPS_FILES = {
     "metacal_count": f"{FILE_PREFIX}_metacal_count.npy",
     "metacal_response": f"{FILE_PREFIX}_metacal_response.npy",
     "maglim_count": f"{FILE_PREFIX}_maglim_count.npy",
-    "maglim_weighted_count": f"{FILE_PREFIX}_maglim_weighted_count.npy",
 }
 
 
@@ -325,8 +324,9 @@ def step_pixels(conf, args):
 
 
 def step_maps(conf, args):
-    """Builds the shear, count and weighted-count maps of every source and lens bin, and saves the source response
-    that calibrated the shear maps, so that step values takes R from the same numbers.
+    """Builds the shear and count maps of every source and lens bin, and saves the source response that calibrated
+    the shear maps, so that step values takes R from the same numbers. The lens counts are raw, as for Y3; the weight
+    maps of step pixels correct them on the observation path.
 
     Returns:
         tuple: (input paths, output paths), or None with --dry-run or --max-objects
@@ -338,13 +338,12 @@ def step_maps(conf, args):
         return _dry_run("maps", inputs, list(paths.values()))
 
     gamma, source_count, response = catalog_desy6.build_metacal_maps(conf, max_objects=args.max_objects)
-    lens_count, lens_weighted_count = catalog_desy6.build_maglim_maps(conf, max_objects=args.max_objects)
+    lens_count = catalog_desy6.build_maglim_maps(conf, max_objects=args.max_objects)
     maps = {
         "metacal_gamma": gamma,
         "metacal_count": source_count,
         "metacal_response": response,
         "maglim_count": lens_count,
-        "maglim_weighted_count": lens_weighted_count,
     }
     for key, values in maps.items():
         LOGGER.info(f"{MAPS_FILES[key]}: shape {values.shape}, dtype {values.dtype}")
@@ -363,16 +362,17 @@ def step_values(conf, args):
     """Writes files.survey_values, the data-derived config values, with per-bin values keyed by survey bin label.
 
     n_gal is the count inside the footprint (patch 0 of the pixel file) over the footprint's area, in deg^-2, as
-    notebooks/desy3/config.ipynb did for Y3: raw counts for the sources, weighted counts for MagLim, whose per-galaxy
-    weights correct the survey systematics. The response is the one that calibrated the shear maps, the m prior is the
-    mean and std of the M_BIN samples, and Aeff is the full-resolution mask area stored in the pixel file.
+    notebooks/desy3/config.ipynb did for Y3. For MagLim the count is the raw one times the weight maps of the pixel
+    file, which is the observation the clean simulations are compared to, so the two match in expectation. The
+    response is the one that calibrated the shear maps, the m prior is the mean and std of the M_BIN samples, and Aeff
+    is the full-resolution mask area stored in the pixel file.
 
     Returns:
         tuple: (input paths, output paths), or None with --dry-run
     """
     pixel_path = _out_path(conf["files"]["pixels"])
     cache_dir = _out_path(conf["dirs"]["cache"])
-    maps = {key: os.path.join(cache_dir, MAPS_FILES[key]) for key in ("metacal_count", "maglim_weighted_count")}
+    maps = {key: os.path.join(cache_dir, MAPS_FILES[key]) for key in ("metacal_count", "maglim_count")}
     response_path = os.path.join(cache_dir, MAPS_FILES["metacal_response"])
     m_path = catalog_desy6.release_path(conf, "source_redshift")
     out_path = _out_path(conf["files"]["survey_values"])
@@ -392,6 +392,10 @@ def step_values(conf, args):
         footprint = f["footprint/patches"][0]
         coverage = f["footprint/coverage"][:].astype(np.float64)
         area = float(f.attrs["area_deg2"])
+        # in base-patch order, which is the order of the footprint pixels
+        lens_weights = np.stack(
+            [f[f"maglim/systematics/map/maglim{i}"][:] for i in range(1, catalog_desy6.N_LENS_BINS + 1)], axis=-1
+        ).astype(np.float64)
     footprint_area = footprint.size * hp.nside2pixarea(n_side, degrees=True)
     # the galaxies follow the mask, so the footprint should hold about the same fraction of both
     mask_fraction = np.sum(coverage[footprint]) / np.sum(coverage)
@@ -399,7 +403,7 @@ def step_values(conf, args):
     survey = {"Aeff": area, "metacal": {}, "maglim": {}}
     for sample, key, n_bins in (
         ("metacal", "metacal_count", catalog_desy6.N_SOURCE_BINS),
-        ("maglim", "maglim_weighted_count", catalog_desy6.N_LENS_BINS),
+        ("maglim", "maglim_count", catalog_desy6.N_LENS_BINS),
     ):
         count = np.load(maps[key])
         assert count.shape == (hp.nside2npix(n_side), n_bins), f"{_rel(maps[key])}: shape {count.shape}"
@@ -408,6 +412,9 @@ def step_values(conf, args):
         assert np.all(
             np.abs(fraction - mask_fraction) < 0.02
         ), f"{sample}: {fraction} of the galaxies lie in the footprint, but {mask_fraction:.4f} of the mask"
+        if sample == "maglim":
+            # the observation: raw counts times the weight maps
+            inside = np.sum(count[footprint] * lens_weights, axis=0)
         n_gal = inside / footprint_area
         survey[sample]["n_gal"] = {f"{sample}{i + 1}": float(n_gal[i]) for i in range(n_bins)}
         LOGGER.info(

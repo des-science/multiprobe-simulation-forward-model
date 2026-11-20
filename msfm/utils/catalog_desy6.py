@@ -270,23 +270,24 @@ def metacal_shapes(conf, i_bin, response, sign_e1=1, sign_e2=-1, apply_shear_rot
 
 
 def build_maglim_maps(conf, max_objects=None):
-    """Raw and weighted count maps of every MagLim bin, in the rotated footprint frame at analysis.n_side.
+    """Raw count maps of every MagLim bin, in the rotated footprint frame at analysis.n_side.
 
-    The weight is the per-galaxy ENET survey-systematics weight of the release, normalized to a mean of 1 per bin.
+    As for Y3, the counts are not weighted here: the ENet weight maps of the pixel file (maglim_weight_maps) multiply
+    them on the observation path. The per-galaxy ENet weights, normalized to a mean of 1 per bin, only enter the
+    n_eff that is checked against DES.
 
     Args:
         conf (dict): A DES Y6 config.
         max_objects (int, optional): Use only the first rows of each catalog, for smoke tests. Defaults to None.
 
     Returns:
-        tuple: count (n_pix, n_bins) int32, weighted count (n_pix, n_bins)
+        np.ndarray: count (n_pix, n_bins) int32
     """
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
     area_arcmin = conf["survey"]["Aeff"] * 60**2
 
     count = np.zeros((n_pix, N_LENS_BINS), dtype=np.int32)
-    weighted_count = np.zeros((n_pix, N_LENS_BINS))
     stats = {key: np.zeros(N_LENS_BINS) for key in ("n", "n_eff")}
     with h5py.File(release_path(conf, "maglim"), "r") as maglim:
         assert sorted(maglim.keys()) == [f"tomo_bin_{i}" for i in range(N_LENS_BINS)], "MagLim bins"
@@ -301,7 +302,6 @@ def build_maglim_maps(conf, max_objects=None):
 
             pix = catalog.survey_angles_to_pix(conf, ra, dec, n_side)
             count[:, i] = np.bincount(pix, minlength=n_pix)
-            weighted_count[:, i] = np.bincount(pix, weights=w, minlength=n_pix)
 
             n_eff = np.sum(w) ** 2 / np.sum(w**2) / area_arcmin
             stats["n"][i], stats["n_eff"][i] = w.size, n_eff
@@ -314,7 +314,7 @@ def build_maglim_maps(conf, max_objects=None):
     if max_objects is None:
         _check_against_des("lens", stats, LENS_DES)
 
-    return count, weighted_count
+    return count
 
 
 def _fill_from_neighbours(values, known, region, n_side):
@@ -353,7 +353,7 @@ def maglim_weight_maps(conf, patch, sub_nside, fill_rings=2):
     to fill_rings outside the patch, since some patch pixels have no neighbours in it.
 
     Two checks against the per-galaxy weights, in the frame of the count maps: the mean galaxy weight of each pixel
-    follows w, and the counts times w sum to the weighted counts. The weights keep the catalog's normalization.
+    follows w, and the counts times w sum to the per-galaxy weights. The weights keep the catalog's normalization.
 
     Args:
         conf (dict): A DES Y6 config.
