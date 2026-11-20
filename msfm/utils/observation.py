@@ -574,7 +574,7 @@ def forward_model_cosmogrid(
                     tomo_bg = redshift.get_tomo_amplitudes_according_to_config(conf, bg, n_bg, "maglim")
                 elif conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]:
                     tomo_bg = np.array(
-                        [conf["analysis"]["fiducial"][f"bg{i}"] for i in range(1, len(maglim_bins) + 1)]
+                        [conf["analysis"]["fiducial"][p] for p in conf["analysis"]["params"]["bg"]["linear"]]
                     )
                 LOGGER.info(f"Using tomo_bg={tomo_bg} from the config")
             else:
@@ -588,7 +588,7 @@ def forward_model_cosmogrid(
                         tomo_qbg = redshift.get_tomo_amplitudes_according_to_config(conf, bg, n_bg, "maglim")
                     elif conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]:
                         tomo_qbg = np.array(
-                            [conf["analysis"]["fiducial"][f"qbg{i}"] for i in range(1, len(maglim_bins) + 1)]
+                            [conf["analysis"]["fiducial"][p] for p in conf["analysis"]["params"]["bg"]["quadratic"]]
                         )
                     LOGGER.info(f"Using tomo_qbg={tomo_qbg} from the config")
                     qdg_dv = dg_dv**2 * np.sign(dg_dv)

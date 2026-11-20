@@ -242,7 +242,7 @@ def main(indices, args):
     per_bin_biasing = conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]
     quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
 
-    astro_params = conf["analysis"]["params"]["ia"]["nla"]
+    astro_params = conf["analysis"]["params"]["ia"]["nla"].copy()
     if extended_nla:
         astro_params += conf["analysis"]["params"]["ia"]["tatt"]
     astro_params += conf["analysis"]["params"]["bg"]["linear"]
@@ -251,6 +251,7 @@ def main(indices, args):
     if sn_bias == "prior":
         astro_params += conf["analysis"]["params"]["sc"]
     LOGGER.info(f"Sampling the astrophysical parameters {astro_params} from a Latin hypercube")
+    n_bg_bins = len(conf["analysis"]["params"]["bg"]["linear"])
 
     astro_priors = parameters.get_prior_intervals(astro_params, conf=conf)
 
@@ -398,13 +399,13 @@ def main(indices, args):
                             tomo_qbg = None
                         tomo_bg = redshift.get_tomo_amplitudes_according_to_config(conf, bg, n_bg, "maglim")
                     elif per_bin_biasing:
+                        # one bias per lens bin, at the end of the sample (linear, then quadratic)
                         if quadratic_biasing:
-                            bg1, bg2, bg3, bg4, qbg1, qbg2, qbg3, qbg4 = astro_sample[-8:]
-                            tomo_qbg = np.array([qbg1, qbg2, qbg3, qbg4])
+                            tomo_bg = np.array(astro_sample[-2 * n_bg_bins : -n_bg_bins])
+                            tomo_qbg = np.array(astro_sample[-n_bg_bins:])
                         else:
-                            bg1, bg2, bg3, bg4 = astro_sample[-4:]
+                            tomo_bg = np.array(astro_sample[-n_bg_bins:])
                             tomo_qbg = None
-                        tomo_bg = np.array([bg1, bg2, bg3, bg4])
                     else:
                         raise ValueError("Unsupported configuration of clustering bias")
 

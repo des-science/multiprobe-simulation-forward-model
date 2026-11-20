@@ -104,9 +104,16 @@ def print_and_check_modeling_in_config(conf):
         bg_params
     ), "Power law biasing is not consistent with bg parameters"
 
-    assert conf_clustering["per_bin_biasing"] == {
-        f"bg{i+1}" for i, _ in enumerate(conf["survey"]["maglim"]["z_bins"])
-    }.issubset(bg_params), "Per bin biasing is not consistent with bg parameters"
+    # one bias per lens bin, in z_bins order and named by the bin number (maglim3 -> bg3)
+    per_bin_params = [f"bg{files.get_z_bin_number(z_bin)}" for z_bin in conf["survey"]["maglim"]["z_bins"]]
+    assert conf_clustering["per_bin_biasing"] == (list(bg_params) == per_bin_params), (
+        f"Per bin biasing is not consistent with bg parameters: expected {per_bin_params} for "
+        f"survey.maglim.z_bins, got {bg_params}"
+    )
+    if conf_clustering["per_bin_biasing"] and conf_clustering["quadratic_biasing"]:
+        assert len(conf["analysis"]["params"]["bg"]["quadratic"]) == len(
+            bg_params
+        ), "Quadratic per bin biasing needs one analysis.params.bg.quadratic entry per lens bin"
 
     if conf_clustering["stochasticity"]:
         assert conf["analysis"]["params"]["bg"]["stochasticity"] == ["rg"]
