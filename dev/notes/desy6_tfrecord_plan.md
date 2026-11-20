@@ -162,14 +162,14 @@ l_min = 30 cut and the shape-noise model must all be final before production. Sc
 | `survey.metacal.n_gal` | raw noshear counts per bin / masked area | step `values`, which writes the config line (5.4) |
 | `survey.metacal.response` | dropped (2026-11-20): R from `1p/1m/2p/2m` divides the cached shear in step `maps` and nothing reads a config value; KP Table 2: 0.856, 0.869, 0.819, 0.692 *(paper)* | step `maps` |
 | `survey.metacal.shear_bias` | `mu`/`sigma` from the `M_BIN*` columns (step `values`) until WP5 is in; then `source: projection` | WP5 |
-| `survey.metacal.z0` | 0.3 (KP pivot; v18 used 0.62) | D4. Baked in through the per-bin IA amplitude |
+| `survey.metacal.z0` | 0.3 (KP pivot; v18 used 0.62) | D4, settled. Baked in through the per-bin IA amplitude |
 | `survey.maglim.z_bins` (lens role) | 5 bins, survey bins 1, 3, 4, 5, 6 | settled 2026-11-18: all six are projected and produced, and the config excludes bin 2 as the KP does *(paper, Sec. IV.8)* |
 | `survey.maglim.n_gal` | raw counts × the lens weight maps per bin / masked area (the corrected observation) | step `values` |
 | `survey.maglim.z_lims` | dropped | the catalog is already binned (`tomo_bin_k`); the Y6 reader does not need it |
 | `survey.Aeff` | from the mask | step `pixels`, against DES's 4031.036 deg² |
 | `analysis.n_patches`, `footprint.rotation` | 4 and the Y3 angles, a choice stated in the config | step `pixels` asserts no overlap. The only Y3 reuse |
-| `params.ia` | `nla: [Aia, n_Aia]`, `tatt: [bta]` or bta fixed | D4. KP uses TATT with b_TA = 1 fixed; A2/η2 have no map-level implementation |
-| `grid.priors.Aia`, `n_Aia` | KP: A1 [-1, 3], η1 ~ N(0, 3) on [-5, 5] *(paper)*. The Latin hypercube is uniform, so [-5, 5] is the analogue | D4 |
+| `params.ia` | `nla: [Aia, n_Aia]`, `tatt: [bta]`, as v18 | D4, settled. KP uses TATT with b_TA = 1 fixed; A2/η2 have no map-level implementation |
+| `grid.priors.Aia`, `n_Aia` | v18's [-3, 3] and [-4, 6]. KP: A1 [-1, 3], η1 ~ N(0, 3) on [-5, 5] *(paper)* | D4, settled |
 | `params.bg.linear`, priors, fiducials | 5 bins, [0.8, 3.0] (= KP). Fiducials from FW for bins 1, 3, 4, 5, 6: 1.54, 1.85, 1.76, 1.93, 1.90 *(paper)* | D3 (names) |
 | `scale_cuts.*.l_min`, `normalization.*` | lists of length 4 (source) and 5 (lens) | |
 | `modelling.lensing.shape_noise` | `count`, `fixed`, and `survey_systematics` true or false | D5 |
@@ -466,19 +466,19 @@ measured unpinned packing as ~4x slower, so pinning is not optional.
 
 - **D1.** Settled 2026-11-18: `configs/desy6/v1/default.yaml` and `pipelines/desy6/v1/`, with Y3
   under `configs/desy3/` and `pipelines/desy3/`.
-- **D2.** Bin labels.
-  - Preferred: Tomasz labels the Y6 bins distinctly in the projection, for example `desy6_source1-4`
-    and `desy6_lens1-6`. msfm uses the same labels, so a Y3 tree cannot satisfy a Y6 config.
-  - Fallback: the `projection_keys` mapping (WP6).
+- **D2 (settled 2026-11-20).** Bin labels: Y3's (`metacal1-4`, `maglim1-6`), as Tomasz writes them in
+  the test files. The projection guard tells the surveys apart by `shearm`, so distinct labels are
+  not needed. Revisit only if the production projection changes them.
 - **D3.** Bias parameter names: by survey bin (`bg1, bg3, bg4, bg5, bg6`, matching the DES chains'
   `b1e_bin*`) or by position (`bg1..bg5`). I recommend by survey bin.
-- **D4.** IA: pivot 0.3, the KP prior boxes, and bta fixed at 1 or sampled on [0, 2] as in v18. All
-  of it is baked into the tfrecords.
+- **D4 (settled 2026-11-20).** IA: the KP's pivot `z0 = 0.3`; everything else stays v18's. The model
+  is δ-NLA (no TATT tidal-torquing A2/η2, which msfm has no map for), bta sampled on [0, 2], the boxes
+  Aia [-3, 3] and n_Aia [-4, 6], the fiducials Aia 0.5, n_Aia 1.5, bta 0. So WP7's empty-`tatt`
+  item is not needed.
 - **D5.** Settled 2026-11-18: as v18, `count` with `survey_systematics: true`. So both `sc_bias` and
   the systematics file are needed. The user runs `lss_sys` on the Y6 survey-property maps; until
   then the file is a TODO input, as it was for Y3.
-- **D6.** Lens magnification (KP samples α). Not modeled in v18. Ask Tomasz for `kg` maps of the
-  lens bins now anyway (Q5), since adding them later means reprojecting.
+- **D6 (settled 2026-11-20).** Lens magnification (KP samples α): not modeled, as v18. Q5 is moot.
 - **D7.** Lens bias stays linear (v18). Checked 2026-11-19: linear is also the KP's fiducial (Sec. IV.1, V.1.1);
   the earlier note that the KP's fiducial is nonlinear was wrong.
 - **D8.** Mean shear. KP subtracts it from the data *(paper)*; v18 does not subtract it anywhere.
@@ -490,7 +490,7 @@ measured unpinned packing as ~4x slower, so pinning is not optional.
   observed, and n_gal (galaxies in the footprint ÷ footprint area) absorbs the missing coverage on
   average. The per-pixel coverage pattern is not modeled. Mean coverage in the footprint: 0.92 for
   Y3, 0.88 for Y6.
-- **D10.** IA amplitude n(z): the mean n(z), as in v18, or each permutation's own `nz/<bin>`.
+- **D10 (settled 2026-11-20).** IA amplitude n(z): the mean n(z) with the 5-95% truncation, as v18.
 
 **Questions for Tomasz**
 
