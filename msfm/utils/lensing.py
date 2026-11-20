@@ -5,6 +5,7 @@ Author: Arne Thomsen
 Tools to handle the scale cuts, kaiser-squires transformation and multiplicative and additive shear biases.
 """
 
+import h5py
 import numpy as np
 
 from msfm.utils import files, logger, scales, imports
@@ -71,6 +72,27 @@ def m_bias_from_projection(conf):
     source = conf["survey"]["metacal"]["shear_bias"]["multiplicative"].get("source", "prior")
     assert source in ("prior", "projection"), f"Unknown survey.metacal.shear_bias.multiplicative.source {source}"
     return source == "projection"
+
+
+def check_projection(conf, full_maps_file):
+    """Assert that a projected full-sky file belongs to the configured survey. DES Y3 and Y6 projections share the
+    filename and the bin labels, but only a Y6 one stores each realization's m (the attr shearm of nz/<bin>), so the
+    file must have it exactly when the config takes m from the projection.
+
+    Args:
+        conf (dict): The config.
+        full_maps_file (str): Path to a projected_probes_maps file.
+    """
+    with h5py.File(full_maps_file, "r") as f:
+        nz = f.get("nz", {})
+        has_m = all(z_bin in nz and "shearm" in nz[z_bin].attrs for z_bin in conf["survey"]["metacal"]["z_bins"])
+
+    from_projection = m_bias_from_projection(conf)
+    assert has_m == from_projection, (
+        f"{full_maps_file} {'stores' if has_m else 'does not store'} the shearm of each realization, but the "
+        f"{conf['survey']['name']} config has survey.metacal.shear_bias.multiplicative.source "
+        f"{'projection' if from_projection else 'prior'}. Is --dir_in the projection of another survey?"
+    )
 
 
 def mode_removal(

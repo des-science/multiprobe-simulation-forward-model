@@ -710,6 +710,7 @@ def _get_full_sky_perm(args, conf, cosmo_dir_in, i_perm):
             local_scratch_dir, with_bary=with_bary, version=args.cosmogrid_version
         )
 
+    lensing.check_projection(conf, full_maps_file)
     return full_maps_file
 
 

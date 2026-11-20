@@ -16,6 +16,10 @@ configs/<survey>/<version>/<subversion>.yaml
 Versions are numbered per survey, so Y6 starts again at `v1`. `pipelines/<survey>/<version>/`
 holds the submission scripts for the config of the same name.
 
+A config's repo paths (`files:`, `dirs:`) lie either directly in `data/`, for the inputs shared by
+all surveys, or under `data/<survey.name in lower case>/`. msfm raises on any other `data/` path
+(`msfm.utils.configuration.check_survey_paths`).
+
 The y3-deep-lss and msi submission scripts build `configs/$VERSION/$SUBVERSION.yaml`,
 `data/$VERSION/$SUBVERSION` and `runs/$VERSION/$SUBVERSION`, so the survey goes into `VERSION`:
 `VERSION=desy6/v1 SUBVERSION=default`.

@@ -39,7 +39,7 @@ import h5py
 from scipy.optimize import minimize
 from scipy.stats import wasserstein_distance
 
-from msfm.utils import files, filenames, catalog, clustering, cosmogrid, imports, logger
+from msfm.utils import files, filenames, catalog, clustering, cosmogrid, imports, lensing, logger
 
 hp = imports.import_healpy(parallel=False)
 
@@ -266,6 +266,7 @@ def read_density_contrast(conf, cosmo_dir, perm=0):
     with_bary = conf["analysis"]["modelling"]["baryonified"]
 
     full_maps_file = filenames.get_filename_full_maps(os.path.join(cosmo_dir, f"perm_{perm:04d}"), with_bary=with_bary)
+    lensing.check_projection(conf, full_maps_file)
 
     delta = np.zeros((n_pix, len(z_bins)), dtype=np.float32)
     with h5py.File(full_maps_file, "r") as f:

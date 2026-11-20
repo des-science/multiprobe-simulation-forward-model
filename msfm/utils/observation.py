@@ -260,6 +260,7 @@ def forward_model_cosmogrid(
     data_vec_pix, patches_pix_dict, _, gamma2_signs = files.load_pixel_file(conf)
 
     map_file = filenames.get_filename_full_maps(map_dir, with_bary=conf["analysis"]["modelling"]["baryonified"])
+    lensing.check_projection(conf, map_file)
     LOGGER.info(f"Loading the full-sky map from {map_file}")
     with h5py.File(map_file, "r") as f:
         if with_lensing:

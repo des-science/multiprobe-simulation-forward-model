@@ -50,7 +50,27 @@ def _check_metacal_bias_matches_forward_model(conf, survey_systematics):
         LOGGER.warning(f"Imaging systematics {conf_label!r} self-reports: {status}")
 
 
+def check_survey_paths(conf):
+    """Assert that every repo path in files: and dirs: belongs to the configured survey: it lies directly in data/
+    (the inputs shared by all surveys) or under data/<survey.name in lower case>/. Absolute paths are not checked.
+
+    Args:
+        conf (dict): Configuration.
+    """
+    survey_dir = conf["survey"]["name"].lower()
+    for section in ("files", "dirs"):
+        for key, path in conf.get(section, {}).items():
+            if isinstance(path, str) and path.startswith("data/"):
+                parts = path.split("/")
+                assert len(parts) == 2 or parts[1] == survey_dir, (
+                    f"{section}.{key} = {path} is neither a shared input in data/ nor under data/{survey_dir}/, "
+                    f"the directory of survey.name {conf['survey']['name']}"
+                )
+
+
 def print_and_check_modeling_in_config(conf):
+    check_survey_paths(conf)
+
     LOGGER.info("Modeling choices:")
     for key, value in dict(conf["analysis"]["modelling"]).items():
         if isinstance(value, dict):

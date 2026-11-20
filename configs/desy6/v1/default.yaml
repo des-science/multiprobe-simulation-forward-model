@@ -9,7 +9,6 @@
 #                                      (`values --check` catches a stale value)
 #   OPEN: ...                          a modelling choice still to be made for Y6
 #   TODO: ...                          missing before msfm can run this config
-# TODO: msfm does not check yet that a DESy6 config gets Y6 inputs (the files: paths, the projection's bin keys)
 dirs:
   # the public Y6 release as downloaded by Tomasz, read in place. Used: metadetect_2024-11-07.hdf5,
   # maglim_2024-11-07.hdf5, jointmask_DESY6_2024-06-04.hsp, 3x2pt_2025-07-28-20h_UNBLINDED_wmask_nob2.fits,

@@ -46,7 +46,7 @@ import healpy as hp
 import numpy as np
 import yaml
 
-from msfm.utils import catalog, catalog_desy6, files, filenames, logger
+from msfm.utils import catalog, catalog_desy6, configuration, files, filenames, logger
 
 LOGGER = logger.get_logger(__file__)
 
@@ -691,6 +691,7 @@ def main(argv=None):
     conf = files.load_config(args.config)
     if conf["survey"]["name"] != SURVEY_NAME:
         raise ValueError(f"{args.config} is a {conf['survey']['name']} config, these products are {SURVEY_NAME}")
+    configuration.check_survey_paths(conf)
 
     # checked before the step runs, so a dry run with --provenance catches uncommitted code too
     commit = _clean_commit() if args.provenance else None
