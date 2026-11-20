@@ -8,7 +8,7 @@ configs/<survey>/<version>/<subversion>.yaml
 
 | | |
 |---|---|
-| `desy6/v1/` | DES Y6, first version. `default.yaml` is a skeleton based on `desy3/v18/default.yaml`; its data-derived values, on the lines marked `# <- step values`, are written by `python -m msfm.apps.products.desy6 values` (`data/desy6/README.md`) |
+| `desy6/v1/` | DES Y6, first version. `default.yaml` is based on `desy3/v18/default.yaml`; its data-derived values, on the lines marked `# <- step values`, are written by `python -m msfm.apps.products.desy6 values`. Which products exist yet: `data/desy6/README.md` |
 | `desy3/v18/` | DES Y3 production: `default.yaml`, plus the mock-observation variants in `obs/`. **Frozen** |
 | `desy3/v17/`, `desy3/v16/` | earlier DES Y3 generations, still read by their pipelines and studies |
 | `desy3/deprecated/` | v5 to v15 and `marcel` |
