@@ -455,10 +455,17 @@ measured unpinned packing as ~4x slower, so pinning is not optional.
    5. the review notebook, with the sign and mean-shear checks.
 3. **Phase C, the test projection is usable now:**
    1. the daint executor and the mount check;
-   2. a smoke test on 1-2 grid cosmologies;
+   2. a smoke test on 1-2 grid cosmologies. Done 2026-11-20: `run_grid_postprocessing --debug` on
+      `cosmo_000001` (perms 2-3 linked to 0-1), the v1 config with `bias: prior` (b_sc in [0.5, 1.5])
+      in place of the missing table, with and without the MAIN19 systematics (jobs 5408520, 5408563,
+      `claude/bench/desy6_smoke/`). Both pass: 5 records, 17 labels, 4 + 5 bins, all finite, each
+      example carries its permutation's `shearm`. 245 s and 11 GB as one task on a full node, as Y3;
+      about 30 min per cosmology unpacked;
    3. the CPU sizing benchmark;
-   4. `sc_bias` at `perm_0000`, if Tomasz confirms that the
-      dg/source maps in the test files are final apart from the realization sampling.
+   4. `sc_bias` at `perm_0000`. Done 2026-11-20 as code: step `sc_bias` of
+      `msfm.apps.products.desy6`, tested with `--max-cosmologies 1` on `cosmo_000001` (job 5408693,
+      12 s per arm): b clean 0.87, 1.29, 1.61, 2.69, contam 0.81, 1.19, 1.45, 1.90. The table itself
+      waits for the production projection (Phase D).
 4. **Phase D, after the production projection:** `sc_bias` (if it was not done in C), the full grid
    tfrecords, validation. Fiducial tfrecords come later: production y3-deep-lss reads only the grid
    set, and there is no fiducial projection yet.
