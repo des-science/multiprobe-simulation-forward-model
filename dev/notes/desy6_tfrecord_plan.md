@@ -245,6 +245,23 @@ Each work package is a no-op on Y3.
   prior.
 - m stays out of the label vector, as in Y3.
 
+**WP1 path guard and WP6 projection guard: done 2026-11-20, simpler than items 2 and 5 of section 2**
+
+- Paths: `configuration.check_survey_paths` requires every `data/` path in `files:`/`dirs:` to lie
+  directly in `data/` (shared) or under `data/<survey.name.lower()>/`. Same rule for every survey, no
+  `survey_agnostic` list; all 16 live configs pass. Called by `print_and_check_modeling_in_config`
+  (the three apps) and `desy6.main`.
+- Projection: `lensing.check_projection` requires `shearm` on `nz/<source bin>` exactly when
+  `multiplicative.source` is `projection`. Y3 projections have none, so it catches a Y6 config on a
+  Y3 tree and a Y3 config on a Y6 tree. Called wherever a projection is opened: `_get_full_sky_perm`
+  (grid and fiducial), `observation.py`, `source_clustering_bias.py`.
+- The mean-z check was dropped after measuring it: the Y6 ensembles spread up to ±0.087 in mean z
+  (metacal4), Y3 and Y6 differ by 0.075, 0.017, 0.10, 0.22 in the four source bins and by < 0.05 in
+  the lens bins, and Y3's own projection is 0.035 off `desy3_nz_maglim_bin2.txt`. No fixed tolerance
+  separates more than metacal3–4. A missing bin key already raises, so it needs no check either.
+- Side finding: the two test perms' source n(z) sit about 2σ below the ensemble mean in all four
+  bins (metacal1 0.391 vs 0.414 ± 0.012). Re-check on the production re-projection.
+
 **WP7: bin-count generality**
 
 - Grid bias unpack by the length of `params.bg.linear` (`run_grid_postprocessing.py:400-407`).
