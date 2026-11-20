@@ -12,8 +12,8 @@ all of them from the public Y6 release, `msfm/apps/products/desy6.py`, for
 | `nz` | `redshift_distributions/` | yes | done 2026-11-18 |
 | `pixels` | `desy6_pixels_fiducial_512.h5` | yes | done 2026-11-20, threshold 0.73, with the lens weight maps |
 | `maps` | `cache/` | no | done 2026-11-19 |
-| `values` | `desy6_survey_values.yaml` | yes | done 2026-11-19 |
-| `config` | the marked lines of the config | yes | done 2026-11-19 |
+| `values` | `desy6_survey_values.yaml` | yes | done 2026-11-20, lens n_gal from the weight maps |
+| `config` | the marked lines of the config | yes | done 2026-11-20 |
 | `noise` | `desy6_noise_512.h5` | no | done 2026-11-19 |
 | `sc_bias` | `desy6_metacal_bias.h5` | yes | not written, blocked (see below) |
 | external | `desy6_metacal_systematics_<label>_512.h5` | yes | TODO: an `lss_sys` run |
@@ -129,8 +129,8 @@ bin.
 
 **Checks on the weights:** one weight per nside-1024 pixel; the mean galaxy weight of each pixel
 follows w (correlation 0.993 to 0.996, where a wrong frame gives 0); and the counts times w sum to
-the weighted counts within 3×10⁻⁵, so the catalog's normalization and the weighted n_gal of step
-`values` carry over.
+the per-galaxy weights within 3×10⁻⁵, so the catalog's normalization carries over. Per pixel, the
+counts times w and the sums of the per-galaxy weights differ by 0.13% to 0.38% of the mean count.
 
 **Against the paper:** the rms of the weights reproduces σ_weight of arXiv:2601.14484 (Sec. III.2),
 which publishes no weight map. Per galaxy it agrees to the printed digit in every bin:
@@ -151,7 +151,7 @@ pixels it contains.
 
 - **Writes** to `cache/` (gitignored), full sky at nside 512 in the footprint frame: the shear
   (`desy6_metacal_gamma_e1p_e2m.npy`, sign convention as Y3), source counts, the response R per bin,
-  and MagLim counts and weighted counts.
+  and MagLim counts. The lens counts are raw, as in Y3: the weight maps of `pixels` correct them.
 - **From** metadetection (the unsheared catalog, and the four sheared ones for R) and MagLim. No
   cuts: the release is already the fiducial selection. Y3: `build_des.ipynb`.
 - **Checks:** per source bin N, R, n_eff and σ_e, and per lens bin N and n_eff, equal what DES's
@@ -165,7 +165,9 @@ pixels it contains.
 
 - **Writes** `desy6_survey_values.yaml`, keyed by bin label.
 - **n_gal** = galaxies in the footprint / footprint area, as in Y3's `config.ipynb`. Raw counts for
-  the sources, weighted counts for MagLim.
+  the sources. For MagLim, the raw counts times the weight maps, which is the observation that the
+  clean simulations are compared to, so the two match in expectation. Y3 used the raw lens counts,
+  0.01% to 0.16% more than the corrected ones; in Y6 the difference is 0.08% to 0.28%.
 - **R** from `maps`; **m prior** (mean and std) from the `M_BIN*` columns; **Aeff** from the pixel
   file.
 - **Checks:** the footprint holds the same fraction of the galaxies as of the mask area, within

@@ -62,8 +62,8 @@ survey:
       input: [dg]
       output: [dg]
     z_bins: [maglim1, maglim3, maglim4, maglim5, maglim6]
-    # weighted, in galaxies/deg^2, inside the nside-512 mask
-    n_gal: [406.3791156368063, 310.350946760715, 391.5827112999988, 305.6365876349676, 309.63682162262666] # <- desy6 values: survey.maglim.n_gal
+    # in galaxies/deg^2, inside the nside-512 mask, of the raw counts times the lens weight maps (the observation)
+    n_gal: [406.37168844151955, 310.35154530865645, 391.57145224529353, 305.6373656692489, 309.6290699389061] # <- desy6 values: survey.maglim.n_gal
     # no z_lims: the Y6 catalog is already binned (tomo_bin_k)
   # in deg^2, the joint mask at nside 131072, as in DES's 3x2pt_pipeline_public.ipynb (4031.036)
   Aeff: 4031.03590997686 # <- desy6 values: survey.Aeff
