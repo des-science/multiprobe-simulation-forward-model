@@ -95,8 +95,8 @@ From the public release `y6a2_files/y6_psf/final_version`. Only keys were listed
 | randoms, redMaGiC, `maglimpp_wtheta_add_debias_enet_dv5.fits` | not needed for maps. The debias file is a w(θ)-level correction |
 
 **Missing.** The Gold catalog (not downloaded) and the **survey-property maps**. The user has the
-survey-property maps in `/capstor/store/cscs/userlab/lp184/athomsen` and will run `lss_sys` on them
-(D5, `data/desy6/README.md`).
+survey-property maps in `/capstor/store/cscs/userlab/lp184/athomsen` and ran `lss_sys` on them
+(D5, step `systematics` in `data/desy6/README.md`).
 
 **Used** (section 5): metadetection, MagLim, the joint mask, the 3x2pt FITS (n(z)), and the `M_BIN*`
 columns of `desy6_source_redshift.h5` (m prior). Nothing else from the download.
@@ -456,7 +456,7 @@ measured unpinned packing as ~4x slower, so pinning is not optional.
    1. the daint executor and the mount check;
    2. a smoke test on 1-2 grid cosmologies;
    3. the CPU sizing benchmark;
-   4. `sc_bias` at `perm_0000`, once the user's `lss_sys` run exists and if Tomasz confirms that the
+   4. `sc_bias` at `perm_0000`, if Tomasz confirms that the
       dg/source maps in the test files are final apart from the realization sampling.
 4. **Phase D, after the production projection:** `sc_bias` (if it was not done in C), the full grid
    tfrecords, validation. Fiducial tfrecords come later: production y3-deep-lss reads only the grid
@@ -480,8 +480,9 @@ measured unpinned packing as ~4x slower, so pinning is not optional.
   Aia [-3, 3] and n_Aia [-4, 6], the fiducials Aia 0.5, n_Aia 1.5, bta 0. So WP7's empty-`tatt`
   item is not needed.
 - **D5.** Settled 2026-11-18: as v18, `count` with `survey_systematics: true`. So both `sc_bias` and
-  the systematics file are needed. The user runs `lss_sys` on the Y6 survey-property maps; until
-  then the file is a TODO input, as it was for Y3.
+  the systematics file are needed. Done 2026-11-20: the `lss_sys` run `metadetect_sources_MAIN19`
+  on the 19 Y6 survey-property maps, copied and checked by the new step `systematics`
+  (`desy6_metacal_systematics_MAIN19_512.h5`).
 - **D6 (settled 2026-11-20).** Lens magnification (KP samples α): not modeled, as v18. Q5 is moot.
 - **D7.** Lens bias stays linear (v18). Checked 2026-11-19: linear is also the KP's fiducial (Sec. IV.1, V.1.1);
   the earlier note that the KP's fiducial is nonlinear was wrong.
