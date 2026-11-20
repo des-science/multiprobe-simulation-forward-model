@@ -43,21 +43,17 @@ the same for step sc_bias with the first N grid cosmologies.
 
 import argparse
 import copy
-import datetime
-import hashlib
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 
 import h5py
 import healpy as hp
 import numpy as np
-import yaml
 
-from msfm.utils import catalog, catalog_desy6, configuration, files, filenames, logger
+from msfm.utils import catalog, catalog_desy6, configuration, files, filenames, logger, products
 from msfm.utils import source_clustering_bias as scb
 
 LOGGER = logger.get_logger(__file__)
@@ -67,12 +63,6 @@ SURVEY_NAME = "DESy6"
 OUT_ROOT = "data/desy6"
 CONFIG_ROOT = "configs/desy6"
 STEP_ORDER = ["nz", "pixels", "maps", "values", "noise", "systematics", "sc_bias"]
-
-# a config line whose value the step values writes: "<key>: <value> # <- step values: <dotted.key>"
-VALUE_MARKER = re.compile(
-    r"^(?P<head>\s*(?P<key>[A-Za-z_]\w*):\s*)(?P<value>[^#]*?)(?P<gap>\s*)"
-    r"(?P<marker>#\s*<-\s*step values:\s*(?P<dotted>[A-Za-z_][\w.]*)\s*)$"
-)
 
 # config sample key -> (n(z) HDU of the 3x2pt FITS, number of survey bins it must hold)
 NZ_HDUS = {"metacal": ("nz_source", catalog_desy6.N_SOURCE_BINS), "maglim": ("nz_lens", catalog_desy6.N_LENS_BINS)}
@@ -108,12 +98,7 @@ def _out_path(rel_path):
 
 def _dry_run(step, inputs, outputs):
     """Lists what a step would read and write. Returns None, so nothing is recorded."""
-    LOGGER.info(f"dry run of step {step}, nothing is written")
-    for path in inputs:
-        LOGGER.info(f"  reads  {_rel(path)} {'(exists)' if os.path.exists(path) else '(MISSING)'}")
-    for path in outputs:
-        LOGGER.info(f"  writes {_rel(path)} {'(exists, would be replaced)' if os.path.exists(path) else ''}")
-    return None
+    return products.dry_run(step, inputs, outputs, rel=_rel)
 
 
 def _maps_path(conf, key):
@@ -124,8 +109,7 @@ def _maps_path(conf, key):
 
 def _rel(path):
     """Repository-relative path for files inside the repository, absolute otherwise."""
-    rel = os.path.relpath(os.path.abspath(path), REPO_DIR)
-    return path if rel.startswith("..") else rel
+    return products.rel_path(path, REPO_DIR)
 
 
 def step_nz(conf, args):
@@ -448,7 +432,7 @@ def step_values(conf, args):
     values["survey.metacal.shear_bias.multiplicative.sigma"] = _configured_bins(conf, "metacal", sigma)
     LOGGER.info(f"Aeff = {area:.3f} deg^2, footprint {footprint_area:.1f} deg^2")
 
-    if not _write_marked_values(conf, conf_path, values, args.check):
+    if not products.write_marked_values(conf, conf_path, values, args.check, rel=_rel):
         return None
     return inputs, [conf_path]
 
@@ -456,106 +440,6 @@ def step_values(conf, args):
 def _configured_bins(conf, sample, per_survey_bin):
     """The values of the configured bins, in z_bins order, from the values of every survey bin."""
     return [float(per_survey_bin[files.get_z_bin_number(z) - 1]) for z in conf["survey"][sample]["z_bins"]]
-
-
-def _dotted_get(tree, dotted):
-    node = tree
-    for part in dotted.split("."):
-        if not isinstance(node, dict) or part not in node:
-            raise KeyError(dotted)
-        node = node[part]
-    return node
-
-
-def _dotted_set(tree, dotted, value):
-    *parents, leaf = dotted.split(".")
-    for part in parents:
-        tree = tree[part]
-    tree[leaf] = value
-
-
-def _yaml_number(x):
-    # PyYAML only parses a float with a dot in the mantissa: "1e-05" would be read as a string
-    text = repr(x)
-    mantissa, _, exponent = text.partition("e")
-    return f"{mantissa}.0e{exponent}" if exponent and "." not in mantissa else text
-
-
-def _yaml_value(value):
-    if isinstance(value, list):
-        return "[" + ", ".join(_yaml_number(x) for x in value) + "]"
-    return _yaml_number(value)
-
-
-def _write_marked_values(conf, conf_path, values, check):
-    """Writes values (dotted config key -> number or per-bin list) into the marked lines of the config.
-
-    Every marked line needs a value and every value a marked line. The rewritten config must parse to the old one with
-    only the marked values replaced. With check, writes nothing and exits with 1 if a marked value is stale.
-
-    Returns:
-        bool: whether the config was written
-    """
-    rel_conf = _rel(conf_path)
-    for dotted, value in values.items():
-        assert np.all(np.isfinite(value)), f"{dotted}: {value} is not finite"
-    with open(conf_path) as f:
-        lines = f.read().splitlines(keepends=True)
-
-    new_lines, marked, stale = [], set(), []
-    for i_line, line in enumerate(lines, start=1):
-        body = line.rstrip("\r\n")
-        match = VALUE_MARKER.match(body)
-        if match is None:
-            # comment-only lines (the header explains the marker) are no markers
-            if "step values:" in body and not body.lstrip().startswith("#"):
-                raise ValueError(f"{rel_conf}:{i_line}: malformed value marker: {body.strip()}")
-            new_lines.append(line)
-            continue
-
-        dotted = match["dotted"]
-        if dotted.split(".")[-1] != match["key"]:
-            raise ValueError(f"{rel_conf}:{i_line}: the marker {dotted} sits on the key {match['key']}")
-        if dotted in marked:
-            raise ValueError(f"{rel_conf}:{i_line}: {dotted} is marked twice")
-        if dotted not in values:
-            raise KeyError(f"{rel_conf}:{i_line}: step values computes no {dotted}")
-        marked.add(dotted)
-
-        new_body = match["head"] + _yaml_value(values[dotted]) + (match["gap"] or " ") + match["marker"]
-        if new_body != body:
-            stale.append(dotted)
-        new_lines.append(new_body + line[len(body) :])
-    unmarked = sorted(set(values) - marked)
-    if unmarked:
-        raise ValueError(f"{rel_conf} has no line marked '# <- step values: <dotted.key>' for {unmarked}")
-
-    # the result parses, each marker sat on the line of its key, and no other value changed
-    new_text = "".join(new_lines)
-    new_conf = yaml.safe_load(new_text)
-    reference = copy.deepcopy(conf)
-    for dotted, value in values.items():
-        if _dotted_get(new_conf, dotted) != value:
-            raise ValueError(f"{dotted}: the rewritten config reads {_dotted_get(new_conf, dotted)!r}, not {value!r}")
-        _dotted_set(reference, dotted, value)
-    assert new_conf == reference, "the rewrite changed a config value that carries no marker"
-
-    if check:
-        for dotted in stale:
-            LOGGER.error(f"{rel_conf}: {dotted} = {_dotted_get(conf, dotted)!r}, step values: {values[dotted]!r}")
-        if stale:
-            raise SystemExit(1)
-        LOGGER.info(f"{rel_conf}: all {len(values)} marked values are up to date")
-        return False
-
-    if not stale:
-        # nothing written, so the provenance record of the last write stays
-        LOGGER.info(f"{rel_conf}: all {len(values)} marked values are up to date")
-        return False
-    with open(conf_path, "w") as f:
-        f.write(new_text)
-    LOGGER.info(f"{rel_conf}: wrote {len(stale)} of {len(values)} marked values: {stale}")
-    return True
 
 
 def step_noise(conf, args):
@@ -691,7 +575,7 @@ def step_systematics(conf, args):
         assert r > 0, f"source bin {i + 1}: the observed counts fall with the contamination (r = {r:.3f})"
 
     shutil.copyfile(source, out_path)
-    assert _sha256(out_path) == _sha256(source), f"{_rel(out_path)}: the copy differs from {source}"
+    assert products.sha256(out_path) == products.sha256(source), f"{_rel(out_path)}: the copy differs from {source}"
     return inputs, [out_path]
 
 
@@ -784,7 +668,9 @@ def step_sc_bias(conf, args):
             LOGGER.info(f"--max-cosmologies {args.max_cosmologies}: the table passed every check, nothing is written")
             return None
         shutil.copyfile(tmp_path, out_path)
-        assert _sha256(out_path) == _sha256(tmp_path), f"{_rel(out_path)}: the copy differs from the checked table"
+        assert products.sha256(out_path) == products.sha256(
+            tmp_path
+        ), f"{_rel(out_path)}: the copy differs from the checked table"
     return inputs, [out_path]
 
 
@@ -840,53 +726,24 @@ SOURCE_STEPS = {"systematics", "sc_bias"}
 CODE_PATHS = ("msfm", "configs")
 
 
-def _git(*cmd):
-    return subprocess.run(["git", "-C", REPO_DIR, *cmd], capture_output=True, text=True, check=True).stdout.strip()
-
-
 def _clean_commit():
     """Commit of this checkout. Refuses uncommitted changes in CODE_PATHS, so the commit is what runs."""
-    changes = _git("status", "--porcelain", "--", *CODE_PATHS)
-    if changes:
-        raise SystemExit(f"commit {' and '.join(CODE_PATHS)} before a step writes products:\n{changes}")
-    return _git("rev-parse", "HEAD")
-
-
-def _sha256(path):
-    digest = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _mtime(path):
-    return datetime.datetime.fromtimestamp(os.path.getmtime(path)).astimezone().isoformat(timespec="seconds")
+    return products.clean_commit(REPO_DIR, CODE_PATHS)
 
 
 def _record_provenance(conf, conf_path, step, commit, inputs, outputs):
     """Replaces the record of `step` in files.provenance. One record per step; git keeps the history."""
     prov_path = _out_path(conf["files"]["provenance"])
-    steps = {}
-    if os.path.isfile(prov_path):
-        with open(prov_path) as f:
-            steps = (yaml.safe_load(f) or {}).get("steps", {})
-
-    steps[step] = {
-        "date": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
-        "command": "python -m msfm.apps.products.desy6 " + " ".join(sys.argv[1:]),
-        "config": _rel(conf_path),
-        "msfm_commit": commit,
-        "inputs": [{"path": _rel(p), "bytes": os.path.getsize(p), "mtime": _mtime(p)} for p in inputs],
-        "outputs": [{"path": _rel(p), "sha256": _sha256(p)} for p in outputs],
-    }
-
-    prov = {
-        "about": "Written by msfm.apps.products.desy6, one record per step: how each file in data/desy6/ was made.",
-        "steps": {name: steps[name] for name in [*STEP_ORDER, *steps] if name in steps},
-    }
-    with open(prov_path, "w") as f:
-        yaml.safe_dump(prov, f, sort_keys=False, width=119)
+    record = products.provenance_record(
+        command="python -m msfm.apps.products.desy6 " + " ".join(sys.argv[1:]),
+        config=_rel(conf_path),
+        commits={"msfm_commit": commit},
+        inputs=inputs,
+        outputs=outputs,
+        rel=_rel,
+    )
+    about = "Written by msfm.apps.products.desy6, one record per step: how each file in data/desy6/ was made."
+    products.record_provenance(prov_path, step, record, STEP_ORDER, about)
     LOGGER.info(f"recorded step {step} in {os.path.relpath(prov_path, REPO_DIR)}")
 
 
