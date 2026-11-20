@@ -8,7 +8,7 @@ from msfm.utils import logger, files
 LOGGER = logger.get_logger(__file__)
 
 
-def _cache_file(conf, name):
+def cache_file(conf, name):
     """Resolve a catalog-derived cache map to <dirs.cache>/<survey>_<name>, creating the directory if needed.
 
     The survey prefix is survey.name in lower case. dirs.cache defaults to data/desy3/cache, since the Y3 configs have
@@ -182,8 +182,8 @@ def build_metacal_map_from_cat(
 
     rot_suffix = "" if apply_shear_rotation else "_no_psi_rot"
     sign_suffix = f"_e1{'m' if sign_e1 < 0 else 'p'}_e2{'m' if sign_e2 < 0 else 'p'}"
-    gamma_cache_dir = _cache_file(conf, f"metacal_gamma{rot_suffix}{sign_suffix}.npy")
-    count_cache_dir = _cache_file(conf, "metacal_count.npy")
+    gamma_cache_dir = cache_file(conf, f"metacal_gamma{rot_suffix}{sign_suffix}.npy")
+    count_cache_dir = cache_file(conf, "metacal_count.npy")
 
     # load from cache if available and not forcing recompute
     if not force_recompute:
@@ -306,8 +306,8 @@ def build_full_metacal_map_from_cat(
 
     rot_suffix = "" if apply_shear_rotation else "_no_psi_rot"
     sign_suffix = f"_e1{'m' if sign_e1 < 0 else 'p'}_e2{'m' if sign_e2 < 0 else 'p'}"
-    gamma_cache_dir = _cache_file(conf, f"metacal_gamma_full{rot_suffix}{sign_suffix}.npy")
-    count_cache_dir = _cache_file(conf, "metacal_count_full.npy")
+    gamma_cache_dir = cache_file(conf, f"metacal_gamma_full{rot_suffix}{sign_suffix}.npy")
+    count_cache_dir = cache_file(conf, "metacal_count_full.npy")
 
     if not force_recompute:
         try:
@@ -382,7 +382,7 @@ def build_full_metacal_map_from_cat(
 def build_maglim_map_from_cat(conf, debug=True, force_recompute=False):
     conf = files.load_config(conf)
 
-    cache_dir = _cache_file(conf, "maglim_count.npy")
+    cache_dir = cache_file(conf, "maglim_count.npy")
 
     # load from cache if available and not forcing recompute
     if not force_recompute:

@@ -5,8 +5,8 @@
 # the shape-noise model (count, with the imaging systematics imprinted on the source density).
 # The Y6 products and values come from `python -m msfm.apps.products.desy6 <step>` (data/desy6/README.md). Markers:
 #   # <- step <name>                   that step writes the file
-#   # <- desy6 values: <dotted.key>    the step `config` writes this value from files.survey_values; do not edit
-#                                      it by hand (`config --check` catches a stale value)
+#   # <- step values: <dotted.key>     the step `values` writes this value; do not edit it by hand
+#                                      (`values --check` catches a stale value)
 #   OPEN: ...                          a modelling choice still to be made for Y6
 #   TODO: ...                          missing before msfm can run this config
 # TODO: msfm does not check yet that a DESy6 config gets Y6 inputs (the files: paths, the projection's bin keys)
@@ -27,8 +27,6 @@ files:
   # inputs, outputs and msfm commit of every product step.
   # TODO: only step nz has a record; rerun pixels, maps, values and noise with --provenance
   provenance: data/desy6/provenance.yaml
-  # the data-derived values, per bin label; step config writes them into the lines marked "desy6 values"
-  survey_values: data/desy6/desy6_survey_values.yaml # <- step values
   # survey-agnostic: the only inputs shared with Y3
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data
@@ -51,18 +49,15 @@ survey:
     # the labels of the Y6 test projection. OPEN: distinct Y6 labels
     z_bins: [metacal1, metacal2, metacal3, metacal4]
     # in galaxies/deg^2, inside the nside-512 mask
-    n_gal: [7433.825377591532, 7635.582963085136, 7677.574950556799, 8182.75987826189] # <- desy6 values: survey.metacal.n_gal
+    n_gal: [7433.825377591532, 7635.582963085136, 7677.574950556799, 8182.75987826189] # <- step values: survey.metacal.n_gal
     # mean and std of M_BIN1-4 in desy6_source_redshift.h5.
     # TODO: apply each realization's m from the projection (attr shearm) instead of drawing it from this prior
     shear_bias:
       multiplicative:
-        mu: [-0.003397673790742481, 0.00645519707938863, 0.015939349904159923, 0.001698109169479922] # <- desy6 values: survey.metacal.shear_bias.multiplicative.mu
-        sigma: [0.005784359495438698, 0.006623822114448156, 0.005938030766082593, 0.01220024598003775] # <- desy6 values: survey.metacal.shear_bias.multiplicative.sigma
+        mu: [-0.003397673790742481, 0.00645519707938863, 0.015939349904159923, 0.001698109169479922] # <- step values: survey.metacal.shear_bias.multiplicative.mu
+        sigma: [0.005784359495438698, 0.006623822114448156, 0.005938030766082593, 0.01220024598003775] # <- step values: survey.metacal.shear_bias.multiplicative.sigma
     # IA pivot redshift, v18's. OPEN: the KP uses 0.3, Table 3 in https://arxiv.org/pdf/2601.14559
     z0: 0.62
-    # metadetection response per bin, replaces R_gamma + R_s; the cached shear maps are already divided by it.
-    # DES: 0.856143, 0.868506, 0.819427, 0.691769
-    response: [0.8561433330298941, 0.868505678503587, 0.8194268015985411, 0.6917685743283779] # <- desy6 values: survey.metacal.response
   # MagLim. The KP drops survey bin 2 (Sec. IV.8 in https://arxiv.org/pdf/2601.14559), so these are survey bins
   # 1, 3, 4, 5, 6. OPEN: lens magnification, not modelled in v18; the KP samples it per bin with Gaussian priors
   # (Table 3 in https://arxiv.org/pdf/2601.14559)
@@ -72,10 +67,10 @@ survey:
       output: [dg]
     z_bins: [maglim1, maglim3, maglim4, maglim5, maglim6]
     # in galaxies/deg^2, inside the nside-512 mask, of the raw counts times the lens weight maps (the observation)
-    n_gal: [406.37168844151955, 310.35154530865645, 391.57145224529353, 305.6373656692489, 309.6290699389061] # <- desy6 values: survey.maglim.n_gal
+    n_gal: [406.37168844151955, 310.35154530865645, 391.57145224529353, 305.6373656692489, 309.6290699389061] # <- step values: survey.maglim.n_gal
     # no z_lims: the Y6 catalog is already binned (tomo_bin_k)
   # in deg^2, the joint mask at nside 131072, as in DES's 3x2pt_pipeline_public.ipynb (4031.036)
-  Aeff: 4031.03590997686 # <- desy6 values: survey.Aeff
+  Aeff: 4031.03590997686 # <- step values: survey.Aeff
 
 analysis:
   n_side: 512

@@ -12,8 +12,7 @@ all of them from the public Y6 release, `msfm/apps/products/desy6.py`, for
 | `nz` | `redshift_distributions/` | yes | done 2026-11-18 |
 | `pixels` | `desy6_pixels_fiducial_512.h5` | yes | done 2026-11-20, threshold 0.73, with the lens weight maps |
 | `maps` | `cache/` | no | done 2026-11-20, with the unrotated shear |
-| `values` | `desy6_survey_values.yaml` | yes | done 2026-11-20, lens n_gal from the weight maps |
-| `config` | the marked lines of the config | yes | done 2026-11-20 |
+| `values` | the marked lines of the config | yes | done 2026-11-20, lens n_gal from the weight maps |
 | `noise` | `desy6_noise_512.h5` | no | done 2026-11-19 |
 | `sc_bias` | `desy6_metacal_bias.h5` | yes | not written, blocked (see below) |
 | external | `desy6_metacal_systematics_<label>_512.h5` | yes | TODO: an `lss_sys` run |
@@ -46,7 +45,7 @@ response, the weights and the mean shear.
 From the repository root, in `torch_env` (`pytorch/v2.9.1:v2` uenv, plus healsparse for `pixels`):
 
 ```bash
-# login node: nz, values, config
+# login node: nz, values
 uenv run --view=default pytorch/v2.9.1:v2 -- ~/dlss/torch_env/bin/python \
     -m msfm.apps.products.desy6 <step> --config configs/desy6/v1/default.yaml
 
@@ -54,14 +53,15 @@ uenv run --view=default pytorch/v2.9.1:v2 -- ~/dlss/torch_env/bin/python \
 pipelines/desy6/products/run.sh <step>    # PARTITION, TIME, LOGDIR; DRYRUN=1 prints the sbatch line
 ```
 
-- `--dry-run` lists what a step reads and writes, and writes nothing. For `config` it is `--check`.
+- `--dry-run` lists what a step reads and writes, and writes nothing.
+- `values --check` writes nothing and exits 1 if a value in the config is stale.
 - `--max-objects N` (`maps`, `noise`) reads the first N rows of each catalog and writes nothing. A
   smoke test.
 - `--provenance` is for production runs. The step then refuses uncommitted `msfm/` or `configs/`,
   and records its inputs, outputs (sha256) and the msfm commit in `provenance.yaml`.
 
-Every step stops on a failed check. The order is `nz` → `pixels` → `maps` → `values` → `config` →
-`noise` → `sc_bias`.
+Every step stops on a failed check. The order is `nz` → `pixels` → `maps` → `values` → `noise` →
+`sc_bias`.
 
 All survey bins are produced: 4 source and 6 lens bins. The config picks lens bins 1 and 3–6
 through `survey.maglim.z_bins`, since the KP drops bin 2.
@@ -168,23 +168,20 @@ pixels it contains.
 
 ### `values`: numbers for the config
 
-- **Writes** `desy6_survey_values.yaml`, keyed by bin label.
+- **Writes** the config lines marked `# <- step values: <key>`, and nothing else, for the bins of
+  `z_bins`. The rewritten config must parse to the old one with only those values replaced, and
+  every marker needs a value. In Y3 these numbers were copied by hand.
 - **n_gal** = galaxies in the footprint / footprint area, as in Y3's `config.ipynb`. Raw counts for
   the sources. For MagLim, the raw counts times the weight maps, which is the observation that the
   clean simulations are compared to, so the two match in expectation. Y3 used the raw lens counts,
   0.01% to 0.16% more than the corrected ones; in Y6 the difference is 0.08% to 0.28%.
-- **R** from `maps`; **m prior** (mean and std) from the `M_BIN*` columns; **Aeff** from the pixel
-  file.
+- **m prior** (mean and std) from the `M_BIN*` columns; **Aeff** from the pixel file. R is not a
+  config value: the shear maps of `maps` are already divided by it, and `noise` reads it from the
+  cache.
 - **Checks:** the footprint holds the same fraction of the galaxies as of the mask area, within
   0.02; the pixel file matches the config's rotation and threshold; and the m means match DES's
   within 1e-5. About 11% of the mask lies in pixels below the threshold, so about 10% of the
   galaxies are not in the maps (Y3: 8%).
-
-### `config`: values into the config
-
-Rewrites only the config lines marked `# <- desy6 values: <key>`, then reparses the config and
-checks every marked key against the values file. `config --check` changes nothing and exits 1 if
-a value is stale. In Y3 this was done by hand.
 
 ### `noise`: shape-noise catalog
 

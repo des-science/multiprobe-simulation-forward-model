@@ -15,8 +15,7 @@ Steps, in order:
              and the MagLim weight maps that correct the observed lens counts, from the catalog
     maps     shear and count maps of every source and lens bin, and the source response, in dirs.cache, where the
              builders of msfm.utils.catalog load them
-    values   n_gal, response, m prior and Aeff, per bin label, in files.survey_values
-    config   writes files.survey_values into the config lines marked "# <- desy6 values: <dotted.key>"
+    values   n_gal, m prior and Aeff, written into the config lines marked "# <- step values: <dotted.key>"
     noise    shape-noise file: (e1 / R, e2 / R, w, pix) per galaxy of every source bin
     sc_bias  source-clustering bias table                                          (not implemented yet)
 
@@ -26,8 +25,7 @@ Usage:
     python -m msfm.apps.products.desy6 maps --config configs/desy6/v1/default.yaml --max-objects 100000   # smoke test
     python -m msfm.apps.products.desy6 maps --config configs/desy6/v1/default.yaml   # compute node, ~140M objects
     python -m msfm.apps.products.desy6 values --config configs/desy6/v1/default.yaml
-    python -m msfm.apps.products.desy6 config --config configs/desy6/v1/default.yaml
-    python -m msfm.apps.products.desy6 config --config configs/desy6/v1/default.yaml --check   # exit 1 if stale
+    python -m msfm.apps.products.desy6 values --config configs/desy6/v1/default.yaml --check   # exit 1 if stale
     python -m msfm.apps.products.desy6 noise --config configs/desy6/v1/default.yaml   # compute node, ~2 GB out
 
 --dry-run lists a step's inputs and outputs and writes nothing. --max-objects N runs a catalog step on the first N
@@ -54,15 +52,14 @@ LOGGER = logger.get_logger(__file__)
 
 REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 SURVEY_NAME = "DESy6"
-FILE_PREFIX = "desy6"
 OUT_ROOT = "data/desy6"
 CONFIG_ROOT = "configs/desy6"
-STEP_ORDER = ["nz", "pixels", "maps", "values", "config", "noise", "sc_bias"]
+STEP_ORDER = ["nz", "pixels", "maps", "values", "noise", "sc_bias"]
 
-# a config line whose value the step config writes: "<key>: <value> # <- desy6 values: <dotted.key>"
+# a config line whose value the step values writes: "<key>: <value> # <- step values: <dotted.key>"
 VALUE_MARKER = re.compile(
     r"^(?P<head>\s*(?P<key>[A-Za-z_]\w*):\s*)(?P<value>[^#]*?)(?P<gap>\s*)"
-    r"(?P<marker>#\s*<-\s*desy6 values:\s*(?P<dotted>[A-Za-z_][\w.]*)\s*)$"
+    r"(?P<marker>#\s*<-\s*step values:\s*(?P<dotted>[A-Za-z_][\w.]*)\s*)$"
 )
 
 # config sample key -> (n(z) HDU of the 3x2pt FITS, number of survey bins it must hold)
@@ -76,11 +73,11 @@ PATCH_GAMMA_2_SIGN = [1, 1, -1, -1]
 # step maps: cache file -> what it holds; every map covers all survey bins, axis 1 in survey-bin order. The names are
 # the ones msfm.utils.catalog loads, as for Y3; it asks for the shear without the spin-2 rotation too
 MAPS_FILES = {
-    "metacal_gamma": f"{FILE_PREFIX}_metacal_gamma_e1p_e2m.npy",
-    "metacal_gamma_no_psi_rot": f"{FILE_PREFIX}_metacal_gamma_no_psi_rot_e1p_e2m.npy",
-    "metacal_count": f"{FILE_PREFIX}_metacal_count.npy",
-    "metacal_response": f"{FILE_PREFIX}_metacal_response.npy",
-    "maglim_count": f"{FILE_PREFIX}_maglim_count.npy",
+    "metacal_gamma": "metacal_gamma_e1p_e2m.npy",
+    "metacal_gamma_no_psi_rot": "metacal_gamma_no_psi_rot_e1p_e2m.npy",
+    "metacal_count": "metacal_count.npy",
+    "metacal_response": "metacal_response.npy",
+    "maglim_count": "maglim_count.npy",
 }
 
 
@@ -102,15 +99,10 @@ def _dry_run(step, inputs, outputs):
     return None
 
 
-def _survey_bins(conf, sample):
-    """Survey bin numbers of the configured bins, from labels like maglim3."""
-    bins = []
-    for label in conf["survey"][sample]["z_bins"]:
-        match = re.fullmatch(rf"{sample}(\d+)", label)
-        if match is None:
-            raise ValueError(f"survey.{sample}.z_bins label {label} does not end in a survey bin number")
-        bins.append(int(match.group(1)))
-    return bins
+def _maps_path(conf, key):
+    """Path of a step maps file in dirs.cache, which must lie under data/desy6/."""
+    _out_path(conf["dirs"]["cache"])
+    return catalog.cache_file(conf, MAPS_FILES[key])
 
 
 def _rel(path):
@@ -129,9 +121,11 @@ def step_nz(conf, args):
 
     fits_path = catalog_desy6.release_path(conf, "3x2pt")
     out_dir = _out_path(conf["dirs"]["redshift_distributions"])
+    # the prefix files.load_redshift_distributions reads
+    prefix = conf["survey"]["name"].lower()
     if args.dry_run:
         outputs = [
-            filenames.get_filename_z_distribution(out_dir, sample, i_bin, prefix=FILE_PREFIX)
+            filenames.get_filename_z_distribution(out_dir, sample, i_bin, prefix=prefix)
             for sample, (_, n_bins) in NZ_HDUS.items()
             for i_bin in range(1, n_bins + 1)
         ]
@@ -157,7 +151,7 @@ def step_nz(conf, args):
 
             bin_cols = [col for col in table.columns.names if re.fullmatch(r"BIN\d+", col)]
             assert bin_cols == [f"BIN{i}" for i in range(1, n_bins + 1)], f"{hdu_name}: columns {bin_cols}"
-            missing = set(_survey_bins(conf, sample)) - set(range(1, n_bins + 1))
+            missing = {files.get_z_bin_number(z) for z in conf["survey"][sample]["z_bins"]} - set(range(1, n_bins + 1))
             assert not missing, f"survey.{sample}.z_bins names survey bins {missing} that {hdu_name} does not have"
 
             for i_bin in range(1, n_bins + 1):
@@ -166,7 +160,7 @@ def step_nz(conf, args):
                 norm = np.sum(nz * (z_high - z_low))
                 assert abs(norm - 1) < 1e-3, f"{hdu_name} BIN{i_bin}: integrates to {norm}"
 
-                path = filenames.get_filename_z_distribution(out_dir, sample, i_bin, prefix=FILE_PREFIX)
+                path = filenames.get_filename_z_distribution(out_dir, sample, i_bin, prefix=prefix)
                 header = (
                     f"z_mid n(z): DES Y6 {hdu_name} BIN{i_bin} of {catalog_desy6.RELEASE_FILES['3x2pt']}, "
                     "written by msfm.apps.products.desy6 nz"
@@ -223,7 +217,7 @@ def step_pixels(conf, args):
     assert 0 < threshold <= 1, f"analysis.footprint.coverage_threshold {threshold} is not in (0, 1]"
     survey_bins = {"metacal": catalog_desy6.N_SOURCE_BINS, "maglim": catalog_desy6.N_LENS_BINS}
     for sample, n_bins in survey_bins.items():
-        missing = set(_survey_bins(conf, sample)) - set(range(1, n_bins + 1))
+        missing = {files.get_z_bin_number(z) for z in conf["survey"][sample]["z_bins"]} - set(range(1, n_bins + 1))
         assert not missing, f"survey.{sample}.z_bins names survey bins {missing} that Y6 does not have"
     pix_area = hp.nside2pixarea(n_side, degrees=True)
 
@@ -316,7 +310,8 @@ def step_pixels(conf, args):
     for sample in survey_bins:
         assert all(np.array_equal(p, patches) for p in patches_back[sample]), f"{sample} patches read back"
         assert all(np.array_equal(p, patch_to_data_vec) for p in patch_to_data_vec_back[sample]), f"{sample} read back"
-    used_weights = lens_weights[:, np.array(_survey_bins(conf, "maglim")) - 1].astype(np.float32)
+    lens_columns = [files.get_z_bin_number(z) - 1 for z in conf["survey"]["maglim"]["z_bins"]]
+    used_weights = lens_weights[:, lens_columns].astype(np.float32)
     sys_map = files.get_clustering_systematics(conf, pixel_type="map")
     sys_dv = files.get_clustering_systematics(conf, pixel_type="data_vector")
     assert np.array_equal(sys_map, used_weights), "maglim systematics map read back"
@@ -336,8 +331,7 @@ def step_maps(conf, args):
         tuple: (input paths, output paths), or None with --dry-run or --max-objects
     """
     inputs = [catalog_desy6.release_path(conf, key) for key in ("metadetect", "maglim")]
-    cache_dir = _out_path(conf["dirs"]["cache"])
-    paths = {key: os.path.join(cache_dir, name) for key, name in MAPS_FILES.items()}
+    paths = {key: _maps_path(conf, key) for key in MAPS_FILES}
     if args.dry_run:
         return _dry_run("maps", inputs, list(paths.values()))
 
@@ -355,39 +349,40 @@ def step_maps(conf, args):
         "maglim_count": lens_count.astype(np.float64),
     }
     for key, values in maps.items():
-        LOGGER.info(f"{MAPS_FILES[key]}: shape {values.shape}, dtype {values.dtype}")
+        LOGGER.info(f"{os.path.basename(paths[key])}: shape {values.shape}, dtype {values.dtype}")
 
     if args.max_objects is not None:
         LOGGER.info(f"--max-objects {args.max_objects}: smoke test done, nothing is written")
         return None
 
-    os.makedirs(cache_dir, exist_ok=True)
     for key, values in maps.items():
         np.save(paths[key], values)
     return inputs, list(paths.values())
 
 
 def step_values(conf, args):
-    """Writes files.survey_values, the data-derived config values, with per-bin values keyed by survey bin label.
+    """Writes the data-derived values into the config lines marked "# <- step values: <dotted.key>", and nothing else.
 
     n_gal is the count inside the footprint (patch 0 of the pixel file) over the footprint's area, in deg^-2, as
     notebooks/desy3/config.ipynb did for Y3. For MagLim the count is the raw one times the weight maps of the pixel
-    file, which is the observation the clean simulations are compared to, so the two match in expectation. The
-    response is the one that calibrated the shear maps, the m prior is the mean and std of the M_BIN samples, and Aeff
-    is the full-resolution mask area stored in the pixel file.
+    file, which is the observation the clean simulations are compared to, so the two match in expectation. The m prior
+    is the mean and std of the M_BIN samples, and Aeff is the full-resolution mask area stored in the pixel file.
+    Per-bin values follow the config's z_bins.
+
+    With --check, writes nothing and exits with 1 if any marked value is stale.
 
     Returns:
-        tuple: (input paths, output paths), or None with --dry-run
+        tuple: (input paths, output paths), or None with --dry-run, --check or when every value is up to date
     """
+    conf_path = os.path.abspath(args.config)
+    if not (_rel(conf_path) + os.sep).startswith(CONFIG_ROOT + os.sep):
+        raise ValueError(f"step values only writes configs under {CONFIG_ROOT}/, got {_rel(conf_path)}")
     pixel_path = _out_path(conf["files"]["pixels"])
-    cache_dir = _out_path(conf["dirs"]["cache"])
-    maps = {key: os.path.join(cache_dir, MAPS_FILES[key]) for key in ("metacal_count", "maglim_count")}
-    response_path = os.path.join(cache_dir, MAPS_FILES["metacal_response"])
+    maps = {key: _maps_path(conf, key) for key in ("metacal_count", "maglim_count")}
     m_path = catalog_desy6.release_path(conf, "source_redshift")
-    out_path = _out_path(conf["files"]["survey_values"])
-    inputs = [pixel_path, *maps.values(), response_path, m_path]
+    inputs = [pixel_path, *maps.values(), m_path]
     if args.dry_run:
-        return _dry_run("values", inputs, [out_path])
+        return _dry_run("values", inputs, [conf_path])
     for path in inputs:
         if not os.path.isfile(path):
             raise FileNotFoundError(f"{_rel(path)} does not exist, run the steps pixels and maps first")
@@ -409,7 +404,7 @@ def step_values(conf, args):
     # the galaxies follow the mask, so the footprint should hold about the same fraction of both
     mask_fraction = np.sum(coverage[footprint]) / np.sum(coverage)
 
-    survey = {"Aeff": area, "metacal": {}, "maglim": {}}
+    values = {"survey.Aeff": area}
     for sample, key, n_bins in (
         ("metacal", "metacal_count", catalog_desy6.N_SOURCE_BINS),
         ("maglim", "maglim_count", catalog_desy6.N_LENS_BINS),
@@ -425,37 +420,25 @@ def step_values(conf, args):
             # the observation: raw counts times the weight maps
             inside = np.sum(count[footprint] * lens_weights, axis=0)
         n_gal = inside / footprint_area
-        survey[sample]["n_gal"] = {f"{sample}{i + 1}": float(n_gal[i]) for i in range(n_bins)}
+        values[f"survey.{sample}.n_gal"] = _configured_bins(conf, sample, n_gal)
         LOGGER.info(
             f"{sample} ({key}): n_gal = {n_gal / 60**2} arcmin^-2, in the footprint {fraction} "
             f"(mask {mask_fraction:.4f})"
         )
 
-    response = np.load(response_path)
-    assert response.shape == (catalog_desy6.N_SOURCE_BINS,) and np.all(response > 0), f"response {response}"
-    survey["metacal"]["response"] = {f"metacal{i + 1}": float(r) for i, r in enumerate(response)}
-
     mu, sigma = catalog_desy6.m_prior(conf)
-    survey["metacal"]["shear_bias"] = {
-        "multiplicative": {
-            "mu": {f"metacal{i + 1}": float(x) for i, x in enumerate(mu)},
-            "sigma": {f"metacal{i + 1}": float(x) for i, x in enumerate(sigma)},
-        }
-    }
-    LOGGER.info(f"Aeff = {area:.3f} deg^2, footprint {footprint_area:.1f} deg^2, response = {response}")
+    values["survey.metacal.shear_bias.multiplicative.mu"] = _configured_bins(conf, "metacal", mu)
+    values["survey.metacal.shear_bias.multiplicative.sigma"] = _configured_bins(conf, "metacal", sigma)
+    LOGGER.info(f"Aeff = {area:.3f} deg^2, footprint {footprint_area:.1f} deg^2")
 
-    values = {
-        "about": (
-            "Written by msfm.apps.products.desy6 values; step config copies these into the config lines marked "
-            "'# <- desy6 values: <dotted.key>'. Per-bin values are keyed by survey bin label."
-        ),
-        "survey": survey,
-    }
-    with open(out_path, "w") as f:
-        yaml.safe_dump(values, f, sort_keys=False, width=119)
-    with open(out_path) as f:
-        assert yaml.safe_load(f) == values, f"{_rel(out_path)}: the YAML round trip is not exact"
-    return inputs, [out_path]
+    if not _write_marked_values(conf, conf_path, values, args.check):
+        return None
+    return inputs, [conf_path]
+
+
+def _configured_bins(conf, sample, per_survey_bin):
+    """The values of the configured bins, in z_bins order, from the values of every survey bin."""
+    return [float(per_survey_bin[files.get_z_bin_number(z) - 1]) for z in conf["survey"][sample]["z_bins"]]
 
 
 def _dotted_get(tree, dotted):
@@ -474,33 +457,6 @@ def _dotted_set(tree, dotted, value):
     tree[leaf] = value
 
 
-def _number(value, where):
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value):
-        raise ValueError(f"{where}: {value!r} is not a finite number")
-    return float(value)
-
-
-def _marked_value(conf, values, dotted):
-    """The value of a marked config key: a scalar as it is, a per-bin mapping as a list in z_bins order."""
-    try:
-        value = _dotted_get(values, dotted)
-    except KeyError:
-        raise KeyError(f"files.survey_values has no value for the marked config key {dotted}") from None
-
-    if not isinstance(value, dict):
-        return _number(value, dotted)
-
-    # per-bin values are keyed by bin label, so the config's z_bins pick the bins and their order
-    parts = dotted.split(".")
-    if len(parts) < 3 or parts[0] != "survey" or "z_bins" not in conf["survey"].get(parts[1], {}):
-        raise ValueError(f"{dotted}: per-bin values must sit under survey.<sample>.")
-    labels = conf["survey"][parts[1]]["z_bins"]
-    missing = [label for label in labels if label not in value]
-    if missing:
-        raise KeyError(f"files.survey_values {dotted} has no value for the bins {missing}")
-    return [_number(value[label], f"{dotted}.{label}") for label in labels]
-
-
 def _yaml_number(x):
     # PyYAML only parses a float with a dot in the mantissa: "1e-05" would be read as a string
     text = repr(x)
@@ -514,33 +470,28 @@ def _yaml_value(value):
     return _yaml_number(value)
 
 
-def step_config(conf, args):
-    """Writes the values of files.survey_values into the marked lines of the config, and nothing else.
+def _write_marked_values(conf, conf_path, values, check):
+    """Writes values (dotted config key -> number or per-bin list) into the marked lines of the config.
 
-    With --check, writes nothing and exits with 1 if any marked value differs from files.survey_values.
+    Every marked line needs a value and every value a marked line. The rewritten config must parse to the old one with
+    only the marked values replaced. With check, writes nothing and exits with 1 if a marked value is stale.
 
     Returns:
-        tuple: (input paths, output paths), or None with --check or when every value is up to date
+        bool: whether the config was written
     """
-    conf_path = os.path.abspath(args.config)
-    rel_conf = os.path.relpath(conf_path, REPO_DIR)
-    if not (rel_conf + os.sep).startswith(CONFIG_ROOT + os.sep):
-        raise ValueError(f"step config only writes configs under {CONFIG_ROOT}/, got {rel_conf}")
-    values_path = _out_path(conf["files"]["survey_values"])
-    if not os.path.isfile(values_path):
-        raise FileNotFoundError(f"{_rel(values_path)} (files.survey_values) does not exist, run step values first")
-    with open(values_path) as f:
-        values = yaml.safe_load(f)
+    rel_conf = _rel(conf_path)
+    for dotted, value in values.items():
+        assert np.all(np.isfinite(value)), f"{dotted}: {value} is not finite"
     with open(conf_path) as f:
         lines = f.read().splitlines(keepends=True)
 
-    new_lines, expected, stale = [], {}, []
+    new_lines, marked, stale = [], set(), []
     for i_line, line in enumerate(lines, start=1):
         body = line.rstrip("\r\n")
         match = VALUE_MARKER.match(body)
         if match is None:
             # comment-only lines (the header explains the marker) are no markers
-            if "desy6 values:" in body and not body.lstrip().startswith("#"):
+            if "step values:" in body and not body.lstrip().startswith("#"):
                 raise ValueError(f"{rel_conf}:{i_line}: malformed value marker: {body.strip()}")
             new_lines.append(line)
             continue
@@ -548,45 +499,46 @@ def step_config(conf, args):
         dotted = match["dotted"]
         if dotted.split(".")[-1] != match["key"]:
             raise ValueError(f"{rel_conf}:{i_line}: the marker {dotted} sits on the key {match['key']}")
-        if dotted in expected:
+        if dotted in marked:
             raise ValueError(f"{rel_conf}:{i_line}: {dotted} is marked twice")
-        expected[dotted] = _marked_value(conf, values, dotted)
+        if dotted not in values:
+            raise KeyError(f"{rel_conf}:{i_line}: step values computes no {dotted}")
+        marked.add(dotted)
 
-        new_body = match["head"] + _yaml_value(expected[dotted]) + (match["gap"] or " ") + match["marker"]
+        new_body = match["head"] + _yaml_value(values[dotted]) + (match["gap"] or " ") + match["marker"]
         if new_body != body:
             stale.append(dotted)
         new_lines.append(new_body + line[len(body) :])
-    if not expected:
-        raise ValueError(f"{rel_conf} has no lines marked '# <- desy6 values: <dotted.key>'")
+    unmarked = sorted(set(values) - marked)
+    if unmarked:
+        raise ValueError(f"{rel_conf} has no line marked '# <- step values: <dotted.key>' for {unmarked}")
 
     # the result parses, each marker sat on the line of its key, and no other value changed
     new_text = "".join(new_lines)
     new_conf = yaml.safe_load(new_text)
     reference = copy.deepcopy(conf)
-    for dotted, value in expected.items():
+    for dotted, value in values.items():
         if _dotted_get(new_conf, dotted) != value:
             raise ValueError(f"{dotted}: the rewritten config reads {_dotted_get(new_conf, dotted)!r}, not {value!r}")
         _dotted_set(reference, dotted, value)
     assert new_conf == reference, "the rewrite changed a config value that carries no marker"
 
-    if args.check:
+    if check:
         for dotted in stale:
-            LOGGER.error(
-                f"{rel_conf}: {dotted} = {_dotted_get(conf, dotted)!r}, files.survey_values: {expected[dotted]!r}"
-            )
+            LOGGER.error(f"{rel_conf}: {dotted} = {_dotted_get(conf, dotted)!r}, step values: {values[dotted]!r}")
         if stale:
             raise SystemExit(1)
-        LOGGER.info(f"{rel_conf}: all {len(expected)} marked values agree with {_rel(values_path)}")
-        return None
+        LOGGER.info(f"{rel_conf}: all {len(values)} marked values are up to date")
+        return False
 
     if not stale:
         # nothing written, so the provenance record of the last write stays
-        LOGGER.info(f"{rel_conf}: all {len(expected)} marked values are up to date")
-        return None
+        LOGGER.info(f"{rel_conf}: all {len(values)} marked values are up to date")
+        return False
     with open(conf_path, "w") as f:
         f.write(new_text)
-    LOGGER.info(f"{rel_conf}: wrote {len(stale)} of {len(expected)} marked values: {stale}")
-    return [values_path], [conf_path]
+    LOGGER.info(f"{rel_conf}: wrote {len(stale)} of {len(values)} marked values: {stale}")
+    return True
 
 
 def step_noise(conf, args):
@@ -599,9 +551,8 @@ def step_noise(conf, args):
     Returns:
         tuple: (input paths, output paths), or None with --dry-run or --max-objects
     """
-    cache_dir = _out_path(conf["dirs"]["cache"])
-    response_path = os.path.join(cache_dir, MAPS_FILES["metacal_response"])
-    count_path = os.path.join(cache_dir, MAPS_FILES["metacal_count"])
+    response_path = _maps_path(conf, "metacal_response")
+    count_path = _maps_path(conf, "metacal_count")
     inputs = [catalog_desy6.release_path(conf, "metadetect"), response_path, count_path]
     out_path = _out_path(conf["files"]["noise"])
     if args.dry_run:
@@ -645,7 +596,8 @@ def step_noise(conf, args):
             )
 
     # the pipeline's loader reads the configured bins back
-    for survey_bin, cat in zip(_survey_bins(conf, "metacal"), files.load_noise_file(conf)):
+    for z_bin, cat in zip(conf["survey"]["metacal"]["z_bins"], files.load_noise_file(conf)):
+        survey_bin = files.get_z_bin_number(z_bin)
         expected = (int(np.sum(count[:, survey_bin - 1])), 4)
         assert cat.shape == expected and cat.dtype == np.float32, f"metacal{survey_bin}: {cat.shape}, {cat.dtype}"
     return inputs, [out_path]
@@ -656,7 +608,6 @@ STEPS = {
     "pixels": step_pixels,
     "maps": step_maps,
     "values": step_values,
-    "config": step_config,
     "noise": step_noise,
 }
 CATALOG_STEPS = {"maps", "noise"}
@@ -718,7 +669,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("step", choices=list(STEPS), help="the product to derive")
     parser.add_argument("--config", required=True, help="DES Y6 config, e.g. configs/desy6/v1/default.yaml")
-    parser.add_argument("--check", action="store_true", help="config only: write nothing, exit 1 if a value is stale")
+    parser.add_argument("--check", action="store_true", help="values only: write nothing, exit 1 if a value is stale")
     parser.add_argument("--dry-run", action="store_true", help="list the inputs and outputs, write nothing")
     parser.add_argument(
         "--max-objects",
@@ -732,10 +683,8 @@ def main(argv=None):
         help="for production runs: refuse uncommitted msfm/ or configs/, record the step in files.provenance",
     )
     args = parser.parse_args(argv)
-    if args.check and args.step != "config":
-        parser.error("--check only applies to the step config")
-    if args.dry_run and args.step == "config":
-        parser.error("the dry run of the step config is --check")
+    if args.check and args.step != "values":
+        parser.error("--check only applies to the step values")
     if args.max_objects is not None and (args.step not in CATALOG_STEPS or args.max_objects < 1):
         parser.error(f"--max-objects takes a positive number and applies to {sorted(CATALOG_STEPS)}")
 
