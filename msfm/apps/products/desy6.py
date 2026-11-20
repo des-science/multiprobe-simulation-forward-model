@@ -13,7 +13,8 @@ Steps, in order:
     nz       n(z) text files of all 4 source and 6 lens bins, from the 3x2pt FITS
     pixels   pixel file: the rotated nside-512 footprint, its four patches and the padded data vector, from the mask,
              and the MagLim weight maps that correct the observed lens counts, from the catalog
-    maps     shear and count maps of every source and lens bin, and the source response, in dirs.cache
+    maps     shear and count maps of every source and lens bin, and the source response, in dirs.cache, where the
+             builders of msfm.utils.catalog load them
     values   n_gal, response, m prior and Aeff, per bin label, in files.survey_values
     config   writes files.survey_values into the config lines marked "# <- desy6 values: <dotted.key>"
     noise    shape-noise file: (e1 / R, e2 / R, w, pix) per galaxy of every source bin
@@ -72,9 +73,11 @@ MASK_ROTATE_NSIDE = 4096
 # patches 1-3 are the base patch rotated by 180 deg in phi and/or mirrored at the equator; mirroring flips gamma_2
 PATCH_GAMMA_2_SIGN = [1, 1, -1, -1]
 
-# step maps: cache file -> what it holds; every map covers all survey bins, axis 1 in survey-bin order
+# step maps: cache file -> what it holds; every map covers all survey bins, axis 1 in survey-bin order. The names are
+# the ones msfm.utils.catalog loads, as for Y3; it asks for the shear without the spin-2 rotation too
 MAPS_FILES = {
     "metacal_gamma": f"{FILE_PREFIX}_metacal_gamma_e1p_e2m.npy",
+    "metacal_gamma_no_psi_rot": f"{FILE_PREFIX}_metacal_gamma_no_psi_rot_e1p_e2m.npy",
     "metacal_count": f"{FILE_PREFIX}_metacal_count.npy",
     "metacal_response": f"{FILE_PREFIX}_metacal_response.npy",
     "maglim_count": f"{FILE_PREFIX}_maglim_count.npy",
@@ -325,8 +328,9 @@ def step_pixels(conf, args):
 
 def step_maps(conf, args):
     """Builds the shear and count maps of every source and lens bin, and saves the source response that calibrated
-    the shear maps, so that step values takes R from the same numbers. The lens counts are raw, as for Y3; the weight
-    maps of step pixels correct them on the observation path.
+    the shear maps, so that step values takes R from the same numbers. The shear is also saved without the spin-2
+    rotation, from a second pass over the catalog. The lens counts are raw, as for Y3, and float64 like the Y3 cache;
+    the weight maps of step pixels correct them on the observation path.
 
     Returns:
         tuple: (input paths, output paths), or None with --dry-run or --max-objects
@@ -338,12 +342,17 @@ def step_maps(conf, args):
         return _dry_run("maps", inputs, list(paths.values()))
 
     gamma, source_count, response = catalog_desy6.build_metacal_maps(conf, max_objects=args.max_objects)
+    gamma_no_rot, source_count_no_rot, response_no_rot = catalog_desy6.build_metacal_maps(
+        conf, apply_shear_rotation=False, max_objects=args.max_objects
+    )
+    assert np.array_equal(source_count, source_count_no_rot) and np.array_equal(response, response_no_rot)
     lens_count = catalog_desy6.build_maglim_maps(conf, max_objects=args.max_objects)
     maps = {
         "metacal_gamma": gamma,
+        "metacal_gamma_no_psi_rot": gamma_no_rot,
         "metacal_count": source_count,
         "metacal_response": response,
-        "maglim_count": lens_count,
+        "maglim_count": lens_count.astype(np.float64),
     }
     for key, values in maps.items():
         LOGGER.info(f"{MAPS_FILES[key]}: shape {values.shape}, dtype {values.dtype}")

@@ -11,7 +11,7 @@ all of them from the public Y6 release, `msfm/apps/products/desy6.py`, for
 |---|---|---|---|
 | `nz` | `redshift_distributions/` | yes | done 2026-11-18 |
 | `pixels` | `desy6_pixels_fiducial_512.h5` | yes | done 2026-11-20, threshold 0.73, with the lens weight maps |
-| `maps` | `cache/` | no | done 2026-11-19 |
+| `maps` | `cache/` | no | done 2026-11-20, with the unrotated shear |
 | `values` | `desy6_survey_values.yaml` | yes | done 2026-11-20, lens n_gal from the weight maps |
 | `config` | the marked lines of the config | yes | done 2026-11-20 |
 | `noise` | `desy6_noise_512.h5` | no | done 2026-11-19 |
@@ -150,8 +150,13 @@ pixels it contains.
 ### `maps`: catalog maps
 
 - **Writes** to `cache/` (gitignored), full sky at nside 512 in the footprint frame: the shear
-  (`desy6_metacal_gamma_e1p_e2m.npy`, sign convention as Y3), source counts, the response R per bin,
-  and MagLim counts. The lens counts are raw, as in Y3: the weight maps of `pixels` correct them.
+  (`desy6_metacal_gamma_e1p_e2m.npy`, sign convention as Y3), the same without the spin-2 rotation
+  (`desy6_metacal_gamma_no_psi_rot_e1p_e2m.npy`), source counts, the response R per bin, and MagLim
+  counts. The lens counts are raw and float64, as in Y3: the weight maps of `pixels` correct them.
+  The shear maps are already divided by R.
+- **Read by** the builders of `msfm.utils.catalog`, which load `<dirs.cache>/<survey>_<name>` for
+  either survey and pick the configured bins by label (lens survey bins 1, 3, 4, 5, 6). They build
+  only the Y3 maps from the catalog, so for Y6 this step has to run first.
 - **From** metadetection (the unsheared catalog, and the four sheared ones for R) and MagLim. No
   cuts: the release is already the fiducial selection. Y3: `build_des.ipynb`.
 - **Checks:** per source bin N, R, n_eff and σ_e, and per lens bin N and n_eff, equal what DES's
@@ -159,7 +164,7 @@ pixels it contains.
   average 1. This tests how the catalogs are read, not the pixel positions or the shear signs (see
   Review). The mean shear is logged, not subtracted, as in Y3.
 - **Result:** R = 0.856143, 0.868506, 0.819427, 0.691769, σ_e = 0.27, 0.29, 0.28, 0.35, and a mean e
-  of at most 2e-4 per component. About a minute on one node.
+  of at most 2e-4 per component. About 1.5 minutes on one node, with two passes over the sources.
 
 ### `values`: numbers for the config
 
