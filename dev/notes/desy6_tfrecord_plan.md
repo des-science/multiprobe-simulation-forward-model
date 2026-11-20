@@ -164,7 +164,7 @@ l_min = 30 cut and the shape-noise model must all be final before production. Sc
 | `survey.metacal.shear_bias` | `mu`/`sigma` from the `M_BIN*` columns (step `values`) until WP5 is in; then `source: projection` | WP5 |
 | `survey.metacal.z0` | 0.3 (KP pivot; v18 used 0.62) | D4. Baked in through the per-bin IA amplitude |
 | `survey.maglim.z_bins` (lens role) | 5 bins, survey bins 1, 3, 4, 5, 6 | settled 2026-11-18: all six are projected and produced, and the config excludes bin 2 as the KP does *(paper, Sec. IV.8)* |
-| `survey.maglim.n_gal` | weighted counts per bin / masked area | step `values` (check that the ENET weights average ≈ 1) |
+| `survey.maglim.n_gal` | raw counts × the lens weight maps per bin / masked area (the corrected observation) | step `values` |
 | `survey.maglim.z_lims` | dropped | the catalog is already binned (`tomo_bin_k`); the Y6 reader does not need it |
 | `survey.Aeff` | from the mask | step `pixels`, against DES's 4031.036 deg² |
 | `analysis.n_patches`, `footprint.rotation` | 4 and the Y3 angles, a choice stated in the config | step `pixels` asserts no overlap. The only Y3 reuse |
@@ -173,7 +173,7 @@ l_min = 30 cut and the shape-noise model must all be final before production. Sc
 | `params.bg.linear`, priors, fiducials | 5 bins, [0.8, 3.0] (= KP). Fiducials from FW for bins 1, 3, 4, 5, 6: 1.54, 1.85, 1.76, 1.93, 1.90 *(paper)* | D3 (names) |
 | `scale_cuts.*.l_min`, `normalization.*` | lists of length 4 (source) and 5 (lens) | |
 | `modelling.lensing.shape_noise` | `count`, `fixed`, and `survey_systematics` true or false | D5 |
-| `modelling.clustering` | linear per-bin bias as in v18; KP's fiducial is nonlinear | D7 |
+| `modelling.clustering` | linear per-bin bias as in v18, which is also the KP's fiducial (Sec. IV.1, V.1.1; nonlinear b2 is an extension) *(paper, checked 2026-11-19)* | D7, settled by the paper |
 | cosmology, baryons, `grid.*`, `fiducial` cosmology | unchanged | fixed by CosmoGridV1. The KP priors (Ωm [0.1, 0.6], h [0.58, 0.8], ...) cannot be followed |
 
 ---
@@ -216,10 +216,12 @@ Each work package is a no-op on Y3.
   - R per bin from the `1p/1m/2p/2m` steps;
   - count map;
   - shapes for the noise file.
-- Lens: count map weighted with the per-galaxy ENET `weight`, plus the raw count map.
+- Lens: the raw count map, corrected on the observation path by the ENet weight maps of the pixel file, as in Y3.
 - Mask: read from the `.hsp`.
-- The public `catalog.build_*_from_cat` names become dispatchers on `survey.name`, so the
-  y3-deep-lss and msi callers get Y6 maps for a Y6 config with no change on their side.
+- The public `catalog.build_*_from_cat` load `<dirs.cache>/<survey>_*` for either survey and pick
+  the configured bins by label, so the y3-deep-lss and msi callers get Y6 maps for a Y6 config with
+  no change on their side. Only Y3 is rebuilt from the catalog there; Y6 comes from step `maps`
+  (done 2026-11-20).
 - **Open, to be decided by measurement:**
   - the R convention, scalar or 2×2 (KP lists a scalar, *paper*);
   - the shear step size (0.01 is the metadetection default; I have not verified it for Y6);
@@ -450,7 +452,8 @@ measured unpinned packing as ~4x slower, so pinning is not optional.
   then the file is a TODO input, as it was for Y3.
 - **D6.** Lens magnification (KP samples α). Not modeled in v18. Ask Tomasz for `kg` maps of the
   lens bins now anyway (Q5), since adding them later means reprojecting.
-- **D7.** Lens bias stays linear (v18), not KP's nonlinear fiducial.
+- **D7.** Lens bias stays linear (v18). Checked 2026-11-19: linear is also the KP's fiducial (Sec. IV.1, V.1.1);
+  the earlier note that the KP's fiducial is nonlinear was wrong.
 - **D8.** Mean shear. KP subtracts it from the data *(paper)*; v18 does not subtract it anywhere.
   This affects only the observation, not the tfrecords.
 - **D9 (decided 2026-11-19).** Mask coverage threshold, `analysis.footprint.coverage_threshold`:
