@@ -1,0 +1,190 @@
+#!/bin/bash
+# Submits the DES Y6 v1 tfrecord production on daint: a packed array (one exclusive GH200 node per element, $SLOTS
+# cosmologies per node on its CPUs) and the merge after it (afterok). Port of
+# ../../../perlmutter/desy3/v18/packed/submit.sh, with the same interface.
+#
+# Usage:
+#   DRY_RUN=1 ./submit.sh grid            # preflight + print the sbatch calls, submit nothing
+#   ./submit.sh grid                      # fresh run: submit every index
+#   ./submit.sh --rerun grid              # submit only the indices whose .tfrecord is missing or a stub
+#
+# Before any sbatch, a login-node preflight checks that every submitted index has all its projected files under
+# $DIR_IN and that every file the config names exists (files.metacal_bias needs step sc_bias first).
+#
+# Overrides (environment):
+#   CONFIG DIR_IN DIR_OUT PACKED_LOGS JOB_NAME   paths and names, see the defaults below
+#   SLOTS OMP                                    tasks per node and cores per task. OMP must divide 72 (one Grace)
+#   NODE_TIME MERGE_TIME PARTITION               per-element wall clock, merge wall clock, partition (normal)
+#   ARRAY=<spec>                                 submit only these array elements, e.g. ARRAY=0 runs one node
+#   ARRAY_THROTTLE=<n>                           at most n elements at once (default 25), staggers the noise-file loads
+#   EXTRA_ARGS                                   appended to the app's arguments, e.g. --debug
+#   SKIP_MERGE=1                                 do not submit the merge
+#   DRY_RUN=1                                    preflight and print, submit nothing
+
+set -euo pipefail
+cd "$(dirname "$0")"
+
+REPO=$(cd ../../../.. && pwd)
+# absolute, since Slurm runs the batch script from a spool copy
+DRIVER=$REPO/pipelines/common/run_packed.py
+NODE_SCRIPT=$REPO/pipelines/daint/common/packed_node.slurm
+export TASK_SCRIPT=$REPO/pipelines/daint/common/packed_task.sh
+
+CONFIG=${CONFIG:-$REPO/configs/desy6/v1/default.yaml}
+# Tomasz's Y6 projection on the lp184 store, mounted in the tensorflow container
+DIR_IN=${DIR_IN:-/capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/000_test/cosmogrid/processed/desy6/CosmoGrid/bary}
+DATA_ROOT=/ritom/scratch/cscs/athomsen/desy6/v1/default
+PACKED_LOGS=${PACKED_LOGS:-$DATA_ROOT/packed_logs}
+PARTITION=${PARTITION:-normal}
+ARRAY_THROTTLE=${ARRAY_THROTTLE:-25}
+# a GH200 node: 4 Grace CPUs x 72 cores
+NODE_CPUS=288
+EXTRA_ARGS=${EXTRA_ARGS:-}
+DRY_RUN=${DRY_RUN:-}
+ARRAY_OVERRIDE=${ARRAY:-}
+SKIP_MERGE=${SKIP_MERGE:-}
+
+# preflight environment: h5py and yaml, no msfm import
+UENV=pytorch/v2.9.1:v2
+PY=$HOME/dlss/torch_env/bin/python
+
+# SLOTS x OMP: 24 x 12 = 6 tasks per Grace, the most that fits in the 476 GB of DRAM at ~15 GB per task (Y3 v17).
+# Sized by the benchmark in README.md
+chain_cfg() {
+    case "$1" in
+        grid)
+            APP=$REPO/msfm/apps/run_grid_postprocessing.py
+            JOB_NAME=${JOB_NAME:-tfr_grid_desy6_v1}
+            DIR_OUT=${DIR_OUT:-$DATA_ROOT/tfrecords/grid}
+            SIMSET=grid
+            N_TOTAL=2500
+            SLOTS=${SLOTS:-24}
+            OMP=${OMP:-12}
+            NODE_TIME=${NODE_TIME:-04:00:00}
+            MERGE_TIME=${MERGE_TIME:-06:00:00}
+            ;;
+        fiducial)
+            echo "fiducial: there is no Y6 fiducial projection yet" >&2
+            return 1
+            ;;
+        *) echo "unknown chain '$1'" >&2; return 1 ;;
+    esac
+    if (( 72 % OMP != 0 )); then
+        echo "OMP=$OMP does not divide the 72 cores of a Grace, so a task would span two NUMA domains" >&2
+        return 1
+    fi
+}
+
+preflight() {
+    local index_file=$1
+    echo "[preflight] projected files under $DIR_IN and the config's files, on the login node"
+    uenv run --view=default "$UENV" -- "$PY" -I - "$REPO" "$CONFIG" "$DIR_IN" "$index_file" <<'EOF'
+import os
+import sys
+
+import h5py
+import yaml
+
+repo, config, dir_in, index_file = sys.argv[1:]
+with open(config) as f:
+    conf = yaml.safe_load(f)
+problems = []
+
+# every file the config names, relative to the repo (the files: section also holds non-path values)
+for key, path in conf["files"].items():
+    if isinstance(path, str) and "/" in path and not os.path.exists(os.path.join(repo, path)):
+        problems.append(f"files.{key} = {path} does not exist")
+
+# the grid app reads <dir_in>/grid/<path_par>/perm_XXXX/projected_probes_maps_v11dmb.h5, the index-th cosmology
+with h5py.File(os.path.join(repo, conf["files"]["meta_info"]), "r") as f:
+    path_par = [p.decode().strip("/") for p in f["parameters/grid"]["path_par"]]
+n_perms = conf["analysis"]["grid"]["n_perms_per_cosmo"]
+indices = [int(line) for line in open(index_file) if line.strip()]
+missing = []
+for index in indices:
+    for i_perm in range(n_perms):
+        file = os.path.join(dir_in, "grid", path_par[index], f"perm_{i_perm:04d}", "projected_probes_maps_v11dmb.h5")
+        if not os.path.isfile(file):
+            missing.append(file)
+if missing:
+    problems.append(f"{len(missing)} of {len(indices) * n_perms} projected files are missing, e.g. {missing[0]}")
+
+print(f"[preflight] {len(indices)} indices x {n_perms} perms checked")
+for problem in problems:
+    print(f"[preflight] {problem}", file=sys.stderr)
+sys.exit(1 if problems else 0)
+EOF
+}
+
+submit_chain() {
+    local chain=$1 rerun=$2
+    chain_cfg "$chain"
+    local index_file=$PACKED_LOGS/${JOB_NAME}_indices.txt
+    mkdir -p "$PACKED_LOGS" "$DIR_OUT"
+
+    # the .tfrecord is the done marker; a task that dies mid-run can leave a short stub (real files are GBs)
+    if [ -n "$rerun" ]; then
+        local present
+        present=$(find "$DIR_OUT" -maxdepth 1 -name "*_${SIMSET}_dm?_*.tfrecord" -size +1M -printf '%f\n' 2>/dev/null \
+            | sed -E 's/.*_dm._0*([0-9]+)\.tfrecord$/\1/' | sort -n -u)
+        seq 0 $((N_TOTAL - 1)) | grep -vxF -f <(echo "$present") > "$index_file" || true
+    else
+        seq 0 $((N_TOTAL - 1)) > "$index_file"
+    fi
+
+    local n_idx n_elements
+    n_idx=$(grep -c . "$index_file" || true)
+    n_elements=$(( (n_idx + SLOTS - 1) / SLOTS ))
+    echo "[$chain] ${rerun:+RERUN }$n_idx indices, $SLOTS per node x $OMP cores -> $n_elements node jobs ($NODE_TIME each)"
+    if [ "$n_idx" -eq 0 ]; then echo "[$chain] nothing to do"; return 0; fi
+
+    # element k processes lines [k*SLOTS, (k+1)*SLOTS) of the index file, so ARRAY only checks those
+    local array_spec=${ARRAY_OVERRIDE:-0-$((n_elements - 1))}
+    local check_file=$index_file
+    if [ -n "$ARRAY_OVERRIDE" ]; then
+        check_file=$PACKED_LOGS/${JOB_NAME}_indices_checked.txt
+        : > "$check_file"
+        local element
+        for element in $(echo "$ARRAY_OVERRIDE" | tr ',' ' '); do
+            local lo=${element%-*} hi=${element#*-}
+            sed -n "$((lo * SLOTS + 1)),$(((hi + 1) * SLOTS))p" "$index_file" >> "$check_file"
+        done
+        echo "[$chain] ARRAY override: elements $array_spec of 0-$((n_elements - 1))"
+    fi
+    preflight "$check_file"
+
+    export SLOTS OMP APP JOB_NAME PACKED_LOGS DRIVER INDEX_FILE=$index_file FUNCTION=main
+    export APP_ARGS="--n_files=$N_TOTAL --dir_out=$DIR_OUT --config=$CONFIG --dir_in=$DIR_IN --cosmogrid_version=1.1 $EXTRA_ARGS"
+    local packed_cmd=(sbatch --parsable --partition="$PARTITION" --array="$array_spec%$ARRAY_THROTTLE"
+        --time="$NODE_TIME" --job-name="${JOB_NAME}_packed" --output="$PACKED_LOGS/%x_%A_%a.out" --export=ALL
+        "$NODE_SCRIPT")
+    local packed_id
+    if [ -n "$DRY_RUN" ]; then
+        echo "DRY RUN + ${packed_cmd[*]}"
+        echo "DRY RUN   APP_ARGS=$APP_ARGS"
+        packed_id=DRYRUN
+    else
+        packed_id=$("${packed_cmd[@]}")
+    fi
+    echo "[$chain] packed array: $packed_id"
+
+    # merge: the whole node, one process, only after every element succeeded
+    local merge_cmd=(sbatch --parsable --partition="$PARTITION" --dependency="afterok:$packed_id" --time="$MERGE_TIME"
+        --job-name="${JOB_NAME}_merge" --output="$PACKED_LOGS/%x_%j.out"
+        --export="ALL,FUNCTION=merge,SLOTS=1,OMP=$NODE_CPUS" "$NODE_SCRIPT")
+    if [ -n "$SKIP_MERGE" ]; then
+        echo "[$chain] SKIP_MERGE set; once every element is done, run with the same environment:"
+        echo "  ${merge_cmd[*]}"
+    elif [ -n "$DRY_RUN" ]; then
+        echo "DRY RUN + ${merge_cmd[*]}"
+    else
+        echo "[$chain] merge job: $("${merge_cmd[@]}") (afterok:$packed_id)"
+    fi
+}
+
+RERUN=
+[ "${1:-}" = --rerun ] && { RERUN=1; shift; }
+case "${1:-}" in
+    grid|fiducial) submit_chain "$1" "$RERUN" ;;
+    *) echo "usage: [DRY_RUN=1] $0 [--rerun] grid" >&2; exit 1 ;;
+esac

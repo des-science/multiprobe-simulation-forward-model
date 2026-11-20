@@ -8,7 +8,7 @@ for `configs/<survey>/<version>/`.
 
 | cluster | status | surveys and versions | how jobs are submitted |
 |---|---|---|---|
-| [`daint/`](daint/README.md) (CSCS Alps, GH200) | **active** | DES Y6: `desy6/products/` (data products), `desy6/v1/` (in preparation) | whole exclusive nodes, CPUs only; `lp184` |
+| [`daint/`](daint/README.md) (CSCS Alps, GH200) | **active** | DES Y6: `desy6/products/` (data products), `desy6/v1/` (grid tfrecords) | packed whole exclusive nodes, CPUs only; `lp184` |
 | [`perlmutter/`](perlmutter/README.md) (NERSC, CPU nodes) | frozen | DES Y3: `desy3/v17/` (esub + packed), `desy3/v18/packed/` | esub on the `shared` QOS, or packed whole nodes on `regular` |
 | [`deprecated/`](deprecated/README.md) | never run again | Euler, Perlmutter and Clariden scripts of older versions | — |
 
@@ -25,8 +25,12 @@ pipelines/
     run_packed.py              cluster-agnostic driver, see above
   daint/                       CSCS Alps daint (GH200 nodes, CPUs only), account lp184
     README.md
+    common/
+      packed_node.slurm        packed executor (srun step of taskset-pinned tasks, tensorflow container)
+      packed_task.sh           one task of it
     desy6/
       products/run.sh          submits a compute-node step of the Y6 data products
+      v1/submit.sh             grid tfrecord production (preflight, packed array, merge), see v1/README.md
   perlmutter/                  NERSC Perlmutter CPU nodes; the DES Y3 production, frozen
     README.md                  the packed regular-QOS rationale: pinning, bandwidth-knee sizing
     common/
@@ -47,7 +51,7 @@ pipelines/
 
 | version | status | configs | notes |
 |---|---|---|---|
-| v1 | in preparation | `configs/desy6/v1/` | First DES Y6 forward model. |
+| v1 | in preparation | `configs/desy6/v1/` | First DES Y6 forward model. `daint/desy6/v1/submit.sh grid`; waits for the complete projection and step `sc_bias`. |
 
 `daint/desy6/products/run.sh <pixels|maps|noise>` submits a compute-node step of the Y6 data
 products (`msfm.apps.products.desy6`, see `data/desy6/README.md`) after running its `--dry-run` on
