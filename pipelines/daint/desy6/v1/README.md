@@ -44,4 +44,24 @@ empty. The node log lists every task's core range.
 
 ## Sizing and cost
 
-(benchmark pending)
+Measured on 2026-11-20 (jobs 5408848, 5408849). Each arm ran one node on `normal`, one full cosmology
+per task on indices 0–23 of the re-projected files, with a stand-in `sc_bias` table (b = 1, which
+does not change the cost):
+
+| packing | per Grace | node time | per task | peak RSS per task | node-hours per cosmology | grid (2500) |
+|---|---|---|---|---|---|---|
+| **24 tasks × 12 cores** (default) | 6 | 44:53 | 40.7–42.8 min | 10.5 GB | **0.031** | 105 nodes → **≈ 79 node-hours** |
+| 12 tasks × 24 cores | 3 | 34:04 | 31.2–32.1 min | 10.3 GB | 0.047 | 209 nodes → ≈ 119 node-hours |
+
+- Denser packing still pays on Grace: doubling the tasks per domain made each task only 1.3× slower.
+  Unlike Perlmutter, there was no bandwidth knee by 6 per domain.
+- Memory would allow 8 per Grace (`SLOTS=32 OMP=9`, ~340 GB), but that packing is untested.
+- At 24 × 12, a permutation takes ~64 s, of which ~49 s is the count-based shape noise. The per-signal
+  loop then takes ~15 s per signal × 80.
+- Each `.tfrecord` is 6.70 GB, so the grid is ≈ 16.8 TB.
+- **Full run:** ≈ 79 node-hours for the grid. The merge has not been timed on daint (it took 2 h 47 on
+  one Perlmutter node), so add ≈ 3 node-hours.
+- **Wall clock:** about 4 h for the array at `ARRAY_THROTTLE=25` (five waves of ~45 min, if the queue
+  keeps up), then the merge.
+- **Wall-clock caps:** `NODE_TIME` defaults to 01:30:00, twice the measured node time. `MERGE_TIME`
+  defaults to 06:00:00.

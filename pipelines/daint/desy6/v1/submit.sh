@@ -48,8 +48,8 @@ SKIP_MERGE=${SKIP_MERGE:-}
 UENV=pytorch/v2.9.1:v2
 PY=$HOME/dlss/torch_env/bin/python
 
-# SLOTS x OMP: 24 x 12 = 6 tasks per Grace, the most that fits in the 476 GB of DRAM at ~15 GB per task (Y3 v17).
-# Sized by the benchmark in README.md
+# SLOTS x OMP: 24 x 12 = 6 tasks per Grace, 0.031 node-hours per cosmology against 0.047 at 12 x 24, 10.5 GB peak
+# per task; NODE_TIME is twice the measured 45 min (README.md)
 chain_cfg() {
     case "$1" in
         grid)
@@ -60,7 +60,7 @@ chain_cfg() {
             N_TOTAL=2500
             SLOTS=${SLOTS:-24}
             OMP=${OMP:-12}
-            NODE_TIME=${NODE_TIME:-04:00:00}
+            NODE_TIME=${NODE_TIME:-01:30:00}
             MERGE_TIME=${MERGE_TIME:-06:00:00}
             ;;
         fiducial)
