@@ -48,10 +48,10 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
-# one-point function: 200 bins covering 1 to 200 galaxies per pixel. Note that the lower edge of 0.5 means that empty
-# pixels are excluded from the histogram, which is intentional and inherited from the reference implementation
+# one-point function: unit bins covering 1 to n_bins galaxies per pixel, n_bins from the config key
+# analysis.modelling.lensing.shape_noise.bias_fit_max_count, or this DES Y3 value if absent. Note that the lower edge of
+# 0.5 means that empty pixels are excluded from the histogram, which is intentional and inherited from the reference
 N_BINS_1PT = 200
-RANGE_1PT = (0.5, 200.5)
 
 # two-point function: per tomographic bin ell range of the pseudo Cls of the count maps
 L_MIN_2PT = 30
@@ -71,7 +71,7 @@ EXTRA_B_INITS = (0.5, 2.0, 4.0, 8.0)
 _DIAGNOSTIC_COMPRESSION = {"compression": "gzip", "compression_opts": 4}
 
 
-def _count_statistic(counts, kind, i_z, mask=None):
+def _count_statistic(counts, kind, i_z, mask=None, n_bins=N_BINS_1PT):
     """One-point or two-point statistic of a single tomographic galaxy count map.
 
     Args:
@@ -80,15 +80,17 @@ def _count_statistic(counts, kind, i_z, mask=None):
         kind (str): Either "1pt" for the pixel count histogram or "2pt" for the pseudo Cls.
         i_z (int): Index of the tomographic bin, only used to select the ell range of kind "2pt".
         mask (np.ndarray, optional): Boolean full sky footprint mask, required for kind "2pt". Defaults to None.
+        n_bins (int, optional): Largest galaxy count of the kind "1pt" histogram, see N_BINS_1PT. Defaults to
+            N_BINS_1PT.
 
     Raises:
         ValueError: If an unknown kind is passed.
 
     Returns:
-        np.ndarray: The statistic, of length N_BINS_1PT or L_MAX_2PT[i_z] - L_MIN_2PT.
+        np.ndarray: The statistic, of length n_bins or L_MAX_2PT[i_z] - L_MIN_2PT.
     """
     if kind == "1pt":
-        return np.histogram(counts, bins=N_BINS_1PT, range=RANGE_1PT)[0]
+        return np.histogram(counts, bins=n_bins, range=(0.5, n_bins + 0.5))[0]
     elif kind == "2pt":
         # pseudo Cls of the masked count map, no mode coupling deconvolution (as in the reference)
         return hp.anafast((counts * mask).astype(np.float64))[L_MIN_2PT : L_MAX_2PT[i_z]]
@@ -96,9 +98,9 @@ def _count_statistic(counts, kind, i_z, mask=None):
         raise ValueError(f"Unknown kind {kind!r}, use either '1pt' or '2pt'")
 
 
-def _bin_centres_1pt():
+def _bin_centres_1pt(n_bins=N_BINS_1PT):
     """Centres of the one-point function bins, the support of the pixel count distribution."""
-    edges = np.linspace(RANGE_1PT[0], RANGE_1PT[1], N_BINS_1PT + 1)
+    edges = np.linspace(0.5, n_bins + 0.5, n_bins + 1)
 
     return 0.5 * (edges[:-1] + edges[1:])
 
@@ -180,12 +182,19 @@ def build_target(conf=None, count_map=None, kind="1pt"):
         f"(config: {np.array2string(n_bar_conf, precision=2)})"
     )
 
+    n_bins = conf["analysis"]["modelling"]["lensing"]["shape_noise"].get("bias_fit_max_count", N_BINS_1PT)
+    if kind == "1pt":
+        LOGGER.info(
+            f"Fraction of footprint pixels above the largest count {n_bins} of the histogram: "
+            f"{np.array2string(np.mean(count_map[mask] > n_bins, axis=0), precision=6)}"
+        )
+
     target = []
     for i_z in range(n_z):
         if kind == "1pt":
             # deviation: restricted to the footprint pixels explicitly. The reference zeroed the counts outside of the
-            # footprint and histogrammed the full sky, which is equivalent since RANGE_1PT excludes empty pixels
-            target.append(_count_statistic(count_map[mask, i_z], kind, i_z))
+            # footprint and histogrammed the full sky, which is equivalent since the histogram excludes empty pixels
+            target.append(_count_statistic(count_map[mask, i_z], kind, i_z, n_bins=n_bins))
         else:
             target.append(_count_statistic(count_map[:, i_z].astype(np.float64), kind, i_z, mask=mask))
 
@@ -308,17 +317,18 @@ def counts_from_bias(n_bar, delta, bias, contamination=None, seed=DEFAULT_SEED):
 def _cost(bias, delta_z, n_bar_z, target_z, kind, i_z, mask, seed, contamination_z=None):
     """Distance between the statistic of the simulated counts and the target, minimized over the bias."""
     counts = counts_from_bias(n_bar_z, delta_z, bias, contamination=contamination_z, seed=seed)
-    stat = _count_statistic(counts, kind, i_z, mask=mask)
+    # the histogram of the simulation takes the bins of the target
+    stat = _count_statistic(counts, kind, i_z, mask=mask, n_bins=len(target_z))
 
     if kind == "1pt":
         if np.sum(stat) == 0:
-            # every pixel fell outside of RANGE_1PT, the bias is far outside of any sensible range
+            # every pixel fell outside of the histogram, the bias is far outside of any sensible range
             return np.inf
 
         # deviation: the reference passed the histogram heights themselves to wasserstein_distance, which is
         # permutation invariant across the bins and therefore blind to which count value has which frequency. This is
         # the actual 1D Wasserstein distance between the two pixel count distributions
-        centres = _bin_centres_1pt()
+        centres = _bin_centres_1pt(len(target_z))
         return wasserstein_distance(centres, centres, u_weights=stat, v_weights=target_z)
     else:
         return np.sum((np.log10(stat) - np.log10(target_z)) ** 2)
@@ -346,7 +356,7 @@ def fit_bias(delta, target, n_bar, mask=None, kind="1pt", b_init=1.0, seed=DEFAU
 
     Returns:
         tuple: (biases, losses, stats) with the (n_z,) best fit biases, the (n_z,) minimal losses and the statistics
-            of the best fit counts. The latter is an (n_z, N_BINS_1PT) array for kind "1pt" and a list of per bin
+            of the best fit counts. The latter is an (n_z, n_bins) array for kind "1pt" and a list of per bin
             arrays for kind "2pt", where L_MAX_2PT differs between the tomographic bins.
     """
     n_z = delta.shape[-1]
@@ -386,7 +396,7 @@ def fit_bias(delta, target, n_bar, mask=None, kind="1pt", b_init=1.0, seed=DEFAU
         losses[i_z] = result.fun
 
         counts = counts_from_bias(n_bar[i_z], delta_z, biases[i_z], contamination=contamination_z, seed=seed)
-        stats.append(_count_statistic(counts, kind, i_z, mask=mask))
+        stats.append(_count_statistic(counts, kind, i_z, mask=mask, n_bins=len(target[i_z])))
 
     # the two-point statistics are ragged, since L_MAX_2PT differs between the tomographic bins
     if len({stat.shape for stat in stats}) == 1:
@@ -480,7 +490,7 @@ def fit_bias_table(
     The biases are stored as top level datasets keyed by the cosmology, such that the resulting file can be used as
     conf["files"]["metacal_bias"] and read with files.read_metacal_bias without any changes. The losses and the
     statistics of the best fit counts are stored alongside them in the "loss" and "stat" groups, the latter as an
-    (n_z, N_BINS_1PT) dataset for kind "1pt" and as one dataset per tomographic bin for the ragged kind "2pt".
+    (n_z, n_bins) dataset for kind "1pt" and as one dataset per tomographic bin for the ragged kind "2pt".
 
     Args:
         conf (str, dict): Configuration, see files.load_config.

@@ -393,12 +393,11 @@ def get_tomo_masks(conf=None, nest_out=True):
 def get_mask(conf=None, nest_out=True):
     masks_dict = get_tomo_masks(conf, nest_out)
 
-    assert np.all(masks_dict["metacal"] == masks_dict["maglim"]), "The masks for metacal and maglim should be the same"
-    assert np.all(
-        masks_dict["metacal"] == masks_dict["metacal"][:, 0][:, None]
-    ), "The mask should be the same for all tomographic bins"
+    # the two samples can have different numbers of bins
+    masks = np.concatenate([masks_dict["metacal"], masks_dict["maglim"]], axis=1)
+    assert np.all(masks == masks[:, :1]), "The mask should be the same for metacal and maglim and all their bins"
 
-    return masks_dict["metacal"][:, 0].astype(bool)
+    return masks[:, 0].astype(bool)
 
 
 def load_noise_file(conf=None):

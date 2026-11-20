@@ -33,8 +33,7 @@ files:
   # TODO: the lss_sys run, then put its run label into the file name, as for Y3
   metacal_systematics: data/desy6/desy6_metacal_systematics_512.h5
   # source clustering bias, fit against this forward model on the Y6 projection.
-  # TODO: step sc_bias, once files.metacal_systematics and the full projection exist. RANGE_1PT in
-  # msfm.utils.source_clustering_bias is fixed and clips the denser Y6 counts
+  # TODO: step sc_bias, once files.metacal_systematics and the full projection exist
   metacal_bias: data/desy6/desy6_metacal_bias.h5 # <- step sc_bias
   metacal_bias_arm: contam
 
@@ -127,6 +126,9 @@ analysis:
         method: count
         # fixed (per-cosmology bias from files.metacal_bias) | prior (b_sc sampled from the Latin hypercube)
         bias: fixed
+        # largest galaxy count per pixel in the histogram that the bias is fit to (200 if absent, as for Y3). Above the
+        # largest Y6 count in the footprint, 359
+        bias_fit_max_count: 400
         # imprint files.metacal_systematics on the source density before the resampling
         survey_systematics: True
       # whether to include the TATT cross-term on top of NLA
