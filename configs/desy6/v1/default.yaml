@@ -50,10 +50,11 @@ survey:
     z_bins: [metacal1, metacal2, metacal3, metacal4]
     # in galaxies/deg^2, inside the nside-512 mask
     n_gal: [7433.825377591532, 7635.582963085136, 7677.574950556799, 8182.75987826189] # <- step values: survey.metacal.n_gal
-    # mean and std of M_BIN1-4 in desy6_source_redshift.h5.
-    # TODO: apply each realization's m from the projection (attr shearm) instead of drawing it from this prior
     shear_bias:
       multiplicative:
+        # each realization's own m, the attribute shearm of the projection's nz/<bin>, drawn jointly with its n(z).
+        # mu and sigma, the mean and std of M_BIN1-4 in desy6_source_redshift.h5, bound it to 5 sigma
+        source: projection
         mu: [-0.003397673790742481, 0.00645519707938863, 0.015939349904159923, 0.001698109169479922] # <- step values: survey.metacal.shear_bias.multiplicative.mu
         sigma: [0.005784359495438698, 0.006623822114448156, 0.005938030766082593, 0.01220024598003775] # <- step values: survey.metacal.shear_bias.multiplicative.sigma
     # IA pivot redshift, v18's. OPEN: the KP uses 0.3, Table 3 in https://arxiv.org/pdf/2601.14559

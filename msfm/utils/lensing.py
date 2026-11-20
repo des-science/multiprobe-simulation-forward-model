@@ -57,6 +57,22 @@ def get_m_bias_distribution(conf=None):
     return m_bias_dist
 
 
+def m_bias_from_projection(conf):
+    """Whether each realization's multiplicative shear bias comes from the projection (survey.metacal.shear_bias.
+    multiplicative.source: projection, the attr shearm of nz/<bin>) rather than from a draw from the prior (prior, the
+    default).
+
+    Args:
+        conf (dict): The config.
+
+    Returns:
+        bool: True for the projection.
+    """
+    source = conf["survey"]["metacal"]["shear_bias"]["multiplicative"].get("source", "prior")
+    assert source in ("prior", "projection"), f"Unknown survey.metacal.shear_bias.multiplicative.source {source}"
+    return source == "projection"
+
+
 def mode_removal(
     gamma1_patch,
     gamma2_patch,

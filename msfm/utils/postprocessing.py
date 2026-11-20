@@ -199,6 +199,9 @@ def postprocess_grid_permutations(args, conf, cosmo_dir_in, pixel_file, noise_fi
             break
 
         full_maps_file = _get_full_sky_perm(args, conf, cosmo_dir_in, i_perm)
+        if "m" in data_vec_container:
+            # one realization per permutation, shared by its patches
+            data_vec_container["m"][n_patches * i_perm : n_patches * (i_perm + 1)] = _read_m_bias(conf, full_maps_file)
 
         for sample in samples:
             LOGGER.timer.start("sample")
@@ -283,6 +286,11 @@ def _set_up_per_cosmo_dv_container(conf, pixel_file):
             dvs_shape = (n_perms_per_cosmo * n_patches, n_noise_per_signal, data_vec_len, n_z_bins)
 
         data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
+
+    if store_lensing and lensing.m_bias_from_projection(conf):
+        # the multiplicative shear bias of every example and source bin
+        n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
+        data_vec_container["m"] = np.zeros((n_perms_per_cosmo * n_patches, n_z_bins), dtype=np.float32)
 
     return data_vec_container
 
@@ -722,6 +730,18 @@ def _rsync_tfrecord_to_san(conf, tfr_file, san_dir_out):
         connection.rsync_to(tfr_file, san_file_out)
 
     LOGGER.info(f"Done copying {tfr_file} to the SAN after {LOGGER.timer.elapsed('copy_to_san')}")
+
+
+def _read_m_bias(conf, full_maps_file):
+    """The multiplicative shear bias of the configured source bins, the attr shearm of the projection's nz/<bin>.
+    Each value must lie within 5 sigma of the config's prior, which catches a wrong attribute or a stored 1 + m."""
+    multiplicative = conf["survey"]["metacal"]["shear_bias"]["multiplicative"]
+    with h5py.File(full_maps_file, "r") as f:
+        m = np.array([f["nz"][z_bin].attrs["shearm"] for z_bin in conf["survey"]["metacal"]["z_bins"]])
+
+    mu, sigma = np.array(multiplicative["mu"]), np.array(multiplicative["sigma"])
+    assert np.all(np.abs(m - mu) < 5 * sigma), f"{full_maps_file}: shearm {m} is not within 5 sigma of {mu} +- {sigma}"
+    return m.astype(np.float32)
 
 
 def _read_full_sky_bin(conf, full_maps_file, in_map_type, z_bin):

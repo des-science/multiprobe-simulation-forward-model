@@ -296,6 +296,7 @@ def main(indices, args):
     # transforms
     lensing_transform = _get_lensing_transform(conf, pixel_file)
     clustering_transform = _get_clustering_transform(conf, pixel_file)
+    assert not lensing.m_bias_from_projection(conf), "The fiducial postprocessing draws m from the prior only"
     m_bias_dist = lensing.get_m_bias_distribution(conf)
 
     LOGGER.warning(f"Starting the main loop trough indices {indices}")

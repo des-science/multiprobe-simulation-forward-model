@@ -276,6 +276,8 @@ def main(indices, args):
     # transforms
     lensing_transform = _get_lensing_transform(conf, pixel_file)
     clustering_transform = _get_clustering_transform(conf, pixel_file)
+    m_from_projection = lensing.m_bias_from_projection(conf)
+    m_bias_dist = lensing.get_m_bias_distribution(conf)
 
     LOGGER.warning(f"Starting the main loop trough indices {indices}")
 
@@ -409,11 +411,14 @@ def main(indices, args):
                     else:
                         raise ValueError("Unsupported configuration of clustering bias")
 
-                    kg, sn_samples, alm_kg, alm_sn_samples = (
-                        lensing_transform(kg, ia, ds, sn_samples, Aia, n_Aia, bta, np_seed=i_sobol + i_signal)
-                        if store_lensing
-                        else (None, None, None, None)
-                    )
+                    if store_lensing:
+                        # the realization's own m from the projection, or one draw from the prior
+                        m_bias = data_vec_container["m"][i_signal] if m_from_projection else m_bias_dist.sample()
+                        kg, sn_samples, alm_kg, alm_sn_samples = lensing_transform(
+                            kg, ia, ds, sn_samples, Aia, n_Aia, bta, m_bias, np_seed=i_sobol + i_signal
+                        )
+                    else:
+                        kg, sn_samples, alm_kg, alm_sn_samples = None, None, None, None
                     dg, pn_samples, alm_dg, alm_pn_samples = (
                         clustering_transform(dg, tomo_bg, qdg, tomo_qbg, np_seed=i_sobol + i_signal)
                         if store_clustering
@@ -518,7 +523,6 @@ def _get_lensing_transform(conf, pixel_file):
     extended_nla = conf["analysis"]["modelling"]["lensing"]["extended_nla"]
 
     tomo_z_metacal, tomo_nz_metacal = files.load_redshift_distributions("metacal", conf)
-    m_bias_dist = lensing.get_m_bias_distribution(conf)
     metacal_mask = files.get_tomo_dv_masks(conf)["metacal"]
 
     def lensing_smoothing(kg, np_seed):
@@ -535,7 +539,7 @@ def _get_lensing_transform(conf, pixel_file):
 
         return kg, alm
 
-    def lensing_transform(kg, ia, ds, sn_samples, Aia, n_Aia, bta, np_seed=None):
+    def lensing_transform(kg, ia, ds, sn_samples, Aia, n_Aia, bta, m_bias, np_seed=None):
         # intrinsic alignment
         tomo_Aia = redshift.get_tomo_amplitudes(
             Aia,
@@ -557,8 +561,7 @@ def _get_lensing_transform(conf, pixel_file):
             # standard NLA
             kg = kg + tomo_Aia * ia
 
-        # fixing this in the .tfrecords simplifies reproducibility
-        m_bias = m_bias_dist.sample()
+        # multiplicative shear bias, fixed in the .tfrecords for reproducibility
         kg *= 1.0 + m_bias
 
         kg *= metacal_mask
