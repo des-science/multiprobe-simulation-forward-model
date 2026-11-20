@@ -1,7 +1,7 @@
 # `data/desy6/`
 
 The inputs to the DES Y6 forward model that come straight from the survey data: n(z), the footprint,
-the catalog maps, the survey numbers in the config, and the shape-noise catalog. One script makes
+the catalog maps, the lens weight maps, the survey numbers in the config, and the shape-noise catalog. One script makes
 all of them from the public Y6 release, `msfm/apps/products/desy6.py`, for
 `configs/desy6/v1/default.yaml`.
 
@@ -10,7 +10,7 @@ all of them from the public Y6 release, `msfm/apps/products/desy6.py`, for
 | step | output (in this directory) | in git | status |
 |---|---|---|---|
 | `nz` | `redshift_distributions/` | yes | done 2026-11-18 |
-| `pixels` | `desy6_pixels_fiducial_512.h5` | yes | done 2026-11-19, threshold 0.73 |
+| `pixels` | `desy6_pixels_fiducial_512.h5` | yes | done 2026-11-20, threshold 0.73, with the lens weight maps |
 | `maps` | `cache/` | no | done 2026-11-19 |
 | `values` | `desy6_survey_values.yaml` | yes | done 2026-11-19 |
 | `config` | the marked lines of the config | yes | done 2026-11-19 |
@@ -31,7 +31,7 @@ files are used:
 | file | size | for |
 |---|---|---|
 | `metadetect_2024-11-07.hdf5` | 140 G | source shear, counts, response, noise catalog |
-| `maglim_2024-11-07.hdf5` | 2.7 G | lens counts, with the per-galaxy `weight` |
+| `maglim_2024-11-07.hdf5` | 2.7 G | lens counts, and the weight maps from the per-galaxy `weight` |
 | `jointmask_DESY6_2024-06-04.hsp` | 696 M | footprint |
 | `3x2pt_2025-07-28-20h_UNBLINDED_wmask_nob2.fits` | 22 M | fiducial n(z) |
 | `desy6_source_redshift.h5` | 373 M | m prior (the `M_BIN*` columns only) |
@@ -78,7 +78,7 @@ through `survey.maglim.z_bins`, since the KP drops bin 2.
 - The grid starts at z = 0 (Y3: 0.005). The token stays `metacal` because it echoes the config key,
   although the Y6 sources are metadetection.
 
-### `pixels`: footprint and patches
+### `pixels`: footprint, patches and lens weight maps
 
 **Writes** `desy6_pixels_fiducial_512.h5`, in the layout `files.load_pixel_file` reads. As in Y3's
 `pixel_file.ipynb`:
@@ -106,6 +106,31 @@ don't overlap, and the file reads back. The area is only a check: `Aeff` feeds n
 
 **Result:** 309,226 footprint pixels and a 457,728-pixel data vector (Y3: 318,616 and 458,752).
 About a minute on one node.
+
+**MagLim weight maps** go into `maglim/systematics/{map,data_vector}/maglim1-6`, the group
+`files.get_clustering_systematics` reads, with `filled/` alongside. DES's fiducial lens weights are
+ENet (arXiv:2601.14484), an elastic-net regression of each bin's density on the 19 survey-property
+maps, fit at nside 256 and predicted at nside 1024. The release has no weight map, only the
+per-galaxy `weight`, which is constant inside each nside-1024 pixel. So the map is read off the
+catalog, without a refit (`catalog_desy6.maglim_weight_maps`):
+
+1. Every nside-1024 pixel holding a galaxy gives the weight there, 54-67% of them per bin.
+2. Each footprint pixel is split into its 64 nside-4096 children, whose centres are rotated back
+   to the sky and looked up in that map. The observed count of a pixel is the clean count times
+   the mean contamination F = 1/w, so its weight is w = 1/⟨F⟩, averaged over the children with a
+   value.
+3. Pixels without a galaxy in any child, 0.14-0.61% per bin, take the mean ⟨F⟩ of their
+   neighbours. These may lie up to two rings outside the footprint, since it has isolated pixels.
+
+As in v18, w multiplies the observed counts (`apply_maglim_sys_map` of
+`observation.forward_model_observation_map`) and stays out of the forward model
+(`maglim_survey_systematics_map: False`). w spans 0.875 to 1.206, with a std of 1.3% to 3.6% per
+bin.
+
+**Checks on the weights:** one weight per nside-1024 pixel; the mean galaxy weight of each pixel
+follows w (correlation 0.993 to 0.996, where a wrong frame gives 0); and the counts times w sum to
+the weighted counts within 3×10⁻⁵, so the catalog's normalization and the weighted n_gal of step
+`values` carry over.
 
 ### `maps`: catalog maps
 
@@ -159,13 +184,16 @@ It is blocked on two inputs:
 
 ## Review
 
-`notebooks/desy6/products.ipynb` is read-only. It plots every product and runs the κ_E × δ_g sign
-test and the κ_B × δ_g null test. `notebooks/desy3/products.ipynb` runs the same on the Y3 products,
+`notebooks/desy6/products.ipynb` is read-only. It plots every product, runs the κ_E × δ_g sign
+test and the κ_B × δ_g null test, and checks the lens weight maps against the counts. `notebooks/desy3/products.ipynb` runs the same on the Y3 products,
 for comparison.
 
 The tests confirm Y3's e1/e2 signs and ψ rotation for Y6 (2026-11-19). κ_E × δ_g is positive for
 all 20 source-lens pairs, with S/N 10 to 51 where the lens bin lies in front. κ_B × δ_g is null,
 with a combined S/N of at most 2.1 in size.
+
+The lens weight maps pass too (2026-11-20). The raw counts follow F = 1/w with slope 0.91 to 1.37
+(jackknife errors 0.08 to 0.33), and the counts corrected by w are flat within 1.3σ in every bin.
 
 ## Open
 
