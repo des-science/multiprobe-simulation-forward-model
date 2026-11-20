@@ -8,24 +8,41 @@ from msfm.utils import logger, files
 LOGGER = logger.get_logger(__file__)
 
 
-def _cache_file(name):
-    """Resolve a catalog-derived cache map to data/desy3/cache/, creating the directory if needed.
+def _cache_file(conf, name):
+    """Resolve a catalog-derived cache map to <dirs.cache>/<survey>_<name>, creating the directory if needed.
 
-    data/desy3/cache/ is gitignored, so it is absent in a fresh clone, a new worktree and after a
-    git clean. Creating it here rather than relying on it existing means the np.save at the end of
-    an hours-long catalog pass cannot fail on a missing directory.
+    The survey prefix is survey.name in lower case. dirs.cache defaults to data/desy3/cache, since the Y3 configs have
+    no such key. The cache is gitignored, so it is absent in a fresh clone, a new worktree and after a git clean.
+    Creating it here rather than relying on it existing means the np.save at the end of an hours-long catalog pass
+    cannot fail on a missing directory.
 
     Args:
-        name (str): Basename of the cache file, including the .npy suffix.
+        conf (dict): The config.
+        name (str): Basename of the cache file without the survey prefix, including the .npy suffix.
 
     Returns:
         str: Absolute path to the cache file.
     """
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
-    cache_dir = os.path.join(repo_dir, "data", "desy3", "cache")
+    cache_dir = os.path.join(repo_dir, conf["dirs"].get("cache", "data/desy3/cache"))
     os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, name)
+    return os.path.join(cache_dir, f"{conf['survey']['name'].lower()}_{name}")
+
+
+def _bin_columns(conf, sample):
+    """Cache columns of the configured bins: column k - 1 holds survey bin k."""
+    return [files.get_z_bin_number(z_bin) - 1 for z_bin in conf["survey"][sample]["z_bins"]]
+
+
+def _assert_desy3_catalog(conf):
+    """Only the DES Y3 catalog is read here; the maps of other surveys come from their products script."""
+    survey = conf["survey"]["name"]
+    if survey != "DESy3":
+        raise ValueError(
+            f"msfm.utils.catalog reads only the DES Y3 catalog, so the {survey} maps must be in dirs.cache "
+            "(DESy6: python -m msfm.apps.products.desy6 maps)"
+        )
 
 
 def _get_rot_x(ang):
@@ -165,18 +182,20 @@ def build_metacal_map_from_cat(
 
     rot_suffix = "" if apply_shear_rotation else "_no_psi_rot"
     sign_suffix = f"_e1{'m' if sign_e1 < 0 else 'p'}_e2{'m' if sign_e2 < 0 else 'p'}"
-    gamma_cache_dir = _cache_file(f"desy3_metacal_gamma{rot_suffix}{sign_suffix}.npy")
-    count_cache_dir = _cache_file("desy3_metacal_count.npy")
+    gamma_cache_dir = _cache_file(conf, f"metacal_gamma{rot_suffix}{sign_suffix}.npy")
+    count_cache_dir = _cache_file(conf, "metacal_count.npy")
 
     # load from cache if available and not forcing recompute
     if not force_recompute:
         try:
-            wl_gamma_map = np.load(gamma_cache_dir)
-            wl_count_map = np.load(count_cache_dir)
+            columns = _bin_columns(conf, "metacal")
+            wl_gamma_map = np.load(gamma_cache_dir)[:, columns]
+            wl_count_map = np.load(count_cache_dir)[:, columns]
             LOGGER.info("Loaded metacal maps from cache")
             return wl_gamma_map, wl_count_map
         except FileNotFoundError:
             LOGGER.info("Cache not found, computing metacal maps")
+    _assert_desy3_catalog(conf)
 
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
@@ -287,8 +306,8 @@ def build_full_metacal_map_from_cat(
 
     rot_suffix = "" if apply_shear_rotation else "_no_psi_rot"
     sign_suffix = f"_e1{'m' if sign_e1 < 0 else 'p'}_e2{'m' if sign_e2 < 0 else 'p'}"
-    gamma_cache_dir = _cache_file(f"desy3_metacal_gamma_full{rot_suffix}{sign_suffix}.npy")
-    count_cache_dir = _cache_file("desy3_metacal_count_full.npy")
+    gamma_cache_dir = _cache_file(conf, f"metacal_gamma_full{rot_suffix}{sign_suffix}.npy")
+    count_cache_dir = _cache_file(conf, "metacal_count_full.npy")
 
     if not force_recompute:
         try:
@@ -298,6 +317,7 @@ def build_full_metacal_map_from_cat(
             return wl_gamma_map, wl_count_map
         except FileNotFoundError:
             LOGGER.info("Cache not found, computing full metacal map")
+    _assert_desy3_catalog(conf)
 
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
@@ -362,16 +382,17 @@ def build_full_metacal_map_from_cat(
 def build_maglim_map_from_cat(conf, debug=True, force_recompute=False):
     conf = files.load_config(conf)
 
-    cache_dir = _cache_file("desy3_maglim_count.npy")
+    cache_dir = _cache_file(conf, "maglim_count.npy")
 
     # load from cache if available and not forcing recompute
     if not force_recompute:
         try:
-            gc_count_map = np.load(cache_dir)
+            gc_count_map = np.load(cache_dir)[:, _bin_columns(conf, "maglim")]
             LOGGER.info("Loaded maglim map from cache")
             return gc_count_map
         except FileNotFoundError:
             LOGGER.info("Cache not found, computing maglim map")
+    _assert_desy3_catalog(conf)
 
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
@@ -426,6 +447,7 @@ def build_maglim_map_from_cat(conf, debug=True, force_recompute=False):
 
 def get_shapes_from_cat(conf, sign_e1=1, sign_e2=-1, apply_shear_rotation=True):
     conf = files.load_config(conf)
+    _assert_desy3_catalog(conf)
 
     n_side = conf["analysis"]["n_side"]
     R_gamma = conf["survey"]["metacal"]["R_gamma"]
