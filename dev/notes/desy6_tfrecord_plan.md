@@ -268,8 +268,12 @@ Each work package is a no-op on Y3.
 - Fiducial bias lookups by name rather than position (`observation.py:577,591`).
 - If D4 fixes bta, support an empty `params.ia.tatt`. Otherwise `astro_sample[:3]` would read `bg1`
   as bta (`run_grid_postprocessing.py:385-389`).
-- `RANGE_1PT` derived from n_bar (`source_clustering_bias.py:53-54`). Y6 has about 33.7M sources per
-  bin, roughly 100 per pixel against Y3's 72, so the fixed range [0.5, 200.5] would clip the tail.
+- Done 2026-11-20: the sc_bias histogram range. Its upper end is now
+  `shape_noise.bias_fit_max_count` (absent = 200, Y3), set to 400 for Y6. The fixed [0.5, 200.5]
+  dropped 0.07-0.16% of the Y6 footprint pixels (largest count 359) against 0.002-0.004% of Y3's
+  (largest 248). A data-derived range was rejected because it would change Y3. `files.get_mask`
+  assumed as many lens as source bins and raised for Y6; it now concatenates them. `L_MAX_2PT` only
+  feeds the unused kind `2pt`. Y3 target, bin centres and cost identical to HEAD.
 
 ---
 

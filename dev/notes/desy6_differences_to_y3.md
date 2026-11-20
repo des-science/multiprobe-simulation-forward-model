@@ -52,7 +52,7 @@ arXiv:2511.04681. Y6 side: `configs/desy6/v1/default.yaml`, `data/desy6/README.m
 | 9 | IA pivot | z0 = 0.62 | z0 = 0.3, the KP's | user decision. The box and fiducials stay, so the same (Aia, n_Aia) gives per-bin amplitudes 1.246^n_Aia times Y3's: 1.39× at the fiducial n_Aia = 1.5, 0.41-3.7× across the box |
 | 10 | fiducial n(z) | txt files from outside the repo, grid from z = 0.005 | the 3x2pt FITS `nz_source` / `nz_lens`, 300 points from z = 0 | data. Mean z 0.41, 0.54, 0.85, 1.16 (sources) and 0.31-1.01 (lenses). Also feeds the IA amplitude and the bias fiducials |
 | 11 | source systematics map | `lss_sys` on 34 SP maps (`STD32`) | `lss_sys` on the 19 DES Y6 templates. Not done yet | the `lss_sys` side has its own list (`lss_sys/claude/desy6/differences_to_y3_sources.md`) |
-| 12 | source clustering bias | `sc_bias_fit_count.ipynb` | step `sc_bias`. Not done yet | `RANGE_1PT = (0.5, 200.5)` and `L_MAX_2PT` in `source_clustering_bias.py` are Y3 constants. Y6 has ~100 sources per pixel vs Y3's 72, so the range clips |
+| 12 | source clustering bias | `sc_bias_fit_count.ipynb` | step `sc_bias`. Not done yet | the count histogram runs to 400 galaxies per pixel instead of 200 (`shape_noise.bias_fit_max_count`): Y6 has ~100 sources per pixel vs Y3's 72 and a largest count of 359, which 200 would drop |
 | 13 | projection resolution | nside 1024, `ud_grade`d to 512 by msfm | nside 512 (test files) | equivalent: the maps are linear in the particle counts, so averaging four nside-1024 pixels equals projecting at 512 |
 | 14 | shape-noise catalog | metacal shapes (`noise_file.ipynb`) | metadetection `noshear` (e1/R, e2/R, w, pixel), step `noise` | data, same layout |
 
