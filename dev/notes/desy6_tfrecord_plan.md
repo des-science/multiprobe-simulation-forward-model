@@ -230,6 +230,14 @@ Each work package is a no-op on Y3.
 
 **WP5: m from the projection**
 
+- **Done 2026-11-20** for the grid: `survey.metacal.shear_bias.multiplicative.source: projection`
+  (absent = `prior`, Y3) makes `postprocess_grid_permutations` read `shearm` per permutation, bounded
+  to 5σ of the config prior, and the grid loop passes it to `lensing_transform`; the fiducial app
+  raises for it. Y3 regression IDENTICAL (job 5405417).
+- The projection does not apply m (measured 2026-11-20 on the two fixed test files): `kernel/kg`
+  equals a recomputed Born kernel of the stored n(z) to 0.1% after a per-shell calibration on the
+  Y3 reference files (no m), with no trace of 1 + m (up to 2.3% between the permutations in bin 4),
+  and the `map/kg` monopole equals sum(kernel x mean particle count) to 0.1%, as in Y3.
 - Read `nz/<source bin>.attrs["shearm"]` per permutation and apply `kg *= 1 + m` per bin. The same
   m holds for all four patches of a permutation, which is what a joint m–n(z) realization means.
 - No m draw for Y6. The Y3 path (`source: prior` or absent) is unchanged.
