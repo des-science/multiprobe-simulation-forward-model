@@ -17,6 +17,9 @@ all of them from the public Y6 release, `msfm/apps/products/desy6.py`, for
 | `systematics` | `desy6_metacal_systematics_MAIN19_512.h5` | yes | done 2026-11-20, `lss_sys` run `metadetect_sources_MAIN19` |
 | `sc_bias` | `desy6_metacal_bias.h5` | yes | done 2026-11-20, the 2500 grid cosmologies, no `fiducial` key |
 
+Every step reran with `--provenance` on 2026-11-20/21 and reproduced its outputs byte for byte. Its
+record (inputs, output sha256, msfm commit) is in `provenance.yaml`.
+
 A path that a config names before its step has run goes into `EXPECTED_MISSING` of
 `dev/scripts/data_audit/check_config_paths.py` until the step writes it. No DES Y6 path is there now.
 

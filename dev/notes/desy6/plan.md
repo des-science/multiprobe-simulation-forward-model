@@ -71,12 +71,13 @@ The re-scan of all 50,000 files (2026-11-20, `claude/tmp/desy6_rescan/`) found:
    node-hours per cosmology, with a peak of 10.5 GB per task. **24 × 12 is the default (user
    decision), ≈ 79 node-hours for the grid** plus the merge (Perlmutter reference: ~150 for the v17
    grid). The numbers are in "Sizing and cost" of the v1 README, and `submit.sh` defaults to them.
-2. **Provenance rerun.** Unblocked now that `sc_bias` has run. It records the msfm commit, so first
-   commit the bias table, its follow-ups and these notes.
-   - Every product step reruns with `--provenance`: `nz`, `pixels`, `maps`, `values`, `noise`,
-     `systematics`, `sc_bias`. `pixels`, `maps` and `noise` need a compute node; `sc_bias` is one
-     debug job.
-   - `values --check` must pass. Then drop the provenance TODO of the config.
+2. **Provenance rerun.** Done 2026-11-20/21. All seven steps reran with `--provenance` on msfm `814a500`:
+   - `pixels`, `maps` and `noise` as debug jobs 5409505, 5409512 and 5416023;
+   - `sc_bias` as debug job 5416036 (9:05);
+   - `values` again on `d129dfa`, since an up-to-date config left no record before that commit.
+
+   Every output came out byte-identical to the one already in place, the bias table included, and
+   `values --check` passes. `data/desy6/provenance.yaml` holds the seven records.
 3. **Production grid tfrecords**, after 1 and 2. Run `DRY_RUN=1 ./submit.sh grid`, then
    `./submit.sh grid`, as in the v1 README. It runs on `normal`.
 4. **Validation** (section 3), then the Y3 regression once more.

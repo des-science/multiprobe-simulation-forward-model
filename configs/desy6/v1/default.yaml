@@ -14,7 +14,7 @@ files:
   # relative to the root of this repository
   pixels: data/desy6/desy6_pixels_fiducial_512.h5 # <- step pixels
   noise: data/desy6/desy6_noise_512.h5 # <- step noise
-  # TODO: only step nz has a record; rerun the other steps with --provenance
+  # inputs, outputs (sha256) and msfm commit of every product step
   provenance: data/desy6/provenance.yaml
   meta_info: data/CosmoGridV1_metainfo.h5
   healpy_data: data/healpy_data

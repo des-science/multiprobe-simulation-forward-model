@@ -13,7 +13,7 @@ calls the app through `../../../common/run_packed.py`.
    section 1).
 2. Step `sc_bias` has written `data/desy6/desy6_metacal_bias.h5`. The grid app reads it at startup, so
    the preflight refuses to submit without it. Done 2026-11-20.
-3. Every product step has rerun with `--provenance` on committed code.
+3. Every product step has rerun with `--provenance` on committed code. Done 2026-11-21.
 4. `DRY_RUN=1 ./submit.sh grid` passes.
 
 ## How to run
