@@ -148,7 +148,7 @@ def write_marked_values(conf, conf_path, values, check, rel=os.path.relpath):
         return False
 
     if not stale:
-        # nothing written, so the provenance record of the last write stays
+        # nothing written; whether that still gets a provenance record is the caller's choice
         LOGGER.info(f"{rel_conf}: all {len(values)} marked values are up to date")
         return False
     with open(conf_path, "w") as f:

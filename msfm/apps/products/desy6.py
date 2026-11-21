@@ -373,7 +373,8 @@ def step_values(conf, args):
     With --check, writes nothing and exits with 1 if any marked value is stale.
 
     Returns:
-        tuple: (input paths, output paths), or None with --dry-run, --check or when every value is up to date
+        tuple: (input paths, output paths), or None with --dry-run, --check, or when every value is up to date and
+            --provenance is not set
     """
     conf_path = os.path.abspath(args.config)
     if not (_rel(conf_path) + os.sep).startswith(CONFIG_ROOT + os.sep):
@@ -432,7 +433,9 @@ def step_values(conf, args):
     values["survey.metacal.shear_bias.multiplicative.sigma"] = _configured_bins(conf, "metacal", sigma)
     LOGGER.info(f"Aeff = {area:.3f} deg^2, footprint {footprint_area:.1f} deg^2")
 
-    if not products.write_marked_values(conf, conf_path, values, args.check, rel=_rel):
+    written = products.write_marked_values(conf, conf_path, values, args.check, rel=_rel)
+    # with --provenance an up-to-date config is recorded too: these inputs at this commit give its values
+    if args.check or not (written or args.provenance):
         return None
     return inputs, [conf_path]
 
