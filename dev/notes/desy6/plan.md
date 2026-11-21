@@ -162,8 +162,12 @@ tfrecords.
 levels, ℓ cuts) through its own product steps, which share their helpers with
 `msfm.apps.products.desy6` through `msfm/utils/products.py`.
 
-**msi**, later. The table comes from a read-only sweep on 2026-11-15; ✓ marks a line checked by
-hand. Re-check the line numbers before editing.
+**msi** is being ported on its branch `desy6` (started 2026-11-21); its plan is
+`multiprobe-simulation-inference/dev/notes/desy6/plan.md`, its model differences
+`differences_to_y3.md` next to it. Done there: the observation key from `survey.name`, the `bg5`/`bg6`
+labels, a guard on the Y3 key-project overlay. The grid-geometry and `STORE` rows below need no
+change for Y6 (same geometry; `RUNS_ROOT` is passed). The table is the read-only sweep of
+2026-11-15, kept for the record.
 
 | where | today | change |
 |---|---|---|
