@@ -17,8 +17,9 @@
 set -u
 cd "$(dirname "$0")/../../.." || exit 1
 
-grep -rhoE 'data/[A-Za-z0-9._/+-]+' configs/ --include=*.yaml |
-    sed 's/"$//' | sort -u |
+# a data/ segment inside an absolute path (dirs.catalog, locations.yaml) is a machine path, not a repo file
+grep -rhoE '(^|[^/A-Za-z0-9._-])data/[A-Za-z0-9._/+-]+' configs/ --include=*.yaml |
+    sed -E 's#^[^d]##; s/"$//' | sort -u |
     while read -r f; do
         if [ -e "$f" ]; then echo "OK      $f"; else echo "MISSING $f"; fi
     done | sort

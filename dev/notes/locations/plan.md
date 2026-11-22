@@ -146,7 +146,10 @@ All by the user, 2026-11-22.
 
 ## Order and verification
 
-1. msfm: the resolver, the two files, tests (missing key, unknown key, relative value, the CLI).
+1. msfm: the resolver, the two files, tests (missing key, unknown key, relative value, the CLI). Done
+   2026-11-22: `tests/test_locations.py`, 13 passed in torch_env; every resolved path equals today's
+   script default. `dev/scripts/data_audit/gate.sh` now skips `data/` inside absolute paths, which it
+   had listed as missing repo files (OK count unchanged, 23).
 2. msfm consumers. `DRY_RUN=1 ./submit.sh grid|validate|obs all` prints the same commands as before.
 3. y3-deep-lss: `common.sh`, `--obs_dir`, the products default. Acceptance: the `DRYRUN=1` output of
    every `prod/` script for `VERSION=desy3/v18` equals today's with the old defaults set explicitly
