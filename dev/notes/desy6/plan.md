@@ -85,9 +85,10 @@ The re-scan of all 50,000 files (2026-11-20, `claude/tmp/desy6_rescan/`) found:
    - Merge 5416079: 3:41, 1.4 GB peak, writing `cls/grid_cls.h5` (282 GB, 45 Cl pairs, 16 labels).
      In that file every cosmology has a single `i_sobol` (2500 distinct), `i_signal` 0-79 × 5,
      `i_noise` 0-4 × 80, and finite labels and binned Cls.
-4. **Validation** (section 3), then the Y3 regression once more. After the shared-code changes of
-   the 2026-11-22 review (`lensing.read_m_bias`, the mocks' m in `c824650`), it ran on `c824650`:
-   job 5424437, 115 of 115 arrays identical to the baseline (`after_mock_m/`).
+4. **Validation, optional** (section 3). The machinery is built and tested; the runs are left for
+   later (user decision, 2026-11-22). The Y3 regression after the shared-code changes of the
+   2026-11-22 review (`lensing.read_m_bias`, the mocks' m in `c824650`) ran on `c824650`: job
+   5424437, 115 of 115 arrays identical to the baseline (`after_mock_m/`).
 5. **Copy the tfrecords to the lp184 store**, since `/ritom` scratch is purged.
 
 Later, and not needed for the grid set:
@@ -97,25 +98,50 @@ Later, and not needed for the grid set:
 
 No decision is open (section 4).
 
-## 3. Validating the Y6 tfrecords
+## 3. Validating the Y6 tfrecords (optional)
 
-- **Schema.**
-  - `n_z_metacal = 4` and `n_z_maglim = 5`;
-  - `n_pix` equal to the Y6 data vector, 457,728;
-  - label width and order equal to `parameters.get_parameters`;
-  - 2500 files of 80 examples × 5 noise realizations.
-- **Nuisances.** m differs across permutations and equals each file's `shearm`. The n(z)
-  realization differs per file (section 1).
-- **Noise and counts.** Per-pixel shape-noise rms and the source-count one-point function, against
-  the Y6 data maps. The rms is the noise-model check of `data_vs_mock.py` (below). The one-point
-  function is what step `sc_bias` fits; the table stores each cosmology's best-fit histogram (`stat`)
-  next to the target.
-- **Signal** (optional). Mean κ power of a grid cosmology against theory with its n(z), using
-  `dev/scripts/wl_audit`.
-- **Data vs mock.** `dev/scripts/validation/data_vs_mock.py`. On 2026-11-20 the observation path ran
-  on Y6 with every check passing, but the comparison was only indicative (README, Review). Rerun it on
-  a production mock with the fitted bias table. The same run found the `count` shape noise 1-2% below
-  the in-place noise in Y6 source bins 1-2 (Y3: about 1%). Whether that matters is not decided.
+**Machinery** (msfm `3e27d6a`): everything is in `dev/scripts/validation/`, and each docstring lists
+its checks. The commands, in run order, are in the "Validation" section of the v1 README.
+
+- `grid_tfrecords.py` runs through the packed executor (`./submit.sh validate`). Per file it checks:
+  - schema and labels;
+  - finite maps with zero padding;
+  - noise and signal from the 5 realizations;
+  - the projected inputs (m, n(z));
+  - the matching `grid_cls.h5` row.
+
+  Across files: the lens bins against their own `bg` labels, lensing against S8, m and n(z)
+  across perms, and a byte comparison against a `--debug` rerun of the grid app.
+- `data_vs_mock.py` compares the observation with the forward model. `--grid_cls` gives the observed
+  Cls' percentile among all grid Cls (does the training set cover the data?). `--scan` compares the
+  grid's lensing noise with the data's in-place noise.
+
+**Done** (2026-11-22): a test on indices 0 and 1 found no failure, and both planted errors failed as
+they should. It also turned up two things:
+- The rows of `grid_cls.h5` are in shuffled order (`Dataset.list_files`), so the check finds each
+  file's row by `i_sobol`.
+- The lens noise matches Poisson to 0.989 once the hard band limit is included (ℓ ≤ 1535 keeps 0.75
+  of white-noise variance).
+
+**Why optional.** The grid app verifies every record on write, the merge read all 2500 files with
+finite labels and Cls, and the code path is the same for every file. So a full scan mostly
+re-confirms file integrity. The parts job success cannot answer are scientific: the grid coverage
+of the data and the noise level against the data.
+
+**If run later**, in order of value:
+
+1. `data_vs_mock.py --grid_cls` on one production file, with `--scan` from a 72-file scan
+   (`ARRAY=0 SKIP_MERGE=1 ./submit.sh validate`, merged with `--partial`): about 0.5 node-hours.
+2. The rerun comparison: one debug job on indices 0-23, about 0.2 node-hours. It is the only direct
+   check that the stored maps carry each perm's `shearm`, and that HEAD still produces these files
+   after the review's change to `lensing.read_m_bias`.
+3. The full scan of all 2500 files: about 2-6 node-hours and about 1 h of wall time. This is an
+   estimate, since the read rate with 72 files at once per node is not measured (2 at once: 48 s per
+   file).
+
+Open from the 2026-11-20 run: the `count` shape noise is 1-2% below the in-place noise in Y6 source
+bins 1-2 (Y3: about 1%). Whether that matters is not decided. Not covered by the machinery: a
+theory check of the mean κ power (`dev/scripts/wl_audit`).
 
 ## 4. Decisions
 
