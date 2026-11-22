@@ -175,4 +175,8 @@ All by the user, 2026-11-22.
    after the integration test's stale msfm path was fixed. Found: every Y3 runs config's absolute
    `pred_dir` points at the purged `/iopsstor` copies of the runs (no files left, only dangling links).
 5. Docs: each repo's README and notes, the workspace `CLAUDE.md` section on filesystem paths (with the
-   user's OK), the memory.
+   user's OK), the memory. Done 2026-11-22: msfm `configs/README.md` documents the file (keys, resolved
+   keys, CLI, `VERSION`); the daint README, the y3-deep-lss README (dataset paragraph, `--obs_dir`,
+   the `submissions` section, which still named the pre-October layout) and the msi README (runs
+   config location, `dataset:` key, `inference.sh`) follow it. Left open: the Y3 runs configs'
+   purged `pred_dir`s, and repointing Y3 to the lp184 store, which now holds a copy of the runs.

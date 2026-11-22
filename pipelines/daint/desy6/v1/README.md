@@ -113,8 +113,9 @@ sources.
 
 The six files are copied to the lp184 store, since `/ritom` is purged:
 `/capstor/store/cscs/userlab/lp184/athomsen/deep_lss/data/desy6/v1/default/obs` (2026-11-22,
-byte-identical, group `lp184`). y3-deep-lss reads mocks from `$OBS_INPUT/obs/`, so a Y6 evaluation sets
-`OBS_INPUT` to the directory above `obs/`.
+byte-identical, group `lp184`), the `archive` of `configs/desy6/v1/locations.yaml`. y3-deep-lss reads
+mocks from the `obs_dir` of that file, the `/ritom` copy; `OBS_DIR=<directory of the h5 files>`
+points one evaluation at the store copy instead.
 
 The debug QOS takes two submitted jobs per user and runs one, so a mock there needs both slots free;
 several mocks go to `normal`.
