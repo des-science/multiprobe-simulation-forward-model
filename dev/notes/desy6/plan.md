@@ -122,8 +122,19 @@ tfrecords.
 
 **Open.**
 
-- **D11.** Uncertainty of the lens weights. The KP's w(θ) covariance marginalizes analytically over
-  the two weight methods, ENet and ISD; v1 has none. Raised by `differences_to_y6_kp.md`, not discussed yet.
+- **D11.** Uncertainty of the lens weights. v1 has none, as v18 had none for its ISD maps. Checked
+  2026-11-22:
+  - DES adds C → C + ΔΔᵀ to each lens bin's w(θ) covariance, Δ = ŵ(θ)_ENet − ŵ(θ)_ISD measured on the
+    data (arXiv:2601.14484 Eq. 24; w(θ) only, ENet fiducial). That equals marginalizing the amplitude
+    of the ENet − ISD mode with a unit Gaussian prior. Their aim is that swapping methods shifts each
+    bin by at most 1σ; they find the weights mostly matter for Ωm, and most in bin 6.
+  - The released weights (`weight` and `WEIGHT_ISD` of `maglim_addl_cols_v1.hdf5`), as pixel means at
+    nside 64 for bins 1, 3-6: correlation 0.40, 0.68, 0.88, 0.78, 0.93. The rms of their difference
+    is 0.93, 1.04, 0.47, 0.71, 0.36 × the ENet correction (0.9-2.1%), about the same from nside 512
+    to 64. So in bins 1 and 3 the two methods disagree by as much as the correction itself.
+  - Map-level options: (a) as now; (b) a robustness test, the posterior shift between ENet- and
+    ISD-corrected data, which needs an ISD weight map from step `pixels`; (c) the map-level analogue
+    of Eq. 24, simulated lens counts × (1 + α (w_ENet / w_ISD − 1)) with α ~ N(0, 1), not a label.
 
 **Settled.** The difference lists hold the details.
 
