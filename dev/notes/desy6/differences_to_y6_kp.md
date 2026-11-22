@@ -7,7 +7,8 @@ and otherwise keep v18. This list records where Y6 v1 differs from it, and wheth
 is a choice we could adopt later or comes with a map-level analysis on CosmoGridV1.
 
 KP: arXiv:2601.14559 (results). FW: arXiv:2601.14859 (modelling and methodology). The two papers'
-Table 3 hold the same priors. References checked against both papers on 2026-11-20. Ours:
+Table 3 hold the same priors. References checked against both papers on 2026-11-20, and again
+on 2026-11-22 against their arXiv HTML v2, which corrected four section references. Ours:
 `configs/desy6/v1/default.yaml`. The differences to our Y3 v18 are in `differences_to_y3.md`, and the open
 work in `plan.md`.
 
@@ -22,8 +23,8 @@ work in `plan.md`.
 - Fiducial n(z): the 3x2pt FITS `nz_source` and `nz_lens`.
 - m prior per bin: mean -3.4, 6.5, 15.9, 1.7 and width 5.8, 6.6, 5.9, 12.2 ×10⁻³, ours from the
   `M_BIN*` columns, theirs in KP Table 3.
-- Lens bias: linear per bin with a [0.8, 3.0] box, the KP baseline (KP Sec. V.1.1). Nonlinear EPT
-  bias (b1, b2) is their alternative (V.1.2).
+- Lens bias: linear, one b1 per bin (KP Sec. IV.1) with a flat [0.8, 3.0] prior (KP Table 3), the
+  KP baseline. Their alternative adds a local quadratic b2 per bin (KP Sec. IV.1, V.1.2).
 - IA pivot z0 = 0.3 (FW Sec. III.4).
 - Not modeled in either: reduced shear and source magnification (FW Sec. III.7).
 
@@ -32,19 +33,19 @@ work in `plan.md`.
 | # | aspect | KP | ours | note |
 |---|---|---|---|---|
 | 1 | IA model | TATT: A1, η1, A2, η2 sampled, b_TA = 1 fixed; A1(z) and A2(z) evolve with z (FW Eqs. 23-25) | δ-NLA: Aia, n_Aia, bta sampled, i.e. TATT with A2 = 0. One effective amplitude per bin, averaged over the truncated fiducial n(z) | user decision 2026-11-20. A2 needs a tidal-torquing map per source bin from the projection. KP App. C: NLA shifts S8 by +0.24σ, freeing b_TA by 0.12σ; the results "appear to be insensitive to the choice of the IA model" |
-| 2 | IA priors | A1 [-1, 3], A2 [-3, 3], η1 and η2 N(0, 3) cut to [-5, 5] | Aia [-3, 3], n_Aia [-4, 6], bta [0, 2], uniform (v18's) | user decision 2026-11-20, for now. Their η range [-5, -4) lies outside our box. msi learns a likelihood, so their Gaussian could be applied at inference inside our box. Table 3's caption defines N(μ, σ²), but its m rows use the `M_BIN*` standard deviations, so whether 3 is σ or σ² is unclear |
-| 3 | IA and bias fiducials | synthetic data (FW Table 3): A1 0.13, η1 = η2 = 2.0, A2 -0.2, b_TA 1; b1 = 1.54, 1.85, 1.76, 1.93, 1.90 (bins 1, 3-6) | Aia 0.5, n_Aia 1.5, bta 0; bg = 1.35, 1.50, 1.57, 1.63, 1.67 (power law bg 1.5, n_bg 0.5) | user decision 2026-11-20 (v18's). Only the fiducial set and the mocks use them |
+| 2 | IA priors | A1 [-1, 3], A2 [-3, 3], η1 and η2 N(0, 3) cut to [-5, 5] (FW Sec. IV.3, Table 3) | Aia [-3, 3], n_Aia [-4, 6], bta [0, 2], uniform (v18's) | user decision 2026-11-20, for now. Their η range [-5, -4) lies outside our box. msi learns a likelihood, so their Gaussian could be applied at inference inside our box. Table 3's caption defines N(μ, σ²), but its m rows use the `M_BIN*` standard deviations, so whether 3 is σ or σ² is unclear |
+| 3 | IA and bias fiducials | synthetic data (FW Table 3): A1 0.13, η1 = η2 = 2.0, A2 -0.2, b_TA 1; b1 = 1.54, 1.85, 1.76, 1.93, 1.90 (bins 1, 3-6) | Aia 0.5, n_Aia 1.5, bta 0; bg = 1.35, 1.50, 1.57, 1.63, 1.67 (power law bg 1.5, n_bg 0.5, z0 0.62) | user decision 2026-11-20 (v18's). Only the fiducial set and the mocks use them |
 | 4 | lens magnification | α per lens bin, Gaussian priors centered 1.58, 1.38, 2.04, 2.21, 2.45, 2.42 (bins 1-6) | not modeled (as v18) | user decision 2026-11-20. Adopting it later needs `kg` maps of the lens bins, so a re-projection |
-| 5 | uncertainty of the lens weights | the ENet - ISD difference is marginalized in the w(θ) covariance (KP Sec. II.3) | the ENet weights correct the observation; no uncertainty | open (plan D11) |
+| 5 | uncertainty of the lens weights | the w(θ) covariance marginalizes analytically over the two weight methods, ENet and ISD (KP Sec. II.3) | the ENet weights correct the observation; no uncertainty | open (plan D11) |
 | 6 | mean shear | residual additive c, the weighted mean shear, subtracted from the data (KP Sec. II.2) | logged, not subtracted (as v18) | open (plan D8). Observation only, not in the tfrecords |
 
 ## Different methods for the same uncertainty
 
 | # | aspect | KP | ours | note |
 |---|---|---|---|---|
-| 7 | source n(z) | 7 modes shared by the 4 bins, u ~ N(0, 1) on [-3, 3] (FW Sec. III.6) | each realization is projected with one draw from `desy6_source_redshift.h5` (80760 realizations) | both describe DES's source n(z) uncertainty; we did not check how the modes were built. The rows are taken in file order, not drawn at random (below) |
+| 7 | source n(z) | 7 modes shared by the 4 bins (FW Sec. III.6), u ~ N(0, 1) on [-3, 3] (KP Table 3) | each realization is projected with one draw from `desy6_source_redshift.h5` (80760 realizations) | both describe DES's source n(z) uncertainty; we did not check how the modes were built. The rows are taken in file order, not drawn at random (below) |
 | 8 | shear calibration m | Gaussian per bin, with small covariances with the u modes (KP Sec. II.5) | the realization's own m (`shearm`), drawn jointly with its n(z), applied by msfm | same marginal per bin (above), up to the offset of the rows used (below) |
-| 9 | lens n(z) | 3 modes per bin, u ~ N(0, 1) on [-3, 3] (FW Sec. III.6) | each realization is projected with one draw from `desy6_lens_redshift.h5` (~3000 per bin) | row = source row mod the bin's set size (below) |
+| 9 | lens n(z) | 3 modes per bin (FW Sec. III.6), u ~ N(0, 1) on [-3, 3] (Table 3) | each realization is projected with one draw from `desy6_lens_redshift.h5` (~3000 per bin) | row = source row mod the bin's set size (below) |
 
 ### Realization assignment (rows 7-9): accepted for v1
 
@@ -75,13 +76,13 @@ measured.
 
 | # | aspect | KP | ours |
 |---|---|---|---|
-| 10 | statistic and likelihood | w(θ), γ_t, ξ± in 2.5'-250'; Gaussian likelihood; analytic covariance (Gaussian, cNG and SSC terms; halofit, no IA) | nside-512 maps of κ and δ_g, compressed by a network, likelihood learned by a flow; no covariance |
+| 10 | statistic and likelihood | w(θ), γ_t, ξ± in 2.5'-250' (KP Sec. III); Gaussian likelihood; analytic covariance (Gaussian, cNG and SSC terms; halofit, no IA; FW Sec. IV.1) | nside-512 maps of κ and δ_g, compressed by a network, likelihood learned by a flow; no covariance |
 | 11 | matter field | HMCode2020 with log10 T_AGN = 7.7 fixed (FW Sec. III.1) | CosmoGridV1 N-body (PKDGRAV3), UFalcon Born projection |
 | 12 | baryons | not modeled; removed by the scale cuts (row 15) | baryonification, bary_Mc [12, 15] and bary_nu [-2, 2] sampled |
 | 13 | cosmology | Ωm [0.1, 0.6], A_s ×10⁹ [0.5, 5], h [0.58, 0.8], Ωb [0.03, 0.07], n_s [0.93, 1.00], w [-2, -1/3], Σm_ν [0.06, 0.6] eV sampled | CosmoGridV1: Om [0.1, 0.5], s8 [0.4, 1.4], H0 [64, 82], Ob [0.03, 0.06], ns [0.87, 1.07], w0 [-2, -0.333]; Σm_ν fixed at 0.06 eV |
 | 14 | fiducial cosmology | synthetic data (FW Table 3): Ωm 0.31, A_s 1.831 ×10⁻⁹ (σ8 0.76), h 0.69, Ωb 0.051, n_s 0.965, w -1, Σm_ν 0.077 eV | CosmoGridV1's: Om 0.26, s8 0.84, H0 67.36, Ob 0.0493, ns 0.9649, w0 -1 |
-| 15 | scale cuts | w(θ) ≥ 9 Mpc/h and γ_t ≥ 6 Mpc/h (linear bias); ξ± by Δχ² < 3.5 (NLA) or 5 (TATT), θ_min ≈ 3'; for 3x2pt Δ(Ωm, S8) < 0.5σ in ΛCDM, and 0.3σ plus Δ(Ωm, w) < 0.3σ in wCDM | l_min 30 in the tfrecords; the small scales are removed by smoothing downstream, not set yet for Y6 |
-| 16 | clustering theory | non-Limber w(θ) with RSD; point-mass marginalization in γ_t (FW Sec. III.3) | maps of projected particle counts, no RSD; no γ_t, so no point mass |
+| 15 | scale cuts | w(θ) ≥ 9 Mpc/h and γ_t ≥ 6 Mpc/h (linear bias); ξ± by Δχ² < 3.5 (NLA) or 5 (TATT), θ_min ≈ 3' (KP Sec. IV.3, FW Table 4). Validated for 3x2pt by Δ(Ωm, S8) < 0.5σ in ΛCDM; in wCDM, Δ(Ωm, S8) and Δ(Ωm, w) < 0.3σ for the baryon/P(k) contamination and < 0.5σ for galaxy bias (FW Sec. VI.2) | l_min 30 in the tfrecords; the small scales are removed by Gaussian smoothing downstream, 8 Mpc/h for lensing and 32 Mpc/h for clustering as in Y3 (y3-deep-lss, `configs/scales/desy6/8wl,32gc.yaml`) |
+| 16 | clustering theory | non-Limber w(θ) with RSD (FW Sec. II, KP Sec. IV.1); point-mass marginalization in γ_t (FW Sec. III.3) | maps of projected particle counts, no RSD; no γ_t, so no point mass |
 | 17 | footprint | the joint mask at its native resolution | nside-512 pixels with coverage ≥ 0.73, footprint 4055 vs 4031 deg²; partial coverage absorbed by n_gal |
 
 ## Where we model more than the KP

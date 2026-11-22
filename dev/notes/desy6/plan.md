@@ -85,7 +85,9 @@ The re-scan of all 50,000 files (2026-11-20, `claude/tmp/desy6_rescan/`) found:
    - Merge 5416079: 3:41, 1.4 GB peak, writing `cls/grid_cls.h5` (282 GB, 45 Cl pairs, 16 labels).
      In that file every cosmology has a single `i_sobol` (2500 distinct), `i_signal` 0-79 × 5,
      `i_noise` 0-4 × 80, and finite labels and binned Cls.
-4. **Validation** (section 3), then the Y3 regression once more.
+4. **Validation** (section 3), then the Y3 regression once more. It is due anyway: the review of
+   2026-11-22 changed shared code (`lensing.read_m_bias`, now also used by the mock path's
+   `shear_biasing`). Y3 never reaches the changed branches, but the rule above asks for the run.
 5. **Copy the tfrecords to the lp184 store**, since `/ritom` scratch is purged.
 
 Later, and not needed for the grid set:
@@ -120,20 +122,27 @@ tfrecords.
 
 **Open.**
 
-- **D3.** Bias parameter names. The config names them by survey bin (`bg1, bg3, bg4, bg5, bg6`,
-  matching the DES chains' `b1e_bin*`); the other option is by position (`bg1..bg5`). Settle this
-  in the downstream port, where the names have to be accepted (section 6).
 - **D8.** Mean shear. The KP subtracts the residual additive c from the data; v18 does not
   subtract it. Only the observation is affected, not the tfrecords. Not checked yet: whether Y6
   models PSF leakage or other additive terms that we would have to forward model.
 - **D11.** Uncertainty of the lens weights. The KP marginalizes the ENet - ISD difference in the
   w(θ) covariance; v1 has none. Raised by `differences_to_y6_kp.md`, not discussed yet.
+- **D12.** m in the mocks. `run_single_postprocessing` calls `forward_model_cosmogrid` without
+  `shear_biasing`, so its mocks have m = 0 (v18's convention). On Y6 such a mock carries a
+  realization's n(z) without that realization's m. Since 2026-11-22, `shear_biasing` takes the
+  file's `shearm`; whether Y6 mocks should turn it on is not decided. The tfrecords are unaffected.
+- **D13.** The bias fiducials `analysis.fiducial.bg*` are typed into the config, not written by
+  step `values`, unlike every other data-derived value. They reproduce exactly (power law bg 1.5,
+  n_bg 0.5, pivot 0.62 on the Y6 lens n(z)). Moving them into `values` would need the pivot as a
+  constant or key. Only the fiducial set and the mocks read them.
 
 **Settled.** The difference lists hold the details.
 
 - **D1** (2026-11-18): `configs/desy6/v1/default.yaml`, `pipelines/daint/desy6/v1/`.
 - **D2** (2026-11-20): bin labels Y3's, `metacal1-4` and `maglim1-6`, as the projection writes
   them. Revisit only if the production projection changes them.
+- **D3** (2026-11-21): bias names by survey bin, `bg1, bg3, bg4, bg5, bg6` (as the DES chains'
+  `b1e_bin*`). y3-deep-lss (its D5) and msi (its D3) take them as they are.
 - **D4** (2026-11-20): the IA pivot is the KP's, z0 = 0.3. Everything else stays v18's: δ-NLA, the
   boxes and the fiducials.
 - **D5** (2026-11-18): shape noise as v18, `count` with `survey_systematics: True`, using the
