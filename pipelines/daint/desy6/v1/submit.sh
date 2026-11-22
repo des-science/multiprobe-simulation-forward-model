@@ -1,18 +1,22 @@
 #!/bin/bash
-# Submits the DES Y6 v1 tfrecord production on daint: a packed array (one exclusive GH200 node per element, $SLOTS
-# cosmologies per node on its CPUs) and the merge after it (afterok). Port of
+# Submits the DES Y6 v1 tfrecord production and its validation on daint: a packed array (one exclusive GH200 node per
+# element, $SLOTS cosmologies per node on its CPUs) and the merge after it (afterok). Port of
 # ../../../perlmutter/desy3/v18/packed/submit.sh, with the same interface.
 #
 # Usage:
 #   DRY_RUN=1 ./submit.sh grid            # preflight + print the sbatch calls, submit nothing
 #   ./submit.sh grid                      # fresh run: submit every index
 #   ./submit.sh --rerun grid              # submit only the indices whose .tfrecord is missing or a stub
+#   ./submit.sh validate                  # dev/scripts/validation/grid_tfrecords.py on every .tfrecord, then its merge
+#   ./submit.sh --rerun validate          # only the indices without a scan
 #
 # Before any sbatch, a login-node preflight checks that every submitted index has all its projected files under
-# $DIR_IN and that every file the config names exists (files.metacal_bias needs step sc_bias first).
+# $DIR_IN and that every file the config names exists (files.metacal_bias needs step sc_bias first). For validate it
+# also checks that the index's .tfrecord exists.
 #
 # Overrides (environment):
 #   CONFIG DIR_IN DIR_OUT PACKED_LOGS JOB_NAME   paths and names, see the defaults below
+#   TFR_DIR GRID_CLS REPRODUCE_DIR               validate: the .tfrecords, the merged Cls and a --debug rerun of grid
 #   SLOTS OMP                                    tasks per node and cores per task. OMP must divide 72 (one Grace)
 #   NODE_TIME MERGE_TIME PARTITION               per-element wall clock, merge wall clock, partition (normal)
 #   ARRAY=<spec>                                 submit only these array elements, e.g. ARRAY=0 runs one node
@@ -62,6 +66,24 @@ chain_cfg() {
             OMP=${OMP:-12}
             NODE_TIME=${NODE_TIME:-01:30:00}
             MERGE_TIME=${MERGE_TIME:-06:00:00}
+            APP_ARGS="--n_files=$N_TOTAL --dir_out=$DIR_OUT --config=$CONFIG --dir_in=$DIR_IN --cosmogrid_version=1.1"
+            ;;
+        validate)
+            # reads one .tfrecord (6.7 GB) per task, so I/O-bound: many tasks with few cores each
+            APP=$REPO/dev/scripts/validation/grid_tfrecords.py
+            JOB_NAME=${JOB_NAME:-tfr_validate_desy6_v1}
+            DIR_OUT=${DIR_OUT:-$DATA_ROOT/validation}
+            TFR_DIR=${TFR_DIR:-$DATA_ROOT/tfrecords/grid}
+            GRID_CLS=${GRID_CLS:-$DATA_ROOT/cls/grid_cls.h5}
+            REPRODUCE_DIR=${REPRODUCE_DIR:-$DATA_ROOT/validation/reproduce/debug}
+            N_TOTAL=2500
+            SLOTS=${SLOTS:-72}
+            OMP=${OMP:-4}
+            NODE_TIME=${NODE_TIME:-01:00:00}
+            MERGE_TIME=${MERGE_TIME:-01:00:00}
+            APP_ARGS="--config=$CONFIG --dir_tfrecords=$TFR_DIR --dir_out=$DIR_OUT --dir_in=$DIR_IN --grid_cls=$GRID_CLS"
+            # the merge compares the rerun if it exists at submission
+            if [ -d "$REPRODUCE_DIR" ]; then APP_ARGS+=" --reproduce_dir=$REPRODUCE_DIR"; fi
             ;;
         fiducial)
             echo "fiducial: there is no Y6 fiducial projection yet" >&2
@@ -76,16 +98,17 @@ chain_cfg() {
 }
 
 preflight() {
-    local index_file=$1
+    local index_file=$1 chain=$2
     echo "[preflight] projected files under $DIR_IN and the config's files, on the login node"
-    uenv run --view=default "$UENV" -- "$PY" -I - "$REPO" "$CONFIG" "$DIR_IN" "$index_file" <<'EOF'
+    uenv run --view=default "$UENV" -- "$PY" -I - "$REPO" "$CONFIG" "$DIR_IN" "$index_file" "$chain" "${TFR_DIR:-}" \
+        <<'EOF'
 import os
 import sys
 
 import h5py
 import yaml
 
-repo, config, dir_in, index_file = sys.argv[1:]
+repo, config, dir_in, index_file, chain, tfr_dir = sys.argv[1:]
 with open(config) as f:
     conf = yaml.safe_load(f)
 problems = []
@@ -109,11 +132,34 @@ for index in indices:
 if missing:
     problems.append(f"{len(missing)} of {len(indices) * n_perms} projected files are missing, e.g. {missing[0]}")
 
+# validate reads the grid app's output, <survey>_grid_dm{b,o}_XXXX.tfrecord, and a short stub is a failed write
+if chain == "validate":
+    model = "dmb" if conf["analysis"]["modelling"]["baryonified"] else "dmo"
+    tfrecords = [os.path.join(tfr_dir, f"{conf['survey']['name']}_grid_{model}_{i:04d}.tfrecord") for i in indices]
+    bad = [t for t in tfrecords if not os.path.isfile(t) or os.path.getsize(t) < 2**20]
+    if bad:
+        problems.append(f"{len(bad)} of {len(indices)} .tfrecords are missing or stubs, e.g. {bad[0]}")
+
 print(f"[preflight] {len(indices)} indices x {n_perms} perms checked")
 for problem in problems:
     print(f"[preflight] {problem}", file=sys.stderr)
 sys.exit(1 if problems else 0)
 EOF
+}
+
+# indices whose output is complete: grid's .tfrecord (a task that dies mid-run can leave a short stub, real files are
+# GBs), validate's scan (written under a temporary name, then renamed)
+done_indices() {
+    case "$1" in
+        grid)
+            find "$DIR_OUT" -maxdepth 1 -name "*_${SIMSET}_dm?_*.tfrecord" -size +1M -printf '%f\n' 2>/dev/null \
+                | sed -E 's/.*_dm._0*([0-9]+)\.tfrecord$/\1/' | sort -n -u
+            ;;
+        validate)
+            find "$DIR_OUT/scan" -maxdepth 1 -name 'index_*.npz' -printf '%f\n' 2>/dev/null \
+                | sed -E 's/^index_0*([0-9]+)\.npz$/\1/' | sort -n -u
+            ;;
+    esac
 }
 
 submit_chain() {
@@ -122,11 +168,9 @@ submit_chain() {
     local index_file=$PACKED_LOGS/${JOB_NAME}_indices.txt
     mkdir -p "$PACKED_LOGS" "$DIR_OUT"
 
-    # the .tfrecord is the done marker; a task that dies mid-run can leave a short stub (real files are GBs)
     if [ -n "$rerun" ]; then
         local present
-        present=$(find "$DIR_OUT" -maxdepth 1 -name "*_${SIMSET}_dm?_*.tfrecord" -size +1M -printf '%f\n' 2>/dev/null \
-            | sed -E 's/.*_dm._0*([0-9]+)\.tfrecord$/\1/' | sort -n -u)
+        present=$(done_indices "$chain")
         seq 0 $((N_TOTAL - 1)) | grep -vxF -f <(echo "$present") > "$index_file" || true
     else
         seq 0 $((N_TOTAL - 1)) > "$index_file"
@@ -151,10 +195,10 @@ submit_chain() {
         done
         echo "[$chain] ARRAY override: elements $array_spec of 0-$((n_elements - 1))"
     fi
-    preflight "$check_file"
+    preflight "$check_file" "$chain"
 
     export SLOTS OMP APP JOB_NAME PACKED_LOGS DRIVER INDEX_FILE=$index_file FUNCTION=main
-    export APP_ARGS="--n_files=$N_TOTAL --dir_out=$DIR_OUT --config=$CONFIG --dir_in=$DIR_IN --cosmogrid_version=1.1 $EXTRA_ARGS"
+    export APP_ARGS="$APP_ARGS $EXTRA_ARGS"
     local packed_cmd=(sbatch --parsable --partition="$PARTITION" --array="$array_spec%$ARRAY_THROTTLE"
         --time="$NODE_TIME" --job-name="${JOB_NAME}_packed" --output="$PACKED_LOGS/%x_%A_%a.out" --export=ALL
         "$NODE_SCRIPT")
@@ -185,6 +229,6 @@ submit_chain() {
 RERUN=
 [ "${1:-}" = --rerun ] && { RERUN=1; shift; }
 case "${1:-}" in
-    grid|fiducial) submit_chain "$1" "$RERUN" ;;
-    *) echo "usage: [DRY_RUN=1] $0 [--rerun] grid" >&2; exit 1 ;;
+    grid|fiducial|validate) submit_chain "$1" "$RERUN" ;;
+    *) echo "usage: [DRY_RUN=1] $0 [--rerun] grid|validate" >&2; exit 1 ;;
 esac

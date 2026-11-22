@@ -1,6 +1,7 @@
 """Data vs mock: msfm's observation path on a survey's catalog maps, next to the forward model.
 
-Three checks, for any survey config. Run it on DES Y3 (v18) too, as the reference for the numbers:
+Five checks, the last two optional, for any survey config. Run it on DES Y3 (v18) too, as the reference for the
+numbers:
 
 1. observation: observation.forward_model_observation_map on the cached catalog maps, in the four variants that
    deep_lss.utils.evaluation.evaluate_obs_des evaluates (psi rotation on/off x lens weights on/off) and with its
@@ -13,11 +14,16 @@ Three checks, for any survey config. Run it on DES Y3 (v18) too, as the referenc
 3. data vs mock: the observation next to the maps of a grid .tfrecord (signal plus noise, all records and noise
    realizations), per bin: the footprint std and the Cl in three ell bands. If the mock's cosmology differs from the
    data's, only the noise-dominated high-ell band is expected near 1.
+4. grid noise (--scan, the scan.h5 of grid_tfrecords.py in this folder): the lensing noise variance of every
+   grid record over the in_place noise variance of check 2, per bin. It tests the noise of the source counts the grid
+   drew, not of the observed ones.
+5. grid coverage (--grid_cls, the merged grid_cls.h5): the percentile of the observed binned Cls among all binned grid
+   Cls, per Cl pair and ell bin. A percentile at 0 or 1 means the training set does not reach the observation.
 
-Writes obs.npz (the four observed data vectors and Cls), summary.npz and cls.png to --out. CPU, tf_env
-(make_shape_noise_map uses tensorflow_probability), on a compute node:
-    python dev/scripts/observation/data_vs_mock.py --config configs/desy6/v1/default.yaml \
-        --tfrecord <grid .tfrecord> --out <dir>
+Writes obs.npz (the four observed data vectors and Cls), summary.npz, cls.png and with --grid_cls coverage.png to
+--out. CPU, tf_env (make_shape_noise_map uses tensorflow_probability), on a compute node:
+    python dev/scripts/validation/data_vs_mock.py --config configs/desy6/v1/default.yaml \
+        --tfrecord <grid .tfrecord> --out <dir> [--scan <scan.h5>] [--grid_cls <grid_cls.h5>]
 """
 
 import argparse
@@ -25,6 +31,7 @@ import os
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
+import h5py  # noqa: E402
 import matplotlib  # noqa: E402
 
 matplotlib.use("Agg")
@@ -36,6 +43,8 @@ from msfm.utils import catalog, files, observation  # noqa: E402
 N_NOISE = 3
 ELL_BANDS = ((30, 200), (200, 1000), (1000, None))
 HIGH_ELL = 1000
+# percentiles of the observation among the grid Cls that count as outside the grid
+COVERAGE_EDGE = 0.001
 
 
 def auto_index(i, n):
@@ -151,11 +160,72 @@ def plot(path, labels, data_cl, mock_cl, noise_cl, n):
     fig.savefig(path, dpi=120)
 
 
+def grid_noise(scan_path, var_in_place, labels, n_wl):
+    """The lensing noise variance of every grid record over the observation's in_place noise variance, per bin."""
+    with h5py.File(scan_path, "r") as f:
+        grid = f["noise_var"][:, :, :n_wl].reshape(-1, n_wl)
+    ratio = grid[np.all(np.isfinite(grid), axis=1)] / var_in_place
+    quantiles = np.percentile(ratio, [2.5, 50, 97.5], axis=0)
+
+    print(f"\n[data_vs_mock] grid noise / in_place noise at the observed counts ({len(ratio)} grid records)")
+    print(f"{'bin':>10s} {'median':>8s} {'2.5%':>8s} {'97.5%':>8s}")
+    for j in range(n_wl):
+        print(f"{labels[j]:>10s} {quantiles[1, j]:8.4f} {quantiles[0, j]:8.4f} {quantiles[2, j]:8.4f}")
+    return quantiles
+
+
+def pair_labels(labels):
+    """Cl pair names in the ordering of power_spectra.get_cls."""
+    return [f"{a} x {b}" for i, a in enumerate(labels) for b in labels[i:]]
+
+
+def grid_coverage(conf, grid_cls_path, data_cl, labels):
+    """Percentile of the observed binned Cls among all binned grid Cls, per ell bin and Cl pair."""
+    from msfm.utils import power_spectra
+
+    data_binned, bin_edges = power_spectra.bin_according_to_config(data_cl[np.newaxis], conf)
+    data_binned = data_binned[0]
+    below, total = np.zeros(data_binned.shape), 0
+    with h5py.File(grid_cls_path, "r") as f:
+        binned = f["cls/binned"]
+        assert binned.shape[2:] == data_binned.shape, f"grid {binned.shape}, observation {data_binned.shape}"
+        # one cosmology at a time, the whole set is several GB
+        for k in range(binned.shape[0]):
+            row = binned[k]
+            below += np.sum(row < data_binned, axis=0)
+            total += len(row)
+    percentile = below / total
+
+    pairs = pair_labels(labels)
+    outside = (percentile < COVERAGE_EDGE) | (percentile > 1 - COVERAGE_EDGE)
+    print(
+        f"\n[data_vs_mock] observation among {total} grid Cls: percentile per pair over the {len(percentile)} ell bins"
+    )
+    print(f"{'pair':>22s} {'min':>7s} {'median':>7s} {'max':>7s} {'outside':>8s}")
+    for p, pair in enumerate(pairs):
+        q = percentile[:, p]
+        print(f"{pair:>22s} {q.min():7.4f} {np.median(q):7.4f} {q.max():7.4f} {outside[:, p].sum():8d}")
+    print(f"({outside.sum()} of {outside.size} beyond {COVERAGE_EDGE:g} of either end)")
+    return percentile, np.squeeze(bin_edges), pairs
+
+
+def plot_coverage(path, percentile, pairs):
+    fig, ax = plt.subplots(figsize=(8, 0.18 * len(pairs) + 1.5))
+    image = ax.imshow(percentile.T, aspect="auto", cmap="RdBu_r", vmin=0, vmax=1, interpolation="nearest")
+    ax.set_yticks(range(len(pairs)), pairs, fontsize=6)
+    ax.set_xlabel("ell bin")
+    fig.colorbar(image, ax=ax, label="percentile of the observation among the grid Cls")
+    fig.tight_layout()
+    fig.savefig(path, dpi=120)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", required=True)
     p.add_argument("--tfrecord", required=True, help="a grid .tfrecord of the same config")
     p.add_argument("--out", required=True)
+    p.add_argument("--scan", help="scan.h5 of dev/scripts/validation/grid_tfrecords.py, for check 4")
+    p.add_argument("--grid_cls", help="the merged grid_cls.h5 of the same config, for check 5")
     args = p.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
@@ -205,8 +275,20 @@ def main():
         print(f"{labels[j]:>10s} {std_ratio[j]:8.4f}" + "".join(f"{r:14.4f}" for r in band_ratio[j]))
     print(f"(mock scatter of the std, relative: {np.array2string(mock_std.std(0) / mock_std.mean(0), precision=4)})")
 
+    extra = {}
+    # 4. grid noise
+    if args.scan:
+        extra["grid_noise_over_in_place_q"] = grid_noise(args.scan, var["in_place"].mean(0), labels, n_wl)
+
+    # 5. grid coverage
+    if args.grid_cls:
+        percentile, bin_edges, pairs = grid_coverage(conf, args.grid_cls, data_cl, labels)
+        extra.update(coverage_percentile=percentile, coverage_bin_edges=bin_edges, coverage_pairs=pairs)
+        plot_coverage(os.path.join(args.out, "coverage.png"), percentile, pairs)
+
     np.savez(
         os.path.join(args.out, "summary.npz"),
+        **extra,
         labels=labels,
         ell_bands=np.array([(lo, hi or data_cl.shape[0]) for lo, hi in ELL_BANDS]),
         var_count_over_in_place=var_ratio,

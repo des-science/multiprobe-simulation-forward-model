@@ -275,7 +275,7 @@ with a combined S/N of at most 2.1 in size.
 The lens weight maps pass too (2026-11-20). The raw counts follow F = 1/w with slope 0.91 to 1.37
 (jackknife errors 0.08 to 0.33), and the counts corrected by w are flat within 1.3σ in every bin.
 
-`dev/scripts/observation/data_vs_mock.py` runs the observation path
+`dev/scripts/validation/data_vs_mock.py` runs the observation path
 (`observation.forward_model_observation_map` on the cached maps, the four variants y3-deep-lss
 evaluates) and compares the result with the forward model. The same run on Y3 (v18) is the
 reference. Results (2026-11-20):

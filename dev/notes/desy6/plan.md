@@ -112,7 +112,7 @@ No decision is open (section 4).
   next to the target.
 - **Signal** (optional). Mean κ power of a grid cosmology against theory with its n(z), using
   `dev/scripts/wl_audit`.
-- **Data vs mock.** `dev/scripts/observation/data_vs_mock.py`. On 2026-11-20 the observation path ran
+- **Data vs mock.** `dev/scripts/validation/data_vs_mock.py`. On 2026-11-20 the observation path ran
   on Y6 with every check passing, but the comparison was only indicative (README, Review). Rerun it on
   a production mock with the fitted bias table. The same run found the `count` shape noise 1-2% below
   the in-place noise in Y6 source bins 1-2 (Y3: about 1%). Whether that matters is not decided.

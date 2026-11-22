@@ -71,3 +71,32 @@ elements of 41:49–45:06 each, 77.2 node-hours in total. The merge (job 5416079
 node. Including the merge, the grid cost ≈ 81 node-hours and took about 8 h of wall time.
 `.tfrecord` sizes come in three values, 80 bytes apart. That is one byte per record per step, most
 likely a varint-encoded index growing with the cosmology.
+
+## Validation
+
+The checks live in `dev/scripts/validation/`, and each script's docstring lists what it tests:
+
+- `grid_tfrecords.py` checks the `.tfrecords` against the config, the metainfo, the projection and
+  `grid_cls.h5`, file by file and across files. It runs through the same executor as the grid.
+- `data_vs_mock.py` compares the observation with the forward model: one mock, the grid's noise and
+  the grid's Cl range.
+
+Run them in this order, outputs under `/ritom/.../desy6/v1/default/validation`:
+
+```bash
+cd pipelines/daint/desy6/v1
+# 1. reproduction: indices 0-23 rerun with --debug at HEAD, records 0-4 each (perms 0 and 1).
+#    JOB_NAME keeps its logs and index file apart from the production ones
+JOB_NAME=tfr_reproduce_desy6_v1 DIR_OUT=/ritom/scratch/cscs/athomsen/desy6/v1/default/validation/reproduce \
+    EXTRA_ARGS=--debug PARTITION=debug NODE_TIME=00:30:00 ARRAY=0 SKIP_MERGE=1 ./submit.sh grid
+# 2. the scan: one node first (72 files), to measure the I/O rate, then the rest and the merge.
+#    The merge compares the rerun of step 1 if validation/reproduce/debug exists at submission
+ARRAY=0 SKIP_MERGE=1 ./submit.sh validate
+./submit.sh --rerun validate
+# 3. the observation against one mock and the whole grid, on a compute node
+python dev/scripts/validation/data_vs_mock.py --config configs/desy6/v1/default.yaml \
+    --tfrecord <a grid .tfrecord> --out <validation>/data_vs_mock \
+    --scan <validation>/scan.h5 --grid_cls <...>/cls/grid_cls.h5
+```
+
+The merge writes `report.txt` and exits non-zero on any FAIL, which marks the merge job as failed.
