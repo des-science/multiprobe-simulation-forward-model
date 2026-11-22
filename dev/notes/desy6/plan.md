@@ -78,8 +78,13 @@ The re-scan of all 50,000 files (2026-11-20, `claude/tmp/desy6_rescan/`) found:
 
    Every output came out byte-identical to the one already in place, the bias table included, and
    `values --check` passes. `data/desy6/provenance.yaml` holds the seven records.
-3. **Production grid tfrecords**, after 1 and 2. Run `DRY_RUN=1 ./submit.sh grid`, then
-   `./submit.sh grid`, as in the v1 README. It runs on `normal`.
+3. **Production grid tfrecords.** Done 2026-11-21.
+   - Array 5416078: all 105 elements completed, 41:49–45:06 each, 77.2 node-hours in total. All 2500
+     indices finished, with no failure and no error in any log.
+   - The output is 2500 files, 16 TB, under `/ritom/scratch/cscs/athomsen/desy6/v1/default/tfrecords/grid`.
+   - Merge 5416079: 3:41, 1.4 GB peak, writing `cls/grid_cls.h5` (282 GB, 45 Cl pairs, 16 labels).
+     In that file every cosmology has a single `i_sobol` (2500 distinct), `i_signal` 0-79 × 5,
+     `i_noise` 0-4 × 80, and finite labels and binned Cls.
 4. **Validation** (section 3), then the Y3 regression once more.
 5. **Copy the tfrecords to the lp184 store**, since `/ritom` scratch is purged.
 

@@ -66,3 +66,9 @@ does not change the cost):
   keeps up), then the merge.
 - **Wall-clock caps:** `NODE_TIME` defaults to 01:30:00, twice the measured node time. `MERGE_TIME`
   defaults to 06:00:00.
+
+**The production run (2026-11-21) confirmed the benchmark.** The array (job 5416078) had 105
+elements of 41:49–45:06 each, 77.2 node-hours in total. The merge (job 5416079) took 3:41 on one
+node. Including the merge, the grid cost ≈ 81 node-hours and took about 8 h of wall time.
+`.tfrecord` sizes come in three values, 80 bytes apart. That is one byte per record per step, most
+likely a varint-encoded index growing with the cosmology.
