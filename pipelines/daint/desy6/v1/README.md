@@ -109,6 +109,11 @@ of both probes, while the two source-clustering arms differ in lensing only: the
 channels are identical, since the noise seeds are shared and the shape-noise model touches only the
 sources.
 
+The six files are copied to the lp184 store, since `/ritom` is purged:
+`/capstor/store/cscs/userlab/lp184/athomsen/deep_lss/data/desy6/v1/default/obs` (2026-11-22,
+byte-identical, group `lp184`). y3-deep-lss reads mocks from `$OBS_INPUT/obs/`, so a Y6 evaluation sets
+`OBS_INPUT` to the directory above `obs/`.
+
 The debug QOS takes two submitted jobs per user and runs one, so a mock there needs both slots free;
 several mocks go to `normal`.
 
