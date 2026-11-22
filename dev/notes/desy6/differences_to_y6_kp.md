@@ -37,7 +37,7 @@ work in `plan.md`.
 | 3 | IA and bias fiducials | synthetic data (FW Table 3): A1 0.13, η1 = η2 = 2.0, A2 -0.2, b_TA 1; b1 = 1.54, 1.85, 1.76, 1.93, 1.90 (bins 1, 3-6) | Aia 0.5, n_Aia 1.5, bta 0; bg = 1.35, 1.50, 1.57, 1.63, 1.67 (power law bg 1.5, n_bg 0.5, z0 0.62) | user decision 2026-11-20 (v18's). Only the fiducial set and the mocks use them |
 | 4 | lens magnification | α per lens bin, Gaussian priors centered 1.58, 1.38, 2.04, 2.21, 2.45, 2.42 (bins 1-6) | not modeled (as v18) | user decision 2026-11-20. Adopting it later needs `kg` maps of the lens bins, so a re-projection |
 | 5 | uncertainty of the lens weights | the w(θ) covariance marginalizes analytically over the two weight methods, ENet and ISD (KP Sec. II.3) | the ENet weights correct the observation; no uncertainty | open (plan D11) |
-| 6 | mean shear | residual additive c, the weighted mean shear, subtracted from the data (KP Sec. II.2) | logged, not subtracted (as v18) | open (plan D8). Observation only, not in the tfrecords |
+| 6 | mean shear | residual additive c, the weighted mean shear, subtracted from the data (KP Sec. II.2): per bin (1.6, 0.62), (0.45, −0.58), (2.4, −1.7), (3.1, 1.1) ×10⁻⁴ (KP Table 2). No PSF leakage or other additive term is modeled | logged, not subtracted (as v18). Step `maps` reproduces Table 2 as the weighted ⟨e⟩/R | open (plan D8). Observation only, not in the tfrecords |
 
 ## Different methods for the same uncertainty
 

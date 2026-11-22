@@ -123,8 +123,15 @@ tfrecords.
 **Open.**
 
 - **D8.** Mean shear. The KP subtracts the residual additive c from the data; v18 does not
-  subtract it. Only the observation is affected, not the tfrecords. Not checked yet: whether Y6
-  models PSF leakage or other additive terms that we would have to forward model.
+  subtract it. Only the observation is affected, not the tfrecords. Checked 2026-11-22:
+  - c is the weighted ⟨e⟩/R per bin and component (KP Table 2, ×10⁻⁴): (1.6, 0.62), (0.45, −0.58),
+    (2.4, −1.7), (3.1, 1.1). The `maps` log reproduces these to the printed digit. That is about half
+    of Y3's γ1 (4-6 ×10⁻⁴) and 0.6-1% of the Y6 per-pixel noise rms (Y3: ~1.5%).
+  - Neither paper models PSF leakage or any additive term in ξ±. The only additive treatment is
+    the subtraction itself, with no uncertainty propagated (KP Sec. II.2, Eqs. 5-7; FW Eq. 3).
+    So there is nothing extra to forward model.
+  - Y3 measured ≤ 0.05σ on every parameter for not subtracting. The same paired-seed test
+    (`claude/tmp/meansub_des/`) can run once a Y6 lensing network exists.
 - **D11.** Uncertainty of the lens weights. The KP's w(θ) covariance marginalizes analytically over
   the two weight methods, ENet and ISD; v1 has none. Raised by `differences_to_y6_kp.md`, not discussed yet.
 
