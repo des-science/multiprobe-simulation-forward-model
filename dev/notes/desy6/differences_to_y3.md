@@ -75,8 +75,8 @@ arXiv:2511.04681. Y6 side: `configs/desy6/v1/default.yaml`, `data/desy6/README.m
   has the fiducial cosmology, the fiducial set's resolution and the config's fiducial n(z): the
   bias-table key `fiducial` (row 12) and y3-deep-lss's noise level.
 - The mock observations. The four benchmarks are projected (`fiducial_bench`, `box_size`,
-  `particle_count`, `redshift_resolution`; 20 permutations each), and six mocks are defined from them,
-  but none is run yet. Y3's dark-matter-only, Gatti, IA-shell and Buzzard mocks have no Y6 input.
+  `particle_count`, `redshift_resolution`; 20 permutations each), and six mocks are made from them
+  (2026-11-22). Y3's dark-matter-only, Gatti, IA-shell and Buzzard mocks have no Y6 input.
 
 The grid tfrecords exist since 2026-11-21: 2500 files from this config (`pipelines/daint/desy6/v1/`).
 

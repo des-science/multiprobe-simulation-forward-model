@@ -93,9 +93,10 @@ The re-scan of all 50,000 files (2026-11-20, `claude/tmp/desy6_rescan/`) found:
 
 Later, and not needed for the grid set:
 
-- the mock observations from the four benchmark projections: `fiducial_bench` done (2026-11-22, 3:42
-  on one node, checks passed; the Y3 regression after the shared-code change, job 5424920, stayed
-  identical, 115 of 115), the other five not run yet. All six
+- the mock observations from the four benchmark projections: all six done 2026-11-22 (one node each,
+  under 4 min, checks passed, `/ritom/.../desy6/v1/default/obs/`; the Y3 regression after the
+  shared-code change, job 5424920, stayed identical, 115 of 115). They still need the copy to the
+  lp184 store with the tfrecords. All six
   are defined in `configs/desy6/v1/mock_observations.yaml` (format in `msfm/utils/mocks.py`) and
   submitted with `pipelines/daint/desy6/v1/submit.sh obs <label>|all`;
 - the downstream port (section 6).

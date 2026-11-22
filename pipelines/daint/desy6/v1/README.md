@@ -100,11 +100,17 @@ The six v1 mocks are `fiducial_bench`, `box_size`, `particle_count`, `redshift_r
 source-clustering arms `fiducial_bench_source_clustering_in_place` and `..._no_sys`. Y3's
 dark-matter-only, Gatti, IA-shell and Buzzard mocks have no Y6 input.
 
-Measured on `fiducial_bench` (2026-11-22, jobs 5424945 and 5424963 on `debug`): the array took 3:42
-on one node and the merge 26 s; the file is 1.3 GB, 80 examples (20 permutations × 4 patches) of 9
-channels. Every value is finite, no example is empty or a duplicate, and the stored config equals the
-registry's. The debug QOS takes two submitted jobs per user and runs one, so a mock there needs both
-slots free; several mocks go to `normal`.
+All six ran on 2026-11-22 (`fiducial_bench`: jobs 5424945/5424963 on `debug`; the other five: arrays
+5425225-5425233 on `normal`). Each array took 3:33-3:43 on one node and each merge about 25 s; every
+file is 1.3 GB, 80 examples (20 permutations × 4 patches) of 9 channels on the 309,226 footprint
+pixels. Every value is finite, no example is empty or a duplicate, and each stored config equals the
+registry's. Against `fiducial_bench`, the three simulation benchmarks differ in every footprint pixel
+of both probes, while the two source-clustering arms differ in lensing only: their clustering
+channels are identical, since the noise seeds are shared and the shape-noise model touches only the
+sources.
+
+The debug QOS takes two submitted jobs per user and runs one, so a mock there needs both slots free;
+several mocks go to `normal`.
 
 ## Validation
 
