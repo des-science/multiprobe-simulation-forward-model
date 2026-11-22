@@ -29,6 +29,7 @@
 #   ARRAY_THROTTLE=<n>                           at most n elements at once (default 25), staggers the noise-file loads
 #   EXTRA_ARGS                                   appended to the app's arguments, e.g. --debug
 #   SKIP_MERGE=1                                 do not submit the merge
+#   MERGE_AFTER=<jobid>                          submit only the merge, after that array (e.g. when sbatch refused it)
 #   DRY_RUN=1                                    preflight and print, submit nothing
 
 set -euo pipefail
@@ -54,6 +55,7 @@ EXTRA_ARGS=${EXTRA_ARGS:-}
 DRY_RUN=${DRY_RUN:-}
 ARRAY_OVERRIDE=${ARRAY:-}
 SKIP_MERGE=${SKIP_MERGE:-}
+MERGE_AFTER=${MERGE_AFTER:-}
 
 # preflight environment: h5py and yaml, no msfm import
 UENV=pytorch/v2.9.1:v2
@@ -198,7 +200,10 @@ submit_obs() {
     local selection=$1 rerun=$2
     local all labels label
     all=$(mocks_cli labels "$MOCKS") || { echo "obs: cannot read the mocks of $MOCKS" >&2; return 1; }
-    if [ "$selection" = all ]; then
+    if [ "$selection" = all ] && [ -n "$MERGE_AFTER" ]; then
+        echo "obs: MERGE_AFTER names one array, so it takes one mock, not all" >&2
+        return 1
+    elif [ "$selection" = all ]; then
         labels=$all
     elif [ -n "$selection" ] && grep -qxF -- "$selection" <<< "$all"; then
         labels=$selection
@@ -223,6 +228,14 @@ submit_chain() {
     chain_cfg "$chain"
     local index_file=$PACKED_LOGS/${JOB_NAME}_indices.txt
     mkdir -p "$PACKED_LOGS" "$DIR_OUT"
+
+    if [ -n "$MERGE_AFTER" ]; then
+        # only the merge; the index file stays as the running array reads it
+        export SLOTS OMP APP JOB_NAME PACKED_LOGS DRIVER INDEX_FILE=$index_file FUNCTION=main
+        export APP_ARGS="$APP_ARGS $EXTRA_ARGS"
+        submit_merge "$chain" "$tag" "$MERGE_AFTER"
+        return
+    fi
 
     if [ -n "$rerun" ]; then
         local present
@@ -268,9 +281,13 @@ submit_chain() {
         packed_id=$("${packed_cmd[@]}")
     fi
     echo "[$tag] packed array: $packed_id"
+    submit_merge "$chain" "$tag" "$packed_id"
+}
 
-    # merge: the whole node, one process, only after every element succeeded. The single-cosmology merge places each
-    # permutation by its index, so it gets all of them instead of the default 0
+# merge: the whole node, one process, only after every element of the array succeeded. The single-cosmology merge
+# places each permutation by its index, so it gets all of them instead of the default 0
+submit_merge() {
+    local chain=$1 tag=$2 packed_id=$3
     if [ "$chain" = obs ]; then
         export TASKS
         TASKS=$(seq -s, 0 $((N_TOTAL - 1)))
@@ -278,13 +295,16 @@ submit_chain() {
     local merge_cmd=(sbatch --parsable --partition="$PARTITION" --dependency="afterok:$packed_id" --time="$MERGE_TIME"
         --job-name="${JOB_NAME}_merge" --output="$PACKED_LOGS/%x_%j.out"
         --export="ALL,FUNCTION=merge,SLOTS=1,OMP=$NODE_CPUS" "$NODE_SCRIPT")
+    local merge_id
     if [ -n "$SKIP_MERGE" ]; then
-        echo "[$tag] SKIP_MERGE set; once every element is done, run with the same environment:"
-        echo "  ${merge_cmd[*]}"
+        echo "[$tag] SKIP_MERGE set; submit the merge later with MERGE_AFTER=$packed_id and the same arguments"
     elif [ -n "$DRY_RUN" ]; then
         echo "DRY RUN + ${merge_cmd[*]}"
+    elif ! merge_id=$("${merge_cmd[@]}"); then
+        echo "[$tag] the merge was NOT submitted; once sbatch accepts it, rerun with MERGE_AFTER=$packed_id" >&2
+        return 1
     else
-        echo "[$tag] merge job: $("${merge_cmd[@]}") (afterok:$packed_id)"
+        echo "[$tag] merge job: $merge_id (afterok:$packed_id)"
     fi
 }
 
