@@ -95,8 +95,8 @@ chain_cfg() {
             if [ -d "$REPRODUCE_DIR" ]; then APP_ARGS+=" --reproduce_dir=$REPRODUCE_DIR"; fi
             ;;
         obs)
-            # one mock of $MOCKS: its permutations are the indices, and the merge writes <label>_obs_maps.h5. A few
-            # minutes per permutation, so one node and NODE_TIME with a margin
+            # one mock of $MOCKS: its permutations are the indices, and the merge writes <label>_obs_maps.h5. One node;
+            # fiducial_bench took 3:42 and its merge 26 s (README.md), so both wall clocks have a wide margin
             APP=$REPO/msfm/apps/run_single_postprocessing.py
             JOB_NAME=obs_desy6_v1_$LABEL
             DIR_OUT=${DIR_OUT:-$DATA_ROOT/obs}
