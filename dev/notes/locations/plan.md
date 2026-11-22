@@ -70,10 +70,11 @@ runs: /ritom/scratch/cscs/athomsen/deep_lss/runs/desy6/v1
 runs_archive: /capstor/store/cscs/userlab/lp184/athomsen/deep_lss/runs/desy6/v1
 ```
 
-Y3 (`configs/desy3/v18/locations.yaml`), today's resolved paths, with the runs on the store (D1):
+Y3 (`configs/desy3/v18/locations.yaml`), today's resolved paths, with the runs on the store (D1) and the
+data on `/ritom` (D4):
 
 ```yaml
-data: /iopsstor/scratch/cscs/athomsen/deep_lss/data/v18
+data: /ritom/scratch/cscs/athomsen/v18
 obs: /capstor/store/cscs/swissai/a0158/athomsen/deep_lss/data/v18
 runs: /capstor/store/cscs/swissai/a0158/athomsen/deep_lss/runs/v18
 ```
@@ -133,6 +134,9 @@ All by the user, 2026-11-22.
   rewrites a run's chains by design.)
 - **D2. Y6 runs go to `/ritom` scratch** (`deep_lss/runs/desy6/v1`), next to the Y6 data. It is purged,
   so finished runs are copied to `runs_archive` on the lp184 store.
+- **D4. The Y3 data are on `/ritom`** (`/ritom/scratch/cscs/athomsen/v18/default`: tfrecords, Cls,
+  mocks, 14 TB). The old default, `/iopsstor/.../deep_lss/data/v18/default`, was found purged to empty
+  directories during step 3, so copying it would have pointed Y3 at nothing.
 - **D3. Y3 Cls mocks come from the shared `obs_dir`**, the store. Today a Y3 Cls evaluation reads
   `$INPUT/obs` on scratch, which holds none; only future Y3 Cls evaluations change.
 

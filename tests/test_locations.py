@@ -28,9 +28,9 @@ def test_desy6_resolves_the_production_paths():
     assert resolved["projection"].endswith("/processed/desy6/CosmoGrid/bary")
 
 
-def test_desy3_resolves_todays_paths():
+def test_desy3_resolves_the_v18_paths():
     resolved = locations.load(DESY3)
-    assert resolved["data_dir"] == "/iopsstor/scratch/cscs/athomsen/deep_lss/data/v18/default"
+    assert resolved["data_dir"] == "/ritom/scratch/cscs/athomsen/v18/default"
     assert resolved["obs_dir"] == "/capstor/store/cscs/swissai/a0158/athomsen/deep_lss/data/v18/default/obs"
     assert resolved["runs_dir"] == "/capstor/store/cscs/swissai/a0158/athomsen/deep_lss/runs/v18/default"
     assert "projection" not in resolved
