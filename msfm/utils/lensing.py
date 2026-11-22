@@ -95,6 +95,26 @@ def check_projection(conf, full_maps_file):
     )
 
 
+def read_m_bias(conf, full_maps_file):
+    """The multiplicative shear bias of the configured source bins, the attr shearm of the projection's nz/<bin>.
+    Each value must lie within 5 sigma of the config's prior, which catches a wrong attribute or a stored 1 + m.
+
+    Args:
+        conf (dict): The config.
+        full_maps_file (str): Path to a projected_probes_maps file.
+
+    Returns:
+        np.ndarray: (n_z_bins,) float32
+    """
+    multiplicative = conf["survey"]["metacal"]["shear_bias"]["multiplicative"]
+    with h5py.File(full_maps_file, "r") as f:
+        m = np.array([f["nz"][z_bin].attrs["shearm"] for z_bin in conf["survey"]["metacal"]["z_bins"]])
+
+    mu, sigma = np.array(multiplicative["mu"]), np.array(multiplicative["sigma"])
+    assert np.all(np.abs(m - mu) < 5 * sigma), f"{full_maps_file}: shearm {m} is not within 5 sigma of {mu} +- {sigma}"
+    return m.astype(np.float32)
+
+
 def mode_removal(
     gamma1_patch,
     gamma2_patch,

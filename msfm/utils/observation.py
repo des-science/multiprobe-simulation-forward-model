@@ -324,8 +324,11 @@ def forward_model_cosmogrid(
                 LOGGER.info("Using standard NLA")
 
             if shear_biasing:
-                m_bias_dist = lensing.get_m_bias_distribution(conf)
-                m_bias = m_bias_dist.sample()
+                # the realization's own m, as on the grid, or one draw from the prior
+                if lensing.m_bias_from_projection(conf):
+                    m_bias = lensing.read_m_bias(conf, map_file)
+                else:
+                    m_bias = lensing.get_m_bias_distribution(conf).sample()
                 wl_kappa_map *= 1.0 + m_bias
 
             if noisy:

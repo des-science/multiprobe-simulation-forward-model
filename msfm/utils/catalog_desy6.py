@@ -188,7 +188,8 @@ def build_metacal_maps(conf, sign_e1=1, sign_e2=-1, apply_shear_rotation=True, m
     """
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
-    area_arcmin = conf["survey"]["Aeff"] * 60**2
+    # DES's area, not survey.Aeff, which step values writes after this step
+    area_arcmin = AREA_DES * 60**2
 
     gamma = np.zeros((n_pix, N_SOURCE_BINS, 2))
     count = np.zeros((n_pix, N_SOURCE_BINS), dtype=np.int32)
@@ -285,7 +286,8 @@ def build_maglim_maps(conf, max_objects=None):
     """
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
-    area_arcmin = conf["survey"]["Aeff"] * 60**2
+    # DES's area, as in build_metacal_maps
+    area_arcmin = AREA_DES * 60**2
 
     count = np.zeros((n_pix, N_LENS_BINS), dtype=np.int32)
     stats = {key: np.zeros(N_LENS_BINS) for key in ("n", "n_eff")}

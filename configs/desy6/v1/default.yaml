@@ -67,7 +67,7 @@ analysis:
     ia:
       nla: [Aia, n_Aia]
       tatt: [bta]
-    # named by survey bin. OPEN: whether downstream accepts these names
+    # one per lens bin, named by its survey bin (maglim3 -> bg3)
     bg:
       linear: [bg1, bg3, bg4, bg5, bg6]
       quadratic: [bg1_q, bg3_q, bg4_q, bg5_q, bg6_q]
@@ -182,7 +182,7 @@ analysis:
     Aia: 0.5
     n_Aia: 1.5
     bta: 0.0
-    # galaxy clustering, the power law bg = 1.5, n_bg = 0.5 on the Y6 lens n(z)
+    # galaxy clustering, the power law bg = 1.5, n_bg = 0.5 with v18's pivot z0 = 0.62, on the Y6 lens n(z)
     bg1: 1.3460011
     bg3: 1.5010278
     bg4: 1.5707155

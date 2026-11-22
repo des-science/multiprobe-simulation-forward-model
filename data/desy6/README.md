@@ -80,8 +80,9 @@ through `survey.maglim.z_bins`, since the KP drops bin 2.
 - **From** the fiducial n(z) in the 3x2pt FITS (HDUs `nz_source`, `nz_lens`). In Y3 the n(z) came
   from outside the repository.
 - **Result:** mean z 0.41, 0.54, 0.85, 1.16 for the sources, 0.31 to 1.01 for the lenses.
-- The grid starts at z = 0 (Y3: 0.005). The token stays `metacal` because it echoes the config key,
-  although the Y6 sources are metadetection.
+- The grid starts at z = 0 (Y3: 0.005). In msfm the n(z) only weight the per-bin IA amplitudes and
+  bias fiducials, and n(z) is 0 at z = 0 in every bin, so the first point adds nothing. The token
+  stays `metacal` because it echoes the config key, although the Y6 sources are metadetection.
 
 ### `pixels`: footprint, patches and lens weight maps
 
@@ -165,7 +166,8 @@ pixels it contains.
 - **From** metadetection (the unsheared catalog, and the four sheared ones for R) and MagLim. No
   cuts: the release is already the fiducial selection. Y3: `build_des.ipynb`.
 - **Checks:** per source bin N, R, n_eff and σ_e, and per lens bin N and n_eff, equal what DES's
-  `3x2pt_pipeline_public.ipynb` prints for the same catalogs, to its last digit. The MagLim weights
+  `3x2pt_pipeline_public.ipynb` prints for the same catalogs, to its last digit. n_eff takes DES's
+  mask area, so this step does not depend on `Aeff`, which `values` writes later. The MagLim weights
   average 1. This tests how the catalogs are read, not the pixel positions or the shear signs (see
   Review). The mean shear is logged, not subtracted, as in Y3.
 - **Result:** R = 0.856143, 0.868506, 0.819427, 0.691769, σ_e = 0.27, 0.29, 0.28, 0.35, and a mean e
@@ -300,8 +302,3 @@ reference. Results (2026-11-20):
 
   The clean comparison needs a grid mock with the fitted bias table; a fiducial mock also needs a
   fiducial projection.
-
-## Open
-
-- The n(z) grid starting at z = 0 needs a check once the n(z) loader reads Y6 bin labels. n(z) is
-  0 there in every bin.

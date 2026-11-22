@@ -9,8 +9,7 @@ calls the app through `../../../common/run_packed.py`.
 ## Before the production run
 
 1. The projection is complete and re-scanned: all 50,000 files are the nside-512 re-projection with
-   `maglim1-6`. The preflight checks only that the files exist. Done 2026-11-20 (`dev/notes/desy6/plan.md`,
-   section 1).
+   `maglim1-6`. The preflight checks only that the files exist. Done 2026-11-20.
 2. Step `sc_bias` has written `data/desy6/desy6_metacal_bias.h5`. The grid app reads it at startup, so
    the preflight refuses to submit without it. Done 2026-11-20.
 3. Every product step has rerun with `--provenance` on committed code. Done 2026-11-21.
