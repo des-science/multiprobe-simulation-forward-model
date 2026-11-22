@@ -95,7 +95,7 @@ Later, and not needed for the grid set:
 - the fiducial set (it needs a fiducial projection, Q6);
 - the downstream port (section 6).
 
-The open decisions D8 and D11 (section 4) affect only the observation and the inference, not the
+The open decision D11 (section 4) affects only the observation and the inference, not the
 tfrecords.
 
 ## 3. Validating the Y6 tfrecords
@@ -122,16 +122,6 @@ tfrecords.
 
 **Open.**
 
-- **D8.** Mean shear. The KP subtracts the residual additive c from the data; v18 does not
-  subtract it. Only the observation is affected, not the tfrecords. Checked 2026-11-22:
-  - c is the weighted ⟨e⟩/R per bin and component (KP Table 2, ×10⁻⁴): (1.6, 0.62), (0.45, −0.58),
-    (2.4, −1.7), (3.1, 1.1). The `maps` log reproduces these to the printed digit. That is about half
-    of Y3's γ1 (4-6 ×10⁻⁴) and 0.6-1% of the Y6 per-pixel noise rms (Y3: ~1.5%).
-  - Neither paper models PSF leakage or any additive term in ξ±. The only additive treatment is
-    the subtraction itself, with no uncertainty propagated (KP Sec. II.2, Eqs. 5-7; FW Eq. 3).
-    So there is nothing extra to forward model.
-  - Y3 measured ≤ 0.05σ on every parameter for not subtracting. The same paired-seed test
-    (`claude/tmp/meansub_des/`) can run once a Y6 lensing network exists.
 - **D11.** Uncertainty of the lens weights. The KP's w(θ) covariance marginalizes analytically over
   the two weight methods, ENet and ISD; v1 has none. Raised by `differences_to_y6_kp.md`, not discussed yet.
 
@@ -142,6 +132,22 @@ tfrecords.
   them. Revisit only if the production projection changes them.
 - **D3** (2026-11-21): bias names by survey bin, `bg1, bg3, bg4, bg5, bg6` (as the DES chains'
   `b1e_bin*`). y3-deep-lss (its D5) and msi (its D3) take them as they are.
+- **D4** (2026-11-20): the IA pivot is the KP's, z0 = 0.3. Everything else stays v18's: δ-NLA, the
+  boxes and the fiducials.
+- **D5** (2026-11-18): shape noise as v18, `count` with `survey_systematics: True`, using the
+  MAIN19 map.
+- **D6** (2026-11-20): no lens magnification.
+- **D7** (2026-11-19): linear lens bias, also the KP baseline.
+- **D8** (2026-11-22): the mean shear is not subtracted, as in v18. The KP subtracts c, the
+  weighted ⟨e⟩/R per bin (KP Table 2, ×10⁻⁴: (1.6, 0.62), (0.45, −0.58), (2.4, −1.7), (3.1, 1.1));
+  step `maps` reproduces it to the printed digit. Our simulations have no additive bias but keep
+  the cosmological footprint mean, so subtracting from the data alone would be the inconsistent
+  choice. c is about half of Y3's γ1 and 0.6-1% of the per-pixel noise rms (Y3: ~1.5%), and Y3
+  measured ≤ 0.05σ on every parameter. Neither KP nor FW models PSF leakage or an additive ξ±
+  term, so there is nothing else to forward model. To confirm on Y6: the paired-seed test
+  (`claude/tmp/meansub_des/`) once a Y6 lensing network exists.
+- **D9** (2026-11-19): coverage threshold 0.73.
+- **D10** (2026-11-20): the IA amplitude from the mean n(z) with the 5-95% truncation.
 - **D12** (2026-11-22): mocks apply m when the config takes it from the projection.
   `forward_model_cosmogrid(shear_biasing=None)` resolves from `source`, so a Y6 mock carries its
   realization's n(z) and m, as the grid does; Y3 mocks keep m = 0 (`c824650`). The tfrecords are
@@ -149,14 +155,6 @@ tfrecords.
 - **D13** (2026-11-22): step `values` writes the bias fiducials `analysis.fiducial.bg*`: v18's
   power law (bg 1.5, n_bg 0.5, pivot 0.62) on the Y6 lens n(z), the pivot a constant of the step
   rather than a config key. The written values equal the typed ones digit for digit.
-- **D4** (2026-11-20): the IA pivot is the KP's, z0 = 0.3. Everything else stays v18's: δ-NLA, the
-  boxes and the fiducials.
-- **D5** (2026-11-18): shape noise as v18, `count` with `survey_systematics: True`, using the
-  MAIN19 map.
-- **D6** (2026-11-20): no lens magnification.
-- **D7** (2026-11-19): linear lens bias, also the KP baseline.
-- **D9** (2026-11-19): coverage threshold 0.73.
-- **D10** (2026-11-20): the IA amplitude from the mean n(z) with the 5-95% truncation.
 
 ## 5. Questions for Tomasz
 
