@@ -95,8 +95,7 @@ Later, and not needed for the grid set:
 - the fiducial set (it needs a fiducial projection, Q6);
 - the downstream port (section 6).
 
-The open decision D11 (section 4) affects only the observation and the inference, not the
-tfrecords.
+No decision is open (section 4).
 
 ## 3. Validating the Y6 tfrecords
 
@@ -122,19 +121,7 @@ tfrecords.
 
 **Open.**
 
-- **D11.** Uncertainty of the lens weights. v1 has none, as v18 had none for its ISD maps. Checked
-  2026-11-22:
-  - DES adds C → C + ΔΔᵀ to each lens bin's w(θ) covariance, Δ = ŵ(θ)_ENet − ŵ(θ)_ISD measured on the
-    data (arXiv:2601.14484 Eq. 24; w(θ) only, ENet fiducial). That equals marginalizing the amplitude
-    of the ENet − ISD mode with a unit Gaussian prior. Their aim is that swapping methods shifts each
-    bin by at most 1σ; they find the weights mostly matter for Ωm, and most in bin 6.
-  - The released weights (`weight` and `WEIGHT_ISD` of `maglim_addl_cols_v1.hdf5`), as pixel means at
-    nside 64 for bins 1, 3-6: correlation 0.40, 0.68, 0.88, 0.78, 0.93. The rms of their difference
-    is 0.93, 1.04, 0.47, 0.71, 0.36 × the ENet correction (0.9-2.1%), about the same from nside 512
-    to 64. So in bins 1 and 3 the two methods disagree by as much as the correction itself.
-  - Map-level options: (a) as now; (b) a robustness test, the posterior shift between ENet- and
-    ISD-corrected data, which needs an ISD weight map from step `pixels`; (c) the map-level analogue
-    of Eq. 24, simulated lens counts × (1 + α (w_ENet / w_ISD − 1)) with α ~ N(0, 1), not a label.
+None.
 
 **Settled.** The difference lists hold the details.
 
@@ -159,6 +146,14 @@ tfrecords.
   (`claude/tmp/meansub_des/`) once a Y6 lensing network exists.
 - **D9** (2026-11-19): coverage threshold 0.73.
 - **D10** (2026-11-20): the IA amplitude from the mean n(z) with the 5-95% truncation.
+- **D11** (2026-11-22): the lens weights follow our Y3 approach. They correct the observed counts
+  only, never the simulations, and no uncertainty is propagated. DES instead adds C + ΔΔᵀ to each
+  lens bin's w(θ) covariance, Δ = ŵ(θ)_ENet − ŵ(θ)_ISD on the data (arXiv:2601.14484 Eq. 24); the
+  difference is row 5 of `differences_to_y6_kp.md`, to address perhaps later. Measured 2026-11-22 on
+  the released weights (`weight`, `WEIGHT_ISD` of `maglim_addl_cols_v1.hdf5`), as nside-64 pixel
+  means for bins 1, 3-6: correlation 0.40, 0.68, 0.88, 0.78, 0.93, and the rms of the difference
+  0.93, 1.04, 0.47, 0.71, 0.36 × the ENet correction. A later check could be the posterior shift
+  between ENet- and ISD-corrected data, which needs an ISD weight map.
 - **D12** (2026-11-22): mocks apply m when the config takes it from the projection.
   `forward_model_cosmogrid(shear_biasing=None)` resolves from `source`, so a Y6 mock carries its
   realization's n(z) and m, as the grid does; Y3 mocks keep m = 0 (`c824650`). The tfrecords are

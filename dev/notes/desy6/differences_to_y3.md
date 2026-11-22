@@ -31,7 +31,8 @@ arXiv:2511.04681. Y6 side: `configs/desy6/v1/default.yaml`, `data/desy6/README.m
   `values` writes these fiducials with the pivot as its own constant (since 2026-11-22; v18 copied
   them by hand). No quadratic bias, no stochasticity.
 - Lens systematics: the weight maps correct the observed counts (`apply_maglim_sys_map`) and stay
-  out of the forward model (`maglim_survey_systematics_map: False`).
+  out of the forward model (`maglim_survey_systematics_map: False`). No uncertainty on them is
+  propagated (the KP's is row 5 of `differences_to_y6_kp.md`).
 - Shape noise: `count`, `bias: fixed`, `survey_systematics: True`, `metacal_bias_arm: contam`. The
   simulated source density carries the `lss_sys` imaging systematics and the fitted source
   clustering bias.
