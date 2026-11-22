@@ -15,7 +15,7 @@ all of them from the public Y6 release, `msfm/apps/products/desy6.py`, for
 | `values` | the marked lines of the config | yes | done 2026-11-20, lens n_gal from the weight maps |
 | `noise` | `desy6_noise_512.h5` | no | done 2026-11-19 |
 | `systematics` | `desy6_metacal_systematics_MAIN19_512.h5` | yes | done 2026-11-20, `lss_sys` run `metadetect_sources_MAIN19` |
-| `sc_bias` | `desy6_metacal_bias.h5` | yes | done 2026-11-20, the 2500 grid cosmologies, no `fiducial` key |
+| `sc_bias` | `desy6_metacal_bias.h5` | yes | done 2026-11-22, the 2500 grid cosmologies and `fiducial` from `fiducial_bench` |
 
 Every step reran with `--provenance` on 2026-11-20/21 and reproduced its outputs byte for byte. Its
 record (inputs, output sha256, msfm commit) is in `provenance.yaml`.
@@ -60,8 +60,8 @@ pipelines/daint/desy6/products/run.sh <step>    # PARTITION, TIME, LOGDIR; DRYRU
 - `values --check` writes nothing and exits 1 if a value in the config is stale.
 - `--max-objects N` (`maps`, `noise`) reads the first N rows of each catalog and writes nothing. A
   smoke test.
-- `--max-cosmologies N` (`sc_bias`) fits the first N grid cosmologies, runs every check and writes
-  nothing. The same kind of smoke test.
+- `--max-cosmologies N` (`sc_bias`) fits the first N grid cosmologies and the fiducial one, runs
+  every check and writes nothing. The same kind of smoke test.
 - `--provenance` is for production runs. The step then refuses uncommitted `msfm/` or `configs/`,
   and records its inputs, outputs (sha256) and the msfm commit in `provenance.yaml`.
 
@@ -240,8 +240,10 @@ pixels it contains.
   one-point function of the observed counts of `maps` (`source_clustering_bias.fit_bias_table`).
   One group per arm: `clean` (no imaging systematics) and `contam` (the contamination of
   `systematics` imprinted), picked by `files.metacal_bias_arm`. v1 uses `contam`, since its forward
-  model imprints the same systematics. `--source` is the projection root, which holds `grid/` and,
-  once projected, `fiducial/`; without it the table has no `fiducial` key.
+  model imprints the same systematics. `--source` is the projection root, which holds `grid/` and
+  `benchmarks/`. The key `fiducial`, which `run_single_postprocessing.py` reads for every benchmark
+  mock, is fit on `benchmarks/fiducial_bench`: the fiducial cosmology, the fiducial set's
+  resolution and the config's fiducial n(z). DES Y6 has no fiducial projection.
 - **Checks:** every selected cosmology has its `perm_0000` file before anything runs; n_bar agrees
   with `survey.metacal.n_gal` to 5%; the histogram reaches the largest footprint count
   (`bias_fit_max_count`); the base patch is the sorted mask, the order the fit pairs the
@@ -249,13 +251,16 @@ pixels it contains.
   every loss finite, and each arm reads back unchanged through `files.read_metacal_bias` and passes
   `configuration.print_and_check_modeling_in_config`, which matches the arm's systematics label
   against its forward model. A failed check writes nothing.
-- **Status:** run on the 2500 grid cosmologies, 4 min per arm on one node (288 processes, one per
-  core, with `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1`). The projection has no `fiducial/` yet, so
-  the table has no `fiducial` key.
+- **Status:** run on the 2500 grid cosmologies and `fiducial_bench` (2026-11-22, job 5424770),
+  4 min per arm on one node (288 processes, one per core, with
+  `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1`). Each key is fit on its own with the same seed, so
+  adding `fiducial` left every grid key and loss byte-identical. The fiducial b sits at the grid
+  median (quantile 0.47-0.50 in every bin and arm).
 
   | | metacal1 | metacal2 | metacal3 | metacal4 |
   |---|---|---|---|---|
   | b `clean`, median (range) | 1.02 (0.44-2.57) | 1.41 (0.56-3.51) | 1.69 (0.62-4.11) | 2.76 (0.93-6.61) |
+  | b `fiducial`, `clean` / `contam` | 1.012 / 0.945 | 1.394 / 1.306 | 1.677 / 1.468 | 2.728 / 1.937 |
   | b `contam` / `clean`, median | 0.93 | 0.94 | 0.89 | 0.71 |
   | largest loss, `clean` → `contam` | 5.6 → 4.8 | 5.4 → 4.5 | 4.8 → 3.8 | 4.4 → 2.3 |
 
@@ -305,5 +310,5 @@ reference. Results (2026-11-20):
   - **Lens counts:** in both surveys they depend on the galaxy bias each mock draws from its prior
     (Y3's maglim1 is at 0.74 too).
 
-  The clean comparison needs a grid mock with the fitted bias table; a fiducial mock also needs a
-  fiducial projection.
+  The clean comparison needs a grid mock with the fitted bias table, or the `fiducial_bench` mock
+  once it is built.

@@ -62,15 +62,21 @@ arXiv:2511.04681. Y6 side: `configs/desy6/v1/default.yaml`, `data/desy6/README.m
 | 9 | IA pivot | z0 = 0.62 | z0 = 0.3, the KP's | decision | the box and fiducials stay, so the same (Aia, n_Aia) gives per-bin amplitudes 1.246^n_Aia times Y3's: 1.39× at the fiducial n_Aia = 1.5, 0.41-3.7× across the box |
 | 10 | fiducial n(z) | txt files from outside the repo, grid from z = 0.005 | the 3x2pt FITS `nz_source` / `nz_lens`, 300 points from z = 0 | data | mean z 0.41, 0.54, 0.85, 1.16 (sources) and 0.31-1.01 (lenses). Also feeds the IA amplitude and the bias fiducials |
 | 11 | source systematics map | `lss_sys` run `STD32` on 34 SP maps | `lss_sys` run `MAIN19` on the 19 DES Y6 templates, copied by step `systematics` | decision | method unchanged; the `lss_sys` side keeps its own list (`lss_sys/claude/desy6/differences_to_y3_sources.md`) |
-| 12 | source clustering bias | `sc_bias_fit_count.ipynb` | step `sc_bias`, the same fit, on the 2500 grid cosmologies (no fiducial key yet) | method | the count histogram runs to 400 galaxies per pixel instead of 200 (`shape_noise.bias_fit_max_count`): Y6 has ~100 sources per pixel vs Y3's 72, and its largest footprint count, 359, would be dropped at 200 |
+| 12 | source clustering bias | `sc_bias_fit_count.ipynb` | step `sc_bias`, the same fit, on the 2500 grid cosmologies; the key `fiducial` on the benchmark `fiducial_bench` instead of the fiducial set | method | the count histogram runs to 400 galaxies per pixel instead of 200 (`shape_noise.bias_fit_max_count`): Y6 has ~100 sources per pixel vs Y3's 72, and its largest footprint count, 359, would be dropped at 200 |
 | 13 | projection resolution | nside 1024, `ud_grade`d to 512 by msfm | nside 512 (test files) | projection | equivalent: the maps are linear in the particle counts, so averaging four nside-1024 pixels equals projecting at 512 |
 | 14 | shape-noise catalog | metacal shapes (`noise_file.ipynb`) | metadetection `noshear` (e1/R, e2/R, w, pixel), step `noise` | data | same layout |
 
 ## Not there yet
 
-- The fiducial set. v18 has 17 fiducial cosmologies (the fiducial and ± perturbations of the 8
-  CosmoGrid parameters) × 1000 permutations. Y6 has no fiducial projection, so its config drops
-  `fiducial.n_cosmos`, `n_perms_per_cosmo`, `n_noise_per_signal` and `perturbations`.
+- The fiducial set, which is not planned. v18 has 17 fiducial cosmologies (the fiducial and ±
+  perturbations of the 8 CosmoGrid parameters) × 1000 permutations. Y6 has no fiducial projection,
+  so its config drops `fiducial.n_cosmos`, `n_perms_per_cosmo`, `n_noise_per_signal` and
+  `perturbations`. Where Y3 used the fiducial maps, Y6 uses the benchmark `fiducial_bench`, which
+  has the fiducial cosmology, the fiducial set's resolution and the config's fiducial n(z): the
+  bias-table key `fiducial` (row 12) and y3-deep-lss's noise level.
+- The mock observations. The four benchmarks are projected (`fiducial_bench`, `box_size`,
+  `particle_count`, `redshift_resolution`; 20 permutations each), but no Y6 mock is built from them
+  yet. Y3's dark-matter-only, IA-shell and Buzzard mocks have no Y6 input.
 
 The grid tfrecords exist since 2026-11-21: 2500 files from this config (`pipelines/daint/desy6/v1/`).
 

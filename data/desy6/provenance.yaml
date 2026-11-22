@@ -142,11 +142,11 @@ steps:
     - path: data/desy6/desy6_metacal_systematics_MAIN19_512.h5
       sha256: 1349bab594a888e611f48c42b31b45f1f3efb86f4e5029515534d1c5e3adcd0b
   sc_bias:
-    date: '2026-11-21T13:53:18+01:00'
+    date: '2026-11-22T11:47:36+01:00'
     command: python -m msfm.apps.products.desy6 sc_bias --config configs/desy6/v1/default.yaml --source /capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/000_test/cosmogrid/processed/desy6/CosmoGrid/bary
       --provenance
     config: configs/desy6/v1/default.yaml
-    msfm_commit: 814a500c8dca2ba54f19763467d0ef04d3095320
+    msfm_commit: 3222421ddd875fa5e35d4f9313fdd4d4b4096aac
     inputs:
     - path: /capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/000_test/cosmogrid/processed/desy6/CosmoGrid/bary
       bytes: 4096
@@ -165,4 +165,4 @@ steps:
       mtime: '2026-04-01T17:04:52+02:00'
     outputs:
     - path: data/desy6/desy6_metacal_bias.h5
-      sha256: ff457513448909dfb70f440edc80a42104d156801a54d976e16d2c03e7642f6d
+      sha256: ff71d0fcb17209505d8e50cf976d6c6a991bea09d8ff041e968dfebed0507831

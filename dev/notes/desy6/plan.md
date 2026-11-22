@@ -40,8 +40,8 @@ the map-level model allows and otherwise keeps v18. y3-deep-lss and msi come aft
   - the two guards.
 
   The Y3 regression stayed identical after each.
-- All seven product steps have run, `sc_bias` on the 2500 grid cosmologies (job 5409210, no
-  `fiducial` key).
+- All seven product steps have run, `sc_bias` on the 2500 grid cosmologies and, since 2026-11-22,
+  the key `fiducial` on `benchmarks/fiducial_bench` (job 5424770; the grid keys byte-identical).
 - The config holds every value.
 - Executor: `pipelines/daint/common/packed_node.slurm` and `pipelines/daint/desy6/v1/submit.sh`. Smoke
   test, job 5408757: 24 tasks × 12 cores ran indices 0-23 in 6:43.
@@ -93,8 +93,14 @@ The re-scan of all 50,000 files (2026-11-20, `claude/tmp/desy6_rescan/`) found:
 
 Later, and not needed for the grid set:
 
-- the fiducial set (it needs a fiducial projection, Q6);
+- the mock observations from the four benchmark projections (`run_single_postprocessing.py`, as
+  v18's `submit_obs.sh`): an `obs` chain in `pipelines/daint/desy6/v1/submit.sh` and arm configs
+  under `configs/desy6/v1/obs/`;
 - the downstream port (section 6).
+
+The fiducial set is not needed (user, 2026-11-22). Where Y3 used the fiducial maps, Y6 uses the
+benchmark `fiducial_bench`: the bias-table key `fiducial`, and the noise level of y3-deep-lss's
+scales config.
 
 No decision is open (section 4).
 
@@ -190,13 +196,15 @@ None.
 
 ## 5. Questions for Tomasz
 
-**Open.**
-
-- **Q6.** Are fiducial and benchmark projections planned? They are needed for the fiducial
-  tfrecords, the mocks, the downstream scale cuts and the `fiducial` key of the bias table.
-  Fiducial derivative pairs need the same realization per permutation for both signs.
+**Open.** None.
 
 **Answered.**
+
+- Q6: the four CosmoGridV1 benchmarks are projected (`benchmarks/`, written 2026-11-19):
+  `fiducial_bench`, `box_size`, `particle_count` and `redshift_resolution`, 20 permutations each,
+  nside 512 and `maglim1-6`. All 80 files carry one n(z) and m, the mean over the 80,760
+  realizations, which equals the config's fiducial n(z) to 4e-8. No fiducial projection; none is
+  needed.
 
 - Q1: the production projection is written in place, at nside 512.
 - Q2: every file carries its own realization, source row 20c + p (cosmology c, permutation p),

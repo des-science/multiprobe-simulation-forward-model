@@ -86,7 +86,7 @@ chain_cfg() {
             if [ -d "$REPRODUCE_DIR" ]; then APP_ARGS+=" --reproduce_dir=$REPRODUCE_DIR"; fi
             ;;
         fiducial)
-            echo "fiducial: there is no Y6 fiducial projection yet" >&2
+            echo "fiducial: DES Y6 has no fiducial projection, and none is planned" >&2
             return 1
             ;;
         *) echo "unknown chain '$1'" >&2; return 1 ;;
