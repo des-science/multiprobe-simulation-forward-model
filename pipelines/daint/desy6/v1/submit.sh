@@ -9,13 +9,19 @@
 #   ./submit.sh --rerun grid              # submit only the indices whose .tfrecord is missing or a stub
 #   ./submit.sh validate                  # dev/scripts/validation/grid_tfrecords.py on every .tfrecord, then its merge
 #   ./submit.sh --rerun validate          # only the indices without a scan
+#   ./submit.sh obs <label>|all           # the mock observations of $MOCKS, one array and one merge per mock
+#   ./submit.sh --rerun obs <label>|all   # only the permutations without an output, for a mock not merged yet
 #
 # Before any sbatch, a login-node preflight checks that every submitted index has all its projected files under
 # $DIR_IN and that every file the config names exists (files.metacal_bias needs step sc_bias first). For validate it
-# also checks that the index's .tfrecord exists.
+# also checks that the index's .tfrecord exists. For obs it runs `python -m msfm.utils.mocks check` on every selected
+# mock before submitting any: config, files, permutations and bias-table key.
+#
+# The mocks are defined in $MOCKS alone (msfm/utils/mocks.py); this script only knows their labels.
 #
 # Overrides (environment):
-#   CONFIG DIR_IN DIR_OUT PACKED_LOGS JOB_NAME   paths and names, see the defaults below
+#   CONFIG DIR_IN DIR_OUT PACKED_LOGS JOB_NAME   paths and names, see the defaults below (obs ignores JOB_NAME)
+#   MOCKS                                        obs: the mock registry
 #   TFR_DIR GRID_CLS REPRODUCE_DIR               validate: the .tfrecords, the merged Cls and a --debug rerun of grid
 #   SLOTS OMP                                    tasks per node and cores per task. OMP must divide 72 (one Grace)
 #   NODE_TIME MERGE_TIME PARTITION               per-element wall clock, merge wall clock, partition (normal)
@@ -35,6 +41,7 @@ NODE_SCRIPT=$REPO/pipelines/daint/common/packed_node.slurm
 export TASK_SCRIPT=$REPO/pipelines/daint/common/packed_task.sh
 
 CONFIG=${CONFIG:-$REPO/configs/desy6/v1/default.yaml}
+MOCKS=${MOCKS:-$REPO/configs/desy6/v1/mocks.yaml}
 # Tomasz's Y6 projection on the lp184 store, mounted in the tensorflow container
 DIR_IN=${DIR_IN:-/capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/000_test/cosmogrid/processed/desy6/CosmoGrid/bary}
 DATA_ROOT=/ritom/scratch/cscs/athomsen/desy6/v1/default
@@ -84,6 +91,19 @@ chain_cfg() {
             APP_ARGS="--config=$CONFIG --dir_tfrecords=$TFR_DIR --dir_out=$DIR_OUT --dir_in=$DIR_IN --grid_cls=$GRID_CLS"
             # the merge compares the rerun if it exists at submission
             if [ -d "$REPRODUCE_DIR" ]; then APP_ARGS+=" --reproduce_dir=$REPRODUCE_DIR"; fi
+            ;;
+        obs)
+            # one mock of $MOCKS: its permutations are the indices, and the merge writes <label>_obs_maps.h5. A few
+            # minutes per permutation, so one node and NODE_TIME with a margin
+            APP=$REPO/msfm/apps/run_single_postprocessing.py
+            JOB_NAME=obs_desy6_v1_$LABEL
+            DIR_OUT=${DIR_OUT:-$DATA_ROOT/obs}
+            N_TOTAL=$N_PERMS
+            SLOTS=${SLOTS:-24}
+            OMP=${OMP:-12}
+            NODE_TIME=${NODE_TIME:-00:30:00}
+            MERGE_TIME=${MERGE_TIME:-00:10:00}
+            APP_ARGS="--mocks=$MOCKS --mock=$LABEL --dir_in=$DIR_IN --dir_out=$DIR_OUT"
             ;;
         fiducial)
             echo "fiducial: DES Y6 has no fiducial projection, and none is planned" >&2
@@ -159,11 +179,47 @@ done_indices() {
             find "$DIR_OUT/scan" -maxdepth 1 -name 'index_*.npz' -printf '%f\n' 2>/dev/null \
                 | sed -E 's/^index_0*([0-9]+)\.npz$/\1/' | sort -n -u
             ;;
+        obs)
+            # the merge deletes the per-permutation files, so a merged mock counts as complete
+            if [ -f "$DIR_OUT/${LABEL}_obs_maps.h5" ]; then seq 0 $((N_TOTAL - 1)); return; fi
+            find "$DIR_OUT" -maxdepth 1 -name "${LABEL}_obs_maps_*.h5" -size +1k -printf '%f\n' 2>/dev/null \
+                | sed -E 's/.*_obs_maps_0*([0-9]+)\.h5$/\1/' | sort -n -u
+            ;;
     esac
+}
+
+# the registry CLI, in the preflight environment
+mocks_cli() {
+    uenv run --view=default "$UENV" -- "$PY" -m msfm.utils.mocks "$@"
+}
+
+# obs: every selected mock is checked before any is submitted, then each gets its own array and merge
+submit_obs() {
+    local selection=$1 rerun=$2
+    local all labels label
+    all=$(mocks_cli labels "$MOCKS") || { echo "obs: cannot read the mocks of $MOCKS" >&2; return 1; }
+    if [ "$selection" = all ]; then
+        labels=$all
+    elif [ -n "$selection" ] && grep -qxF -- "$selection" <<< "$all"; then
+        labels=$selection
+    else
+        echo "obs: '$selection' is not a mock of $MOCKS, which has: $(echo $all) (or: all)" >&2
+        return 1
+    fi
+    N_PERMS=$(mocks_cli n_perms "$MOCKS")
+    echo "[preflight] the mocks $(echo $labels) of $MOCKS against $DIR_IN, on the login node"
+    # shellcheck disable=SC2086
+    mocks_cli check "$MOCKS" --projection "$DIR_IN" $labels || { echo "[preflight] failed, nothing submitted" >&2; return 1; }
+    for label in $labels; do
+        LABEL=$label
+        submit_chain obs "$rerun"
+    done
 }
 
 submit_chain() {
     local chain=$1 rerun=$2
+    local tag=$chain
+    [ "$chain" = obs ] && tag="obs $LABEL"
     chain_cfg "$chain"
     local index_file=$PACKED_LOGS/${JOB_NAME}_indices.txt
     mkdir -p "$PACKED_LOGS" "$DIR_OUT"
@@ -179,8 +235,8 @@ submit_chain() {
     local n_idx n_elements
     n_idx=$(grep -c . "$index_file" || true)
     n_elements=$(( (n_idx + SLOTS - 1) / SLOTS ))
-    echo "[$chain] ${rerun:+RERUN }$n_idx indices, $SLOTS per node x $OMP cores -> $n_elements node jobs ($NODE_TIME each)"
-    if [ "$n_idx" -eq 0 ]; then echo "[$chain] nothing to do"; return 0; fi
+    echo "[$tag] ${rerun:+RERUN }$n_idx indices, $SLOTS per node x $OMP cores -> $n_elements node jobs ($NODE_TIME each)"
+    if [ "$n_idx" -eq 0 ]; then echo "[$tag] nothing to do"; return 0; fi
 
     # element k processes lines [k*SLOTS, (k+1)*SLOTS) of the index file, so ARRAY only checks those
     local array_spec=${ARRAY_OVERRIDE:-0-$((n_elements - 1))}
@@ -193,9 +249,10 @@ submit_chain() {
             local lo=${element%-*} hi=${element#*-}
             sed -n "$((lo * SLOTS + 1)),$(((hi + 1) * SLOTS))p" "$index_file" >> "$check_file"
         done
-        echo "[$chain] ARRAY override: elements $array_spec of 0-$((n_elements - 1))"
+        echo "[$tag] ARRAY override: elements $array_spec of 0-$((n_elements - 1))"
     fi
-    preflight "$check_file" "$chain"
+    # obs ran its own preflight on every selected mock in submit_obs
+    if [ "$chain" != obs ]; then preflight "$check_file" "$chain"; fi
 
     export SLOTS OMP APP JOB_NAME PACKED_LOGS DRIVER INDEX_FILE=$index_file FUNCTION=main
     export APP_ARGS="$APP_ARGS $EXTRA_ARGS"
@@ -210,19 +267,24 @@ submit_chain() {
     else
         packed_id=$("${packed_cmd[@]}")
     fi
-    echo "[$chain] packed array: $packed_id"
+    echo "[$tag] packed array: $packed_id"
 
-    # merge: the whole node, one process, only after every element succeeded
+    # merge: the whole node, one process, only after every element succeeded. The single-cosmology merge places each
+    # permutation by its index, so it gets all of them instead of the default 0
+    if [ "$chain" = obs ]; then
+        export TASKS
+        TASKS=$(seq -s, 0 $((N_TOTAL - 1)))
+    fi
     local merge_cmd=(sbatch --parsable --partition="$PARTITION" --dependency="afterok:$packed_id" --time="$MERGE_TIME"
         --job-name="${JOB_NAME}_merge" --output="$PACKED_LOGS/%x_%j.out"
         --export="ALL,FUNCTION=merge,SLOTS=1,OMP=$NODE_CPUS" "$NODE_SCRIPT")
     if [ -n "$SKIP_MERGE" ]; then
-        echo "[$chain] SKIP_MERGE set; once every element is done, run with the same environment:"
+        echo "[$tag] SKIP_MERGE set; once every element is done, run with the same environment:"
         echo "  ${merge_cmd[*]}"
     elif [ -n "$DRY_RUN" ]; then
         echo "DRY RUN + ${merge_cmd[*]}"
     else
-        echo "[$chain] merge job: $("${merge_cmd[@]}") (afterok:$packed_id)"
+        echo "[$tag] merge job: $("${merge_cmd[@]}") (afterok:$packed_id)"
     fi
 }
 
@@ -230,5 +292,6 @@ RERUN=
 [ "${1:-}" = --rerun ] && { RERUN=1; shift; }
 case "${1:-}" in
     grid|fiducial|validate) submit_chain "$1" "$RERUN" ;;
-    *) echo "usage: [DRY_RUN=1] $0 [--rerun] grid|validate" >&2; exit 1 ;;
+    obs) submit_obs "${2:-}" "$RERUN" ;;
+    *) echo "usage: [DRY_RUN=1] $0 [--rerun] grid|validate|obs <label>|obs all" >&2; exit 1 ;;
 esac

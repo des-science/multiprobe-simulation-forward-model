@@ -19,6 +19,12 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --jobname=postproc_v14 --log_dir=/pscratch/sd/a/athomsen/run_files/v14/esub_logs \
     --system=slurm --source_file=../../pipelines/v14/perlmutter_setup.sh \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
+
+A mock of a registry (msfm.utils.mocks) takes everything but the paths from the registry, here the projection root as
+--dir_in and the output directory (pipelines/daint/desy6/v1/submit.sh obs):
+
+python msfm/apps/run_single_postprocessing.py --mocks=configs/desy6/v1/mocks.yaml --mock=fiducial_bench \
+    --dir_in=<projection root> --dir_out=<obs dir>
 """
 
 import numpy as np
@@ -27,9 +33,9 @@ import argparse
 import warnings
 import h5py
 import time
-import re
+import yaml
 
-from msfm.utils import files, logger, input_output, imports, observation, parameters, configuration
+from msfm.utils import files, logger, input_output, imports, mocks, observation, parameters, configuration
 
 hp = imports.import_healpy(parallel=False)
 
@@ -94,6 +100,19 @@ def setup(args):
         type=str,
         default="configs/config.yaml",
         help="msfm configuration yaml file for postprocessing of the CosmoGrid",
+    )
+    parser.add_argument(
+        "--mocks",
+        type=str,
+        default=None,
+        help="mock registry, e.g. configs/desy6/v1/mocks.yaml (msfm.utils.mocks), used with --mock",
+    )
+    parser.add_argument(
+        "--mock",
+        type=str,
+        default=None,
+        help="a mock of --mocks: its input below --dir_in (the projection root), its config and its forward-model "
+        "flags come from the registry, and its output is <label>_obs_maps.h5",
     )
 
     # input arguments to observation.forward_model_cosmogrid
@@ -195,6 +214,23 @@ def setup(args):
 
     args, _ = parser.parse_known_args(args)
 
+    if (args.mock is None) != (args.mocks is None):
+        parser.error("--mock and --mocks go together")
+    if args.mock is not None:
+        # a mock is defined by its registry entry alone
+        names = ("msfm_config", "suffix_out", *mocks.FORWARD_MODEL_ARGS)
+        given = [name for name in names if getattr(args, name) != parser.get_default(name)]
+        if given:
+            parser.error(f"with --mock, {given} come from the registry {args.mocks}")
+        mock = mocks.resolve(args.mocks, args.mock)
+        for name, value in mock.args.items():
+            setattr(args, name, value)
+        args.dir_in = os.path.join(args.dir_in, mock.input)
+        args.mock_conf, args.mock_args, args.out_stem = mock.conf, mock.args, mock.label
+    else:
+        args.mock_conf, args.mock_args = None, None
+        args.out_stem = f"{os.path.basename(args.dir_in)}{args.suffix_out}"
+
     # print arguments
     logger.set_all_loggers_level(args.verbosity)
     for key, value in vars(args).items():
@@ -206,9 +242,14 @@ def setup(args):
     return args
 
 
+def _msfm_config(args):
+    """The mock's resolved config, or the one --msfm_config names."""
+    return args.mock_conf if args.mock is not None else files.load_config(args.msfm_config)
+
+
 def main(indices, args):
     args = setup(args)
-    msfm_conf = files.load_config(args.msfm_config)
+    msfm_conf = _msfm_config(args)
 
     # like the grid and fiducial apps. Most importantly this asserts that the source clustering bias table was fit
     # against the same forward model that is about to consume it, which is otherwise a silent mismatch
@@ -232,16 +273,7 @@ def main(indices, args):
             tomo_bg_metacal = args.tomo_bg_metacal
         elif method == "count" and bias == "fixed":
             # count+fixed: per-cosmology metacal bias read from files.metacal_bias
-            if "/grid/" in perm_dir:
-                match = re.search(r"cosmo_(\d{6})", perm_dir)
-                i_sobol = int(match.group(1))
-                tomo_bg_metacal = files.read_metacal_bias(f"cosmo_{i_sobol:06}", conf=msfm_conf)
-            elif "/fiducial/" in perm_dir or "benchmark" in perm_dir:
-                tomo_bg_metacal = files.read_metacal_bias("fiducial", conf=msfm_conf)
-            else:
-                raise ValueError(
-                    f"Cannot determine metacal bias key from perm_dir={perm_dir!r}: expected '/grid/' or '/fiducial/'/'benchmark' in path"
-                )
+            tomo_bg_metacal = files.read_metacal_bias(files.metacal_bias_key(perm_dir), conf=msfm_conf)
         elif bias == "prior":
             # count+prior or gatti+prior: sample bsc from the prior (assigned per patch below)
             sc_prior = parameters.get_prior_intervals(["bsc"], conf=msfm_conf)
@@ -307,8 +339,7 @@ def main(indices, args):
         obs_cls_raw = np.stack(obs_cls_raw, axis=0)
 
         # save the results
-        cosmo_name = os.path.basename(args.dir_in)
-        out_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps_{index:04}.h5")
+        out_file = os.path.join(args.dir_out, f"{args.out_stem}_obs_maps_{index:04}.h5")
         with h5py.File(out_file, "w") as f:
             f.create_dataset(name="obs/maps", data=obs_maps)
             f.create_dataset(name="obs/cls_raw", data=obs_cls_raw)
@@ -319,15 +350,22 @@ def main(indices, args):
 
 def merge(indices, args):
     args = setup(args)
-    msfm_conf = files.load_config(args.msfm_config)
+    msfm_conf = _msfm_config(args)
     n_patches = msfm_conf["analysis"]["n_patches"]
 
-    cosmo_name = os.path.basename(args.dir_in)
-    out_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps.h5")
+    out_file = os.path.join(args.dir_out, f"{args.out_stem}_obs_maps.h5")
 
     with h5py.File(out_file, "w") as f_merged:
+        if args.mock is not None:
+            # what made this mock, so the file documents itself
+            f_merged.attrs["mock"] = args.mock
+            f_merged.attrs["registry"] = os.path.abspath(args.mocks)
+            f_merged.attrs["input"] = args.dir_in
+            f_merged.attrs["forward_model_args"] = yaml.safe_dump(args.mock_args, sort_keys=False)
+            f_merged.attrs["msfm_config"] = yaml.safe_dump(msfm_conf, sort_keys=False)
+
         for index in LOGGER.progressbar(indices, desc="merging files", at_level="info"):
-            in_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps_{index:04}.h5")
+            in_file = os.path.join(args.dir_out, f"{args.out_stem}_obs_maps_{index:04}.h5")
             with h5py.File(in_file, "r") as f_in:
                 obs_maps = f_in["obs/maps"][:]
                 obs_cls_raw = f_in["obs/cls_raw"][:]
@@ -349,6 +387,6 @@ def merge(indices, args):
 
     # only remove the files after the above loop has terminated successfully
     for index in indices:
-        in_file = os.path.join(args.dir_out, f"{cosmo_name}{args.suffix_out}_obs_maps_{index:04}.h5")
+        in_file = os.path.join(args.dir_out, f"{args.out_stem}_obs_maps_{index:04}.h5")
         os.remove(in_file)
     LOGGER.info("Removed temporary files")

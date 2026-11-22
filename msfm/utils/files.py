@@ -481,6 +481,20 @@ def load_redshift_distributions(galaxy_sample, conf=None):
     return tomo_z, tomo_nz
 
 
+def metacal_bias_key(perm_dir):
+    """The bias-table key of a CosmoGrid permutation directory: cosmo_<i_sobol> on the grid, "fiducial" for the
+    fiducial set and the benchmarks."""
+    if "/grid/" in perm_dir:
+        match = re.search(r"cosmo_(\d{6})", perm_dir)
+        return f"cosmo_{int(match.group(1)):06}"
+    if "/fiducial/" in perm_dir or "benchmark" in perm_dir:
+        return "fiducial"
+    raise ValueError(
+        f"Cannot determine metacal bias key from perm_dir={perm_dir!r}: "
+        "expected '/grid/' or '/fiducial/'/'benchmark' in path"
+    )
+
+
 def read_metacal_bias(key, conf=None):
     conf = load_config(conf)
 
