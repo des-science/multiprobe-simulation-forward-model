@@ -19,8 +19,12 @@
 #
 # The mocks are defined in $MOCKS alone (msfm/utils/mocks.py); this script only knows their labels.
 #
+# The input projection ($DIR_IN) and the output root ($DATA_ROOT) are those of the locations.yaml next to $CONFIG
+# (msfm/utils/locations.py); every output directory below lies under $DATA_ROOT.
+#
 # Overrides (environment):
-#   CONFIG DIR_IN DIR_OUT PACKED_LOGS JOB_NAME   paths and names, see the defaults below (obs ignores JOB_NAME)
+#   CONFIG DIR_IN DATA_ROOT                      the msfm config, the projection and the output root
+#   DIR_OUT PACKED_LOGS JOB_NAME                 per-chain paths and names, see below (obs ignores JOB_NAME)
 #   MOCKS                                        obs: the mock registry
 #   TFR_DIR GRID_CLS REPRODUCE_DIR               validate: the .tfrecords, the merged Cls and a --debug rerun of grid
 #   SLOTS OMP                                    tasks per node and cores per task. OMP must divide 72 (one Grace)
@@ -41,11 +45,22 @@ DRIVER=$REPO/pipelines/common/run_packed.py
 NODE_SCRIPT=$REPO/pipelines/daint/common/packed_node.slurm
 export TASK_SCRIPT=$REPO/pipelines/daint/common/packed_task.sh
 
+# login-node environment of the preflight and of the msfm CLIs (locations, mocks)
+UENV=pytorch/v2.9.1:v2
+PY=$HOME/dlss/torch_env/bin/python
+
 CONFIG=${CONFIG:-$REPO/configs/desy6/v1/default.yaml}
 MOCKS=${MOCKS:-$REPO/configs/desy6/v1/mock_observations.yaml}
-# Tomasz's Y6 projection on the lp184 store, mounted in the tensorflow container
-DIR_IN=${DIR_IN:-/capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/000_test/cosmogrid/processed/desy6/CosmoGrid/bary}
-DATA_ROOT=/ritom/scratch/cscs/athomsen/desy6/v1/default
+# the projection (input) and the config's output root come from the locations.yaml next to $CONFIG
+LOCATIONS=$(uenv run --view=default "$UENV" -- "$PY" -m msfm.utils.locations "$CONFIG") \
+    || { echo "cannot resolve the locations of $CONFIG" >&2; exit 1; }
+location() { sed -n "s|^$1=||p" <<< "$LOCATIONS"; }
+DIR_IN=${DIR_IN:-$(location projection)}
+DATA_ROOT=${DATA_ROOT:-$(location data_dir)}
+if [ -z "$DIR_IN" ] || [ -z "$DATA_ROOT" ]; then
+    echo "the locations of $CONFIG give no projection or data_dir; set DIR_IN and DATA_ROOT" >&2
+    exit 1
+fi
 PACKED_LOGS=${PACKED_LOGS:-$DATA_ROOT/packed_logs}
 PARTITION=${PARTITION:-normal}
 ARRAY_THROTTLE=${ARRAY_THROTTLE:-25}
@@ -56,10 +71,6 @@ DRY_RUN=${DRY_RUN:-}
 ARRAY_OVERRIDE=${ARRAY:-}
 SKIP_MERGE=${SKIP_MERGE:-}
 MERGE_AFTER=${MERGE_AFTER:-}
-
-# preflight environment: h5py and yaml, no msfm import
-UENV=pytorch/v2.9.1:v2
-PY=$HOME/dlss/torch_env/bin/python
 
 # SLOTS x OMP: 24 x 12 = 6 tasks per Grace, 0.031 node-hours per cosmology against 0.047 at 12 x 24, 10.5 GB peak
 # per task; NODE_TIME is twice the measured 45 min (README.md)

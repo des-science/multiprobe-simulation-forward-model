@@ -24,10 +24,12 @@ DRY_RUN=1 ./submit.sh grid      # preflight + the exact sbatch lines, submits no
 ./submit.sh --rerun grid        # only the indices whose .tfrecord is missing or a stub
 ```
 
-Defaults: inputs from Tomasz's projection on the lp184 store, outputs and logs under
-`/ritom/scratch/cscs/athomsen/desy6/v1/default/{tfrecords/grid,packed_logs}`. Every path, the
-packing (`SLOTS`, `OMP`), the wall clocks and the partition can be overridden from the environment
-(see the header of `submit.sh`). `ARRAY=<spec>` submits only some array elements; element k
+The input projection and the output root come from `configs/desy6/v1/locations.yaml`
+(`msfm/utils/locations.py`): Tomasz's projection on the lp184 store, and
+`/ritom/scratch/cscs/athomsen/desy6/v1/default`, under which the script writes
+`tfrecords/grid`, `cls`, `obs`, `validation` and `packed_logs`. Every path, the packing (`SLOTS`,
+`OMP`), the wall clocks and the partition can be overridden from the environment (`DIR_IN` and
+`DATA_ROOT` for the two roots; see the header of `submit.sh`). `ARRAY=<spec>` submits only some array elements; element k
 processes indices `[k*SLOTS, (k+1)*SLOTS)`.
 
 **A failed element** exits non-zero, which keeps the `afterok` merge blocked. Delete any short stub,

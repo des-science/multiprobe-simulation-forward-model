@@ -32,10 +32,10 @@ Usage:
     python -m msfm.apps.products.desy6 noise --config configs/desy6/v1/default.yaml   # compute node, ~2 GB out
     python -m msfm.apps.products.desy6 systematics --config configs/desy6/v1/default.yaml \
         --source <lss_sys>/output/desy6/<label>/<label>_512.h5
-    python -m msfm.apps.products.desy6 sc_bias --config configs/desy6/v1/default.yaml --source <projection> \
-        --max-cosmologies 1   # smoke test
-    python -m msfm.apps.products.desy6 sc_bias --config configs/desy6/v1/default.yaml \
-        --source <projection>   # compute node, minutes
+    python -m msfm.apps.products.desy6 sc_bias --config configs/desy6/v1/default.yaml --max-cosmologies 1   # smoke
+    python -m msfm.apps.products.desy6 sc_bias --config configs/desy6/v1/default.yaml   # compute node, minutes
+
+sc_bias reads the projection of the config's locations.yaml (msfm.utils.locations) unless --source names another.
 
 --dry-run lists a step's inputs and outputs and writes nothing. --max-objects N runs a catalog step on the first N
 rows of every catalog and writes nothing, so a partial map can never pass for the product. --max-cosmologies N does
@@ -54,7 +54,7 @@ import h5py
 import healpy as hp
 import numpy as np
 
-from msfm.utils import catalog, catalog_desy6, configuration, files, filenames, logger, products, redshift
+from msfm.utils import catalog, catalog_desy6, configuration, files, filenames, locations, logger, products, redshift
 from msfm.utils import source_clustering_bias as scb
 
 LOGGER = logger.get_logger(__file__)
@@ -746,8 +746,10 @@ STEPS = {
     "sc_bias": step_sc_bias,
 }
 CATALOG_STEPS = {"maps", "noise"}
-# the steps that read an input from outside the release, given as --source
+# the steps that read an input from outside the release, given as --source; a step with a locations key defaults to
+# that path of the config's locations.yaml
 SOURCE_STEPS = {"systematics", "sc_bias"}
+SOURCE_LOCATIONS = {"sc_bias": "projection"}
 # the code a step runs: changes elsewhere (data/desy6, notebooks) don't change a product
 CODE_PATHS = ("msfm", "configs")
 
@@ -795,7 +797,7 @@ def main(argv=None):
         "--source",
         default=None,
         help="systematics: the nside-512 export of the lss_sys run; sc_bias: the projection root, which holds grid/ "
-        "and benchmarks/",
+        "and benchmarks/ (default: the projection of the config's locations.yaml)",
     )
     parser.add_argument(
         "--provenance",
@@ -809,8 +811,13 @@ def main(argv=None):
         parser.error(f"--max-objects takes a positive number and applies to {sorted(CATALOG_STEPS)}")
     if args.max_cosmologies is not None and (args.step != "sc_bias" or args.max_cosmologies < 1):
         parser.error("--max-cosmologies takes a positive number and applies to the step sc_bias")
-    if (args.source is not None) != (args.step in SOURCE_STEPS):
-        parser.error(f"--source is required by the steps {sorted(SOURCE_STEPS)} and applies to no other step")
+    if args.source is not None and args.step not in SOURCE_STEPS:
+        parser.error(f"--source applies to the steps {sorted(SOURCE_STEPS)} only")
+    if args.source is None and args.step in SOURCE_LOCATIONS:
+        args.source = locations.get(args.config, SOURCE_LOCATIONS[args.step])
+        LOGGER.info(f"--source {args.source}, the {SOURCE_LOCATIONS[args.step]} of the config's locations.yaml")
+    if args.source is None and args.step in SOURCE_STEPS:
+        parser.error(f"the step {args.step} needs --source")
 
     conf = files.load_config(args.config)
     if conf["survey"]["name"] != SURVEY_NAME:

@@ -240,8 +240,8 @@ pixels it contains.
   one-point function of the observed counts of `maps` (`source_clustering_bias.fit_bias_table`).
   One group per arm: `clean` (no imaging systematics) and `contam` (the contamination of
   `systematics` imprinted), picked by `files.metacal_bias_arm`. v1 uses `contam`, since its forward
-  model imprints the same systematics. `--source` is the projection root, which holds `grid/` and
-  `benchmarks/`. The key `fiducial`, which `run_single_postprocessing.py` reads for every benchmark
+  model imprints the same systematics. The projection root, which holds `grid/` and `benchmarks/`, is
+  the `projection` of `configs/desy6/v1/locations.yaml`, unless `--source` names another. The key `fiducial`, which `run_single_postprocessing.py` reads for every benchmark
   mock, is fit on `benchmarks/fiducial_bench`: the fiducial cosmology, the fiducial set's
   resolution and the config's fiducial n(z). DES Y6 has no fiducial projection.
 - **Checks:** every selected cosmology has its `perm_0000` file before anything runs; n_bar agrees

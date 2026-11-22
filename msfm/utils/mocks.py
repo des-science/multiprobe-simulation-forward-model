@@ -23,7 +23,7 @@ replace the base's value. A key the base does not have is an error, so a misspel
 The submission scripts read the registry through the CLI:
     python -m msfm.utils.mocks labels <registry>
     python -m msfm.utils.mocks n_perms <registry>
-    python -m msfm.utils.mocks check <registry> --projection <root> [label ...]
+    python -m msfm.utils.mocks check <registry> [--projection <root>] [label ...]   # default: locations.yaml
 """
 
 import argparse
@@ -33,7 +33,7 @@ import re
 import sys
 from dataclasses import dataclass
 
-from msfm.utils import input_output, logger
+from msfm.utils import input_output, locations, logger
 
 LOGGER = logger.get_logger(__file__)
 
@@ -138,13 +138,18 @@ def labels(path):
     return list(load_registry(path)["mocks"])
 
 
+def base_config(path):
+    """Absolute path of the config the registry's mocks start from."""
+    return os.path.join(os.path.dirname(os.path.abspath(path)), load_registry(path)["base"])
+
+
 def resolve(path, label):
     """The mock `label` of the registry at `path`. Returns a Mock."""
     reg = load_registry(path)
     if label not in reg["mocks"]:
         raise KeyError(f"{label} is not a mock of {path}, which has {list(reg['mocks'])}")
     entry = reg["mocks"][label] or {}
-    base = input_output.read_yaml(os.path.join(os.path.dirname(os.path.abspath(path)), reg["base"]))
+    base = input_output.read_yaml(base_config(path))
     conf, overrides = merge_onto(base, entry.get("config") or {})
     args = {**(reg["args"] or {}), **(entry.get("args") or {})}
     return Mock(label, entry["input"], conf, args, reg["n_perms"], tuple(overrides))
@@ -205,7 +210,12 @@ def main(argv=None):
         sub.add_parser(command).add_argument("registry")
     check_parser = sub.add_parser("check")
     check_parser.add_argument("registry")
-    check_parser.add_argument("--projection", required=True, help="the projection root the inputs are relative to")
+    check_parser.add_argument(
+        "--projection",
+        default=None,
+        help="the projection root the inputs are relative to (default: the projection of the base config's "
+        "locations.yaml)",
+    )
     check_parser.add_argument("labels", nargs="*", help="the mocks to check, default all")
     args = parser.parse_args(argv)
 
@@ -214,7 +224,8 @@ def main(argv=None):
     elif args.command == "n_perms":
         print(load_registry(args.registry)["n_perms"])
     else:
-        problems = check(args.registry, args.projection, args.labels or None)
+        projection = args.projection or locations.get(base_config(args.registry), "projection")
+        problems = check(args.registry, projection, args.labels or None)
         for problem in problems:
             LOGGER.error(problem)
         sys.exit(1 if problems else 0)

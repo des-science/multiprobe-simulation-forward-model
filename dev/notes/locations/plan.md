@@ -151,6 +151,9 @@ All by the user, 2026-11-22.
    script default. `dev/scripts/data_audit/gate.sh` now skips `data/` inside absolute paths, which it
    had listed as missing repo files (OK count unchanged, 23).
 2. msfm consumers. `DRY_RUN=1 ./submit.sh grid|validate|obs all` prints the same commands as before.
+   Done 2026-11-22: all three dry runs byte-identical; `DATA_ROOT` is now overridable too, and a config
+   whose dataset lacks the projection or `data` stops (tested on the Y3 file). `sc_bias --source` and
+   `mocks check --projection` default to the projection; `systematics --source` stays required.
 3. y3-deep-lss: `common.sh`, `--obs_dir`, the products default. Acceptance: the `DRYRUN=1` output of
    every `prod/` script for `VERSION=desy3/v18` equals today's with the old defaults set explicitly
    (`INPUT=`, `OBS_INPUT=`, `RUNS_ROOT=`), except the changes D1 and D3 make. The Y6 dry runs resolve
