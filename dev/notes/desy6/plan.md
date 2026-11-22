@@ -125,12 +125,8 @@ tfrecords.
 - **D8.** Mean shear. The KP subtracts the residual additive c from the data; v18 does not
   subtract it. Only the observation is affected, not the tfrecords. Not checked yet: whether Y6
   models PSF leakage or other additive terms that we would have to forward model.
-- **D11.** Uncertainty of the lens weights. The KP marginalizes the ENet - ISD difference in the
-  w(θ) covariance; v1 has none. Raised by `differences_to_y6_kp.md`, not discussed yet.
-- **D13.** The bias fiducials `analysis.fiducial.bg*` are typed into the config, not written by
-  step `values`, unlike every other data-derived value. They reproduce exactly (power law bg 1.5,
-  n_bg 0.5, pivot 0.62 on the Y6 lens n(z)). Moving them into `values` would need the pivot as a
-  constant or key. Only the fiducial set and the mocks read them.
+- **D11.** Uncertainty of the lens weights. The KP's w(θ) covariance marginalizes analytically over
+  the two weight methods, ENet and ISD; v1 has none. Raised by `differences_to_y6_kp.md`, not discussed yet.
 
 **Settled.** The difference lists hold the details.
 
@@ -143,6 +139,9 @@ tfrecords.
   `forward_model_cosmogrid(shear_biasing=None)` resolves from `source`, so a Y6 mock carries its
   realization's n(z) and m, as the grid does; Y3 mocks keep m = 0 (`c824650`). The tfrecords are
   unaffected.
+- **D13** (2026-11-22): step `values` writes the bias fiducials `analysis.fiducial.bg*`: v18's
+  power law (bg 1.5, n_bg 0.5, pivot 0.62) on the Y6 lens n(z), the pivot a constant of the step
+  rather than a config key. The written values equal the typed ones digit for digit.
 - **D4** (2026-11-20): the IA pivot is the KP's, z0 = 0.3. Everything else stays v18's: δ-NLA, the
   boxes and the fiducials.
 - **D5** (2026-11-18): shape noise as v18, `count` with `survey_systematics: True`, using the

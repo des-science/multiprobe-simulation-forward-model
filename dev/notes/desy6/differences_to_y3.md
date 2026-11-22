@@ -27,8 +27,9 @@ arXiv:2511.04681. Y6 side: `configs/desy6/v1/default.yaml`, `data/desy6/README.m
   fiducials 0.5, 1.5, 0. Only the pivot changes (row 9).
 - Lens bias: linear per bin, box [0.8, 3.0], fiducials from the same power law (bg 1.5, n_bg 0.5)
   evaluated on the Y6 lens n(z), with v18's pivot z0 = 0.62: 1.35, 1.50, 1.57, 1.63, 1.67 (recomputed
-  exactly 2026-11-22). Row 9 does not move this pivot, since `survey.maglim` has no `z0` and the
-  values are typed into the config, not written by step `values`. No quadratic bias, no stochasticity.
+  exactly 2026-11-22). Row 9 does not move this pivot: `survey.maglim` has no `z0`, and step
+  `values` writes these fiducials with the pivot as its own constant (since 2026-11-22; v18 copied
+  them by hand). No quadratic bias, no stochasticity.
 - Lens systematics: the weight maps correct the observed counts (`apply_maglim_sys_map`) and stay
   out of the forward model (`maglim_survey_systematics_map: False`).
 - Shape noise: `count`, `bias: fixed`, `survey_systematics: True`, `metacal_bias_arm: contam`. The

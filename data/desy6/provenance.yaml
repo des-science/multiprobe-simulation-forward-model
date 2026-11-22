@@ -69,10 +69,10 @@ steps:
     - path: data/desy6/cache/desy6_maglim_count.npy
       sha256: 28a56d7a1165cd42035f65a9c9e3bd222d9c1dca877ad2c656196552a95abefc
   values:
-    date: '2026-11-22T10:28:24+01:00'
+    date: '2026-11-22T10:54:07+01:00'
     command: python -m msfm.apps.products.desy6 values --config configs/desy6/v1/default.yaml --provenance
     config: configs/desy6/v1/default.yaml
-    msfm_commit: 87a3c9b7ba8f350990591fa76ca6c6cd4a4ebd69
+    msfm_commit: 86fb7a97e17a8a5eca160b9b002743d4108a9c1b
     inputs:
     - path: data/desy6/desy6_pixels_fiducial_512.h5
       bytes: 29643257
@@ -86,9 +86,24 @@ steps:
     - path: /capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/data_desy6a2/desy6_source_redshift.h5
       bytes: 390245664
       mtime: '2026-11-09T03:56:50+01:00'
+    - path: data/desy6/redshift_distributions/desy6_nz_maglim_bin1.txt
+      bytes: 15124
+      mtime: '2026-11-20T17:55:51+01:00'
+    - path: data/desy6/redshift_distributions/desy6_nz_maglim_bin3.txt
+      bytes: 15124
+      mtime: '2026-11-20T17:55:51+01:00'
+    - path: data/desy6/redshift_distributions/desy6_nz_maglim_bin4.txt
+      bytes: 15124
+      mtime: '2026-11-20T17:55:51+01:00'
+    - path: data/desy6/redshift_distributions/desy6_nz_maglim_bin5.txt
+      bytes: 15124
+      mtime: '2026-11-20T17:55:51+01:00'
+    - path: data/desy6/redshift_distributions/desy6_nz_maglim_bin6.txt
+      bytes: 15124
+      mtime: '2026-11-20T17:55:51+01:00'
     outputs:
     - path: configs/desy6/v1/default.yaml
-      sha256: bccc654939e3676c38e854fcb500d78211603d4710f91332abd6fdaef1a79691
+      sha256: 868993aa9a37be4132f3437abf2dbea0c4fec460d807c5ebb2a3c80aff2ffe55
   noise:
     date: '2026-11-21T13:43:25+01:00'
     command: python -m msfm.apps.products.desy6 noise --config configs/desy6/v1/default.yaml --provenance
