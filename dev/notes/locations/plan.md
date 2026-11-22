@@ -127,8 +127,10 @@ All by the user, 2026-11-22.
 
 - **D1. The Y3 runs root is the a0158 store.** One key serves y3-deep-lss (which wrote to scratch, since
   purged) and msi (which reads the store, the only complete copy of the frozen runs). So a y3-deep-lss
-  `eval` on a frozen Y3 run would write into the store copy: `prod/maps.sh` and `prod/cls.sh` refuse a
-  run directory that already holds predictions unless `FORCE=1`.
+  `eval` or `infer` on a frozen Y3 run would write into the store copy: `prod/maps.sh` and `prod/cls.sh`
+  refuse either stage on a run directory that already holds predictions unless `OVERWRITE=1`, the
+  variable that already guards training. (`infer` was added at implementation: msi's `inference.sh`
+  rewrites a run's chains by design.)
 - **D2. Y6 runs go to `/ritom` scratch** (`deep_lss/runs/desy6/v1`), next to the Y6 data. It is purged,
   so finished runs are copied to `runs_archive` on the lp184 store.
 - **D3. Y3 Cls mocks come from the shared `obs_dir`**, the store. Today a Y3 Cls evaluation reads
@@ -157,7 +159,10 @@ All by the user, 2026-11-22.
 3. y3-deep-lss: `common.sh`, `--obs_dir`, the products default. Acceptance: the `DRYRUN=1` output of
    every `prod/` script for `VERSION=desy3/v18` equals today's with the old defaults set explicitly
    (`INPUT=`, `OBS_INPUT=`, `RUNS_ROOT=`), except the changes D1 and D3 make. The Y6 dry runs resolve
-   to the `/ritom` data and runs.
+   to the `/ritom` data and runs. Done 2026-11-22 (y3-deep-lss `d61fc55`): 18 of 18 dry runs (nine
+   modes per survey) differ by exactly the runs root (Y3), `--data_dir` -> `--obs_dir` in the maps
+   evaluation and the Cls app's new `--obs_dir`; debug job 5425620 resolved the same paths through
+   the srun step. `OBS_INPUT` is replaced by `OBS_DIR` (the obs directory itself).
 4. msi: `common.sh`/`inference.sh`, the runs loader, the directory move. Acceptance: the same dry-run
    comparison, and the 18 v18 runs still select identical keys.
 5. Docs: each repo's README and notes, the workspace `CLAUDE.md` section on filesystem paths (with the
