@@ -20,7 +20,7 @@ Steps, in order:
                  "# <- step values: <dotted.key>"
     noise        shape-noise file: (e1 / R, e2 / R, w, pix) per galaxy of every source bin
     systematics  source imaging-systematics maps, copied from the nside-512 export of an lss_sys run
-    sc_bias      source-clustering bias table, fit per cosmology on the projection's perm_0000
+    sc_bias      source-clustering bias table, fit per grid cosmology and on fiducial_bench, on perm_0000
 
 Usage:
     python -m msfm.apps.products.desy6 nz --config configs/desy6/v1/default.yaml
@@ -39,7 +39,7 @@ Usage:
 
 --dry-run lists a step's inputs and outputs and writes nothing. --max-objects N runs a catalog step on the first N
 rows of every catalog and writes nothing, so a partial map can never pass for the product. --max-cosmologies N does
-the same for step sc_bias with the first N grid cosmologies.
+the same for step sc_bias with the first N grid cosmologies and the fiducial one.
 """
 
 import argparse
@@ -90,6 +90,8 @@ BG_FIDUCIAL_POWER_LAW = (1.5, 0.5, 0.62)
 # forward model of each imprints the imaging systematics (shape_noise.survey_systematics)
 SC_BIAS_PERM = 0
 SC_BIAS_ARMS = {"clean": False, "contam": True}
+# the key "fiducial", which the benchmark mocks read, is fit on the benchmark at the fiducial cosmology and resolution
+SC_BIAS_FIDUCIAL_DIR = os.path.join("benchmarks", "fiducial_bench")
 
 
 def _out_path(rel_path):
@@ -613,11 +615,12 @@ def step_sc_bias(conf, args):
     match the one-point function of the observed counts of step maps. One HDF5 group per arm: clean, without imaging
     systematics, and contam, with the contamination of step systematics imprinted. files.metacal_bias_arm picks one.
 
-    --source is the projection root, which holds grid/ and, once projected, fiducial/. The table is written to a
-    temporary file and checked first: every fit finite and positive, and a config pointing at it passes
-    files.read_metacal_bias and configuration.print_and_check_modeling_in_config, which matches each arm's
-    systematics label against the forward model. --max-cosmologies N fits the first N grid cosmologies, runs the same
-    checks and writes nothing.
+    --source is the projection root, which holds grid/ and benchmarks/. The key "fiducial", which
+    run_single_postprocessing reads for every benchmark, is fit on SC_BIAS_FIDUCIAL_DIR, since Y6 has no fiducial
+    projection. The table is written to a temporary file and checked first: every fit finite and positive, and a
+    config pointing at it passes files.read_metacal_bias and configuration.print_and_check_modeling_in_config, which
+    matches each arm's systematics label against the forward model. --max-cosmologies N fits the first N grid
+    cosmologies and the fiducial one, runs the same checks and writes nothing.
 
     Returns:
         tuple: (input paths, output paths), or None with --dry-run or --max-cosmologies
@@ -630,16 +633,11 @@ def step_sc_bias(conf, args):
     inputs = [source, pixel_path, count_path, sys_path, meta_path]
     out_path = _out_path(conf["files"]["metacal_bias"])
 
-    # every grid cosmology, or the first N; the fiducial one only in a full run, and only once it is projected
+    # every grid cosmology, or the first N, and the fiducial one last
     cosmo_dirs = scb.get_cosmogrid_dirs(conf, source, with_fiducial=False)
     if args.max_cosmologies is not None:
         cosmo_dirs = dict(list(cosmo_dirs.items())[: args.max_cosmologies])
-    else:
-        fiducial_dir = os.path.join(source, "fiducial", "cosmo_fiducial")
-        if os.path.isdir(fiducial_dir):
-            cosmo_dirs["fiducial"] = fiducial_dir
-        else:
-            LOGGER.warning(f"{fiducial_dir} does not exist, so the table gets no fiducial key")
+    cosmo_dirs["fiducial"] = os.path.join(source, SC_BIAS_FIDUCIAL_DIR)
     with_bary = conf["analysis"]["modelling"]["baryonified"]
     missing = [
         key
@@ -791,12 +789,13 @@ def main(argv=None):
         "--max-cosmologies",
         type=int,
         default=None,
-        help="sc_bias only: fit the first N grid cosmologies, write nothing",
+        help="sc_bias only: fit the first N grid cosmologies and the fiducial one, write nothing",
     )
     parser.add_argument(
         "--source",
         default=None,
-        help="systematics: the nside-512 export of the lss_sys run; sc_bias: the projection root, which holds grid/",
+        help="systematics: the nside-512 export of the lss_sys run; sc_bias: the projection root, which holds grid/ "
+        "and benchmarks/",
     )
     parser.add_argument(
         "--provenance",
