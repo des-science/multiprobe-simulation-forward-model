@@ -182,9 +182,9 @@ analysis:
     Aia: 0.5
     n_Aia: 1.5
     bta: 0.0
-    # galaxy clustering, the power law bg = 1.5, n_bg = 0.5 with v18's pivot z0 = 0.62, on the Y6 lens n(z)
-    bg1: 1.3460011
-    bg3: 1.5010278
-    bg4: 1.5707155
-    bg5: 1.6251594
-    bg6: 1.6702148
+    # galaxy clustering, v18's power law bg = 1.5, n_bg = 0.5 with pivot z0 = 0.62, on the Y6 lens n(z)
+    bg1: 1.3460011 # <- step values: analysis.fiducial.bg1
+    bg3: 1.5010278 # <- step values: analysis.fiducial.bg3
+    bg4: 1.5707155 # <- step values: analysis.fiducial.bg4
+    bg5: 1.6251594 # <- step values: analysis.fiducial.bg5
+    bg6: 1.6702148 # <- step values: analysis.fiducial.bg6

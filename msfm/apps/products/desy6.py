@@ -16,7 +16,8 @@ Steps, in order:
                  mask, and the MagLim weight maps that correct the observed lens counts, from the catalog
     maps         shear and count maps of every source and lens bin, and the source response, in dirs.cache, where the
                  builders of msfm.utils.catalog load them
-    values       n_gal, m prior and Aeff, written into the config lines marked "# <- step values: <dotted.key>"
+    values       n_gal, m prior, Aeff and the lens bias fiducials, written into the config lines marked
+                 "# <- step values: <dotted.key>"
     noise        shape-noise file: (e1 / R, e2 / R, w, pix) per galaxy of every source bin
     systematics  source imaging-systematics maps, copied from the nside-512 export of an lss_sys run
     sc_bias      source-clustering bias table, fit per cosmology on the projection's perm_0000
@@ -53,7 +54,7 @@ import h5py
 import healpy as hp
 import numpy as np
 
-from msfm.utils import catalog, catalog_desy6, configuration, files, filenames, logger, products
+from msfm.utils import catalog, catalog_desy6, configuration, files, filenames, logger, products, redshift
 from msfm.utils import source_clustering_bias as scb
 
 LOGGER = logger.get_logger(__file__)
@@ -81,6 +82,9 @@ MAPS_FILES = {
     "metacal_response": "metacal_response.npy",
     "maglim_count": "maglim_count.npy",
 }
+
+# step values: the lens bias fiducials are v18's power law (amplitude, exponent, pivot z0) on the lens n(z)
+BG_FIDUCIAL_POWER_LAW = (1.5, 0.5, 0.62)
 
 # step sc_bias: the permutation every cosmology is fit on, as for Y3, and the arms of the table with whether the
 # forward model of each imprints the imaging systematics (shape_noise.survey_systematics)
@@ -367,8 +371,9 @@ def step_values(conf, args):
     n_gal is the count inside the footprint (patch 0 of the pixel file) over the footprint's area, in deg^-2, as
     notebooks/desy3/config.ipynb did for Y3. For MagLim the count is the raw one times the weight maps of the pixel
     file, which is the observation the clean simulations are compared to, so the two match in expectation. The m prior
-    is the mean and std of the M_BIN samples, and Aeff is the full-resolution mask area stored in the pixel file.
-    Per-bin values follow the config's z_bins.
+    is the mean and std of the M_BIN samples, and Aeff is the full-resolution mask area stored in the pixel file. The
+    lens bias fiducials are BG_FIDUCIAL_POWER_LAW averaged over the n(z) of step nz, as for v18. Per-bin values follow
+    the config's z_bins.
 
     With --check, writes nothing and exits with 1 if any marked value is stale.
 
@@ -382,12 +387,18 @@ def step_values(conf, args):
     pixel_path = _out_path(conf["files"]["pixels"])
     maps = {key: _maps_path(conf, key) for key in ("metacal_count", "maglim_count")}
     m_path = catalog_desy6.release_path(conf, "source_redshift")
-    inputs = [pixel_path, *maps.values(), m_path]
+    nz_dir = _out_path(conf["dirs"]["redshift_distributions"])
+    lens_bins = conf["survey"]["maglim"]["z_bins"]
+    nz_paths = [
+        filenames.get_filename_z_distribution(nz_dir, "maglim", files.get_z_bin_number(z), prefix=SURVEY_NAME.lower())
+        for z in lens_bins
+    ]
+    inputs = [pixel_path, *maps.values(), m_path, *nz_paths]
     if args.dry_run:
         return _dry_run("values", inputs, [conf_path])
     for path in inputs:
         if not os.path.isfile(path):
-            raise FileNotFoundError(f"{_rel(path)} does not exist, run the steps pixels and maps first")
+            raise FileNotFoundError(f"{_rel(path)} does not exist, run the steps nz, pixels and maps first")
 
     n_side = conf["analysis"]["n_side"]
     footprint_conf = conf["analysis"]["footprint"]
@@ -432,6 +443,20 @@ def step_values(conf, args):
     values["survey.metacal.shear_bias.multiplicative.mu"] = _configured_bins(conf, "metacal", mu)
     values["survey.metacal.shear_bias.multiplicative.sigma"] = _configured_bins(conf, "metacal", sigma)
     LOGGER.info(f"Aeff = {area:.3f} deg^2, footprint {footprint_area:.1f} deg^2")
+
+    # untruncated, as redshift.get_tomo_amplitudes_according_to_config treats the lens sample
+    bg, n_bg, z0 = BG_FIDUCIAL_POWER_LAW
+    z, nz = files.load_redshift_distributions("maglim", conf)
+    bg_fiducial = redshift.get_tomo_amplitudes(bg, n_bg, z, nz, z0=z0, truncate_nz=False)
+    bg_params = conf["analysis"]["params"]["bg"]["linear"]
+    assert bg_params == [f"bg{files.get_z_bin_number(z)}" for z in lens_bins], f"{bg_params} do not follow {lens_bins}"
+    for param, value in zip(bg_params, bg_fiducial):
+        # the shortest decimal that gives back the float32 amplitude
+        values[f"analysis.fiducial.{param}"] = float(str(value))
+    LOGGER.info(
+        f"bias fiducials {[values[f'analysis.fiducial.{p}'] for p in bg_params]}, power law (bg, n_bg, z0) "
+        f"{BG_FIDUCIAL_POWER_LAW}"
+    )
 
     written = products.write_marked_values(conf, conf_path, values, args.check, rel=_rel)
     # with --provenance an up-to-date config is recorded too: these inputs at this commit give its values
