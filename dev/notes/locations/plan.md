@@ -168,6 +168,11 @@ All by the user, 2026-11-22.
    evaluation and the Cls app's new `--obs_dir`; debug job 5425620 resolved the same paths through
    the srun step. `OBS_INPUT` is replaced by `OBS_DIR` (the obs directory itself).
 4. msi: `common.sh`/`inference.sh`, the runs loader, the directory move. Acceptance: the same dry-run
-   comparison, and the 18 v18 runs still select identical keys.
+   comparison, and the 18 v18 runs still select identical keys. Done 2026-11-22 (msi `20614fa`): the
+   dataset is a function, `use_dataset`, since `coverage_round.sh` needs none; every existing runs
+   config loads identically through `load_runs_config` (tested); dry runs differ only by the moved runs
+   config and, for `fisher_cls.sh`, the store runs root and the `/ritom` data; the suite passes, 20 of 20,
+   after the integration test's stale msfm path was fixed. Found: every Y3 runs config's absolute
+   `pred_dir` points at the purged `/iopsstor` copies of the runs (no files left, only dangling links).
 5. Docs: each repo's README and notes, the workspace `CLAUDE.md` section on filesystem paths (with the
    user's OK), the memory.
