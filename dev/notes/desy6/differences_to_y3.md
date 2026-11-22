@@ -75,8 +75,8 @@ arXiv:2511.04681. Y6 side: `configs/desy6/v1/default.yaml`, `data/desy6/README.m
   has the fiducial cosmology, the fiducial set's resolution and the config's fiducial n(z): the
   bias-table key `fiducial` (row 12) and y3-deep-lss's noise level.
 - The mock observations. The four benchmarks are projected (`fiducial_bench`, `box_size`,
-  `particle_count`, `redshift_resolution`; 20 permutations each), but no Y6 mock is built from them
-  yet. Y3's dark-matter-only, IA-shell and Buzzard mocks have no Y6 input.
+  `particle_count`, `redshift_resolution`; 20 permutations each), and six mocks are defined from them,
+  but none is run yet. Y3's dark-matter-only, Gatti, IA-shell and Buzzard mocks have no Y6 input.
 
 The grid tfrecords exist since 2026-11-21: 2500 files from this config (`pipelines/daint/desy6/v1/`).
 
@@ -85,6 +85,10 @@ The grid tfrecords exist since 2026-11-21: 2500 files from this config (`pipelin
 - Layout: Y3 under `configs/desy3/`, `data/desy3/`, `notebooks/desy3/`, `pipelines/perlmutter/desy3/`;
   Y6 next to it under `desy6/`, with `pipelines/daint/desy6/`. Configs are versioned per survey
   (`desy6/v1`).
+- Mocks: one registry, `configs/desy6/v1/mock_observations.yaml`, holds every mock (input, overrides of
+  `default.yaml`, forward-model flags), resolved by `msfm.utils.mocks` and checked before submission.
+  Y3 kept them in the arm table of `pipelines/perlmutter/desy3/v18/packed/submit_obs.sh`, with a full
+  config copy per variant under `configs/desy3/v18/obs/`.
 - Products: one script with checks, `msfm.apps.products.desy6`, with the steps `nz`, `pixels`,
   `maps`, `values`, `noise`, `systematics` and `sc_bias`. `values` writes the marked config lines;
   `--provenance` records inputs, outputs and the msfm commit. Y3 used notebooks and hand-copied

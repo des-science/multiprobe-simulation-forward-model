@@ -41,7 +41,7 @@ NODE_SCRIPT=$REPO/pipelines/daint/common/packed_node.slurm
 export TASK_SCRIPT=$REPO/pipelines/daint/common/packed_task.sh
 
 CONFIG=${CONFIG:-$REPO/configs/desy6/v1/default.yaml}
-MOCKS=${MOCKS:-$REPO/configs/desy6/v1/mocks.yaml}
+MOCKS=${MOCKS:-$REPO/configs/desy6/v1/mock_observations.yaml}
 # Tomasz's Y6 projection on the lp184 store, mounted in the tensorflow container
 DIR_IN=${DIR_IN:-/capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/000_test/cosmogrid/processed/desy6/CosmoGrid/bary}
 DATA_ROOT=/ritom/scratch/cscs/athomsen/desy6/v1/default

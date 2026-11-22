@@ -72,6 +72,34 @@ node. Including the merge, the grid cost ≈ 81 node-hours and took about 8 h of
 `.tfrecord` sizes come in three values, 80 bytes apart. That is one byte per record per step, most
 likely a varint-encoded index growing with the cosmology.
 
+## Mock observations
+
+`./submit.sh obs <label>|all` makes the mock observations the networks are tested on, one
+`<label>_obs_maps.h5` each in `/ritom/.../desy6/v1/default/obs/`. Each mock runs
+`msfm/apps/run_single_postprocessing.py` over the 20 permutations of one CosmoGrid cosmology (4 patches
+each) on one node, followed by a merge.
+
+Every mock is defined in `configs/desy6/v1/mock_observations.yaml` and nowhere else: its input below
+the projection root, the keys of `default.yaml` it changes, and its forward-model flags (format in
+`msfm/utils/mocks.py`). A new mock is a new entry there; this script reads only the labels.
+
+```bash
+cd pipelines/daint/desy6/v1
+DRY_RUN=1 ./submit.sh obs all                   # checks every mock, prints the sbatch lines
+PARTITION=debug ./submit.sh obs fiducial_bench  # one mock
+./submit.sh obs all                             # one array and one merge per mock
+```
+
+The preflight runs `python -m msfm.utils.mocks check` on every selected mock before submitting any. It
+checks the config the way the pipelines do, the files the config names, every permutation's maps file
+and the bias-table key; the benchmarks read `fiducial`, fit on `fiducial_bench`. The merged file stores
+the mock's label, input, flags and resolved config as attributes. A merged mock counts as complete for
+`--rerun`, since the merge deletes the per-permutation files.
+
+The six v1 mocks are `fiducial_bench`, `box_size`, `particle_count`, `redshift_resolution`, and the
+source-clustering arms `fiducial_bench_source_clustering_in_place` and `..._no_sys`. Y3's
+dark-matter-only, Gatti, IA-shell and Buzzard mocks have no Y6 input.
+
 ## Validation
 
 The checks live in `dev/scripts/validation/`, and each script's docstring lists what it tests:

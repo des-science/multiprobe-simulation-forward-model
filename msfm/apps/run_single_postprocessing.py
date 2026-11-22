@@ -23,7 +23,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
 A mock of a registry (msfm.utils.mocks) takes everything but the paths from the registry, here the projection root as
 --dir_in and the output directory (pipelines/daint/desy6/v1/submit.sh obs):
 
-python msfm/apps/run_single_postprocessing.py --mocks=configs/desy6/v1/mocks.yaml --mock=fiducial_bench \
+python msfm/apps/run_single_postprocessing.py --mocks=configs/desy6/v1/mock_observations.yaml --mock=fiducial_bench \
     --dir_in=<projection root> --dir_out=<obs dir>
 """
 
@@ -105,7 +105,7 @@ def setup(args):
         "--mocks",
         type=str,
         default=None,
-        help="mock registry, e.g. configs/desy6/v1/mocks.yaml (msfm.utils.mocks), used with --mock",
+        help="mock registry, e.g. configs/desy6/v1/mock_observations.yaml (msfm.utils.mocks), used with --mock",
     )
     parser.add_argument(
         "--mock",

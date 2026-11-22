@@ -93,9 +93,9 @@ The re-scan of all 50,000 files (2026-11-20, `claude/tmp/desy6_rescan/`) found:
 
 Later, and not needed for the grid set:
 
-- the mock observations from the four benchmark projections (`run_single_postprocessing.py`, as
-  v18's `submit_obs.sh`): an `obs` chain in `pipelines/daint/desy6/v1/submit.sh` and arm configs
-  under `configs/desy6/v1/obs/`;
+- the mock observations from the four benchmark projections: built (`2046ec6`), not run yet. All six
+  are defined in `configs/desy6/v1/mock_observations.yaml` (format in `msfm/utils/mocks.py`) and
+  submitted with `pipelines/daint/desy6/v1/submit.sh obs <label>|all`;
 - the downstream port (section 6).
 
 The fiducial set is not needed (user, 2026-11-22). Where Y3 used the fiducial maps, Y6 uses the
