@@ -220,7 +220,7 @@ def forward_model_cosmogrid(
     bta=None,
     tomo_bg_metacal=None,
     i_sobol=None,
-    shear_biasing=False,
+    shear_biasing=None,
     reduced_shear=False,
     # clustering
     with_clustering=True,
@@ -241,6 +241,9 @@ def forward_model_cosmogrid(
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary (the config is
             passed through) or None (the default config is loaded). Defaults to None.
         with_lensing (bool, optional): Whether to include the weak lensing map. Defaults to True.
+        shear_biasing (bool, optional): Whether to apply the multiplicative shear bias: the realization's own m when
+            the config takes m from the projection, else a draw from the prior. Defaults to None, which applies it
+            exactly when the config takes m from the projection.
         with_clustering (bool, optional): Whether to include the galaxy clustering map. Defaults to True.
         noisy (bool, optional): Whether to generate shape and poisson noise or return noiseless maps. Defaults to
             False.
@@ -253,6 +256,9 @@ def forward_model_cosmogrid(
     conf = files.load_config(conf)
     if noise_only:
         assert noisy, "If noise_only is true, noisy must also be true."
+    if shear_biasing is None:
+        # m belongs to the realization when the projection stores it, as on the grid
+        shear_biasing = lensing.m_bias_from_projection(conf)
 
     # constants
     n_side = conf["analysis"]["n_side"]
