@@ -201,7 +201,7 @@ def main(indices, args):
 
     # configuration
     conf = files.load_config(args.config)
-    # shape-noise model; sn_bias == "prior" sources the source-clustering bias from the Latin hypercube
+    # shape-noise model; a bias in files.SAMPLED_BIASES sources the source-clustering bias from the Latin hypercube
     _, sn_bias, _, _ = files.get_shape_noise(conf)
     if not args.to_san:
         with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
@@ -248,8 +248,11 @@ def main(indices, args):
     astro_params += conf["analysis"]["params"]["bg"]["linear"]
     if quadratic_biasing:
         astro_params += conf["analysis"]["params"]["bg"]["quadratic"]
-    if sn_bias == "prior":
+    if sn_bias in files.SAMPLED_BIASES:
         astro_params += conf["analysis"]["params"]["sc"]
+    # the anchor b_sc * sigma8 of the bias "prior", see lensing.source_clustering_bias
+    bsc_sigma8 = files.get_bsc_sigma8(conf) if sn_bias == "prior" else None
+    n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
     LOGGER.info(
         f"Sampling the astrophysical parameters {astro_params} from a Latin hypercube, with the truncated Gaussian "
         f"priors {parameters.get_gaussian_priors(astro_params, conf)} and the others uniform"
@@ -332,7 +335,20 @@ def main(indices, args):
                 astro_samples = parameters.unit_to_prior(unscaled_samples, astro_params, conf)
                 astro_samples = astro_samples.astype(np.float32)
 
-                bsc_samples = astro_samples[:, -1] if sn_bias == "prior" else None
+                # (n_examples, n_z_metacal) source clustering bias per example and bin, the last sampled column
+                if sn_bias == "prior":
+                    # an amplitude on the anchor, at this cosmology's sigma8
+                    s8 = cosmo_params_info["s8"][i_cosmo]
+                    bsc_samples = lensing.source_clustering_bias(bsc_sigma8, s8, astro_samples[:, -1])
+                elif sn_bias == "absolute_prior":
+                    # one bias for every bin
+                    bsc_samples = np.repeat(astro_samples[:, -1:], n_z_metacal, axis=1)
+                else:
+                    bsc_samples = None
+                if bsc_samples is not None:
+                    LOGGER.debug(
+                        f"source clustering bias per bin, min {bsc_samples.min(axis=0)}, max {bsc_samples.max(axis=0)}"
+                    )
 
                 if args.debug and os.path.exists(state_file):
                     with open(state_file, "rb") as f:
@@ -385,7 +401,7 @@ def main(indices, args):
                     cosmo_sample = np.concatenate([cosmo, astro_sample])
 
                     # to keep the indexing identical
-                    if sn_bias == "prior":
+                    if sn_bias in files.SAMPLED_BIASES:
                         astro_sample = astro_sample[:-1]
 
                     # lensing, by name since an IA parameter is either sampled or in analysis.grid.fixed

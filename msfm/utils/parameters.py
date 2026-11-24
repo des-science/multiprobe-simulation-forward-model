@@ -25,12 +25,14 @@ LOG10_PARAMS = ("bary_Mc",)
 # catches a double conversion (log10 applied to an already-log10'd table).
 LOG10_RAW_MIN = 1e10
 
-# The groups of analysis.params whose labels each probe's maps depend on, the default network target
+# The groups of analysis.params whose labels each probe's maps depend on, the default network target: every parameter
+# the forward model varies. A run drops a group by naming the others in dset.training.params, e.g. [cosmo, bary, ia]
+# for lensing without the source clustering amplitude sc; deleting a group here drops it from every default
 PROBE_GROUPS = {"lensing": ("cosmo", "bary", "ia", "sc"), "clustering": ("cosmo", "bary", "bg", "stochasticity")}
 
 # The labels that reports and diagnostics marginalize by default: the network and the flow are conditioned on them,
-# the posteriors are read without them
-REPORT_MARGINALIZED = ("ns", "Ob", "H0", "bary_Mc", "bary_nu")
+# the posteriors are read without them. Asc, the source clustering amplitude, is not expected to be constrained
+REPORT_MARGINALIZED = ("ns", "Ob", "H0", "bary_Mc", "bary_nu", "Asc")
 
 
 def raw_to_prior_units(cosmos, params, copy=True):
@@ -96,7 +98,7 @@ def get_parameters(params=None, conf=None):
             params += conf["analysis"]["params"]["bg"]["quadratic"]
         try:
             _, sn_bias, _, _ = files.get_shape_noise(conf)
-            if sn_bias == "prior":
+            if sn_bias in files.SAMPLED_BIASES:
                 params += conf["analysis"]["params"]["sc"]
         except KeyError:
             pass

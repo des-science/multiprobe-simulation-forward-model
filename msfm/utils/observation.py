@@ -357,13 +357,13 @@ def forward_model_cosmogrid(
                             LOGGER.info(f"Using tomo_bg_metacal={tomo_bg_metacal} from the Sobol index {i_sobol}")
                         else:
                             raise ValueError(
-                                "count shape noise needs tomo_bg_metacal (for bias: prior) or i_sobol (for "
-                                "bias: fixed) to determine the metacal source-clustering bias"
+                                "count shape noise needs tomo_bg_metacal (for bias: prior or absolute_prior) or "
+                                "i_sobol (for bias: fixed) to determine the metacal source-clustering bias"
                             )
 
-                    # bias: prior samples a single b_sc per patch (see run_single_postprocessing), which applies to
-                    # every tomographic bin. Broadcast it here, like the gatti branch below does, because the per-bin
-                    # loop indexes this per bin and a scalar is not subscriptable
+                    # bias: absolute_prior samples a single b_sc per patch (see run_single_postprocessing), which
+                    # applies to every tomographic bin. Broadcast it here, like the gatti branch below does, because
+                    # the per-bin loop indexes this per bin and a scalar is not subscriptable
                     n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
                     tomo_bg_metacal = np.atleast_1d(np.asarray(tomo_bg_metacal, dtype=float))
                     if tomo_bg_metacal.size == 1:
@@ -386,7 +386,7 @@ def forward_model_cosmogrid(
                     LOGGER.info("Gatti source-clustering: density-modulated rotate-in-place shape noise")
                     # per-bin source galaxy bias b_sc for the modulation; the function call
                     # (tomo_bg_metacal) overrides the config fixed_bsc (bias: fixed) or supplies the
-                    # sampled bsc (bias: prior)
+                    # sampled bsc (bias: absolute_prior)
                     n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
                     if tomo_bg_metacal is not None:
                         b_sc_gatti = np.atleast_1d(np.asarray(tomo_bg_metacal, dtype=float))
@@ -398,7 +398,7 @@ def forward_model_cosmogrid(
                         LOGGER.info(f"Using b_sc={b_sc_gatti} from the config (fixed_bsc)")
                     else:
                         raise ValueError(
-                            "gatti shape noise with bias: prior needs tomo_bg_metacal (the sampled bsc) to "
+                            "gatti shape noise with bias: absolute_prior needs tomo_bg_metacal (the sampled bsc) to "
                             "be passed to forward_model_cosmogrid"
                         )
 

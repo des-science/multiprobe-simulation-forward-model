@@ -1,5 +1,6 @@
 import os
 import h5py
+import numpy as np
 
 from msfm.utils import logger, files, parameters
 
@@ -48,6 +49,27 @@ def _check_metacal_bias_matches_forward_model(conf, survey_systematics):
     # its own caveats and they belong in the run log rather than only in an attribute nobody reads
     if status:
         LOGGER.warning(f"Imaging systematics {conf_label!r} self-reports: {status}")
+
+
+def _check_bsc_sigma8_matches_table(conf, survey_systematics):
+    """Assert that the anchor of the shape_noise bias "prior" is the fiducial row of the configured bias table arm
+    times the fiducial sigma8, the value step values derives. This catches an anchor from the other arm, e.g. a mock
+    that switches the imaging systematics off and keeps the contaminated anchor.
+
+    Args:
+        conf (dict): Configuration.
+        survey_systematics (bool): Whether the forward model imprints the imaging systematics, see
+            files.get_shape_noise.
+    """
+    _check_metacal_bias_matches_forward_model(conf, survey_systematics)
+
+    bsc_sigma8 = files.get_bsc_sigma8(conf)
+    expected = files.read_metacal_bias("fiducial", conf) * conf["analysis"]["fiducial"]["s8"]
+    assert np.allclose(bsc_sigma8, expected, rtol=1e-12, atol=0), (
+        f"shape_noise bsc_sigma8 {bsc_sigma8} is not the fiducial row of {conf['files']['metacal_bias']} (arm "
+        f"{conf['files'].get('metacal_bias_arm')}) times the fiducial s8, {expected}. Rerun step values"
+    )
+    LOGGER.info(f"Source clustering anchor b_sc * sigma8 = {bsc_sigma8}")
 
 
 def check_survey_paths(conf):
@@ -114,25 +136,29 @@ def print_and_check_modeling_in_config(conf):
             LOGGER.warning(f"The fiducial {param} = {fiducial} is not its fixed grid value {value}")
 
     # shape-noise model: get_shape_noise validates the per-field values (method/bias/fixed_bsc);
-    # additionally check that a prior bias has the sampled 'sc' parameter to feed the Latin hypercube
+    # additionally check that a sampled bias has the single 'sc' parameter to feed the Latin hypercube
     sn_method, sn_bias, sn_fixed_bsc, sn_survey_sys = files.get_shape_noise(conf)
     LOGGER.info(
         f"Shape-noise model: method={sn_method}, bias={sn_bias}, fixed_bsc={sn_fixed_bsc}, "
         f"survey_systematics={sn_survey_sys}"
     )
-    if sn_bias == "prior":
-        assert conf["analysis"]["params"].get("sc"), (
-            "shape_noise bias 'prior' requires analysis.params.sc (e.g. [bsc]) to sample b_sc from the "
-            "Latin hypercube"
+    if sn_bias in files.SAMPLED_BIASES:
+        # the grid reads the last sampled column as the bias and strips exactly one
+        sc_params = conf["analysis"]["params"].get("sc") or []
+        assert len(sc_params) == 1, (
+            f"shape_noise bias {sn_bias!r} requires exactly one analysis.params.sc ([Asc] for prior, [bsc] for "
+            f"absolute_prior) to sample from the Latin hypercube, got {sc_params}"
         )
     if sn_method == "count":
         if sn_bias == "fixed":
             _check_metacal_bias_matches_forward_model(conf, sn_survey_sys)
+        elif sn_bias == "prior":
+            _check_bsc_sigma8_matches_table(conf, sn_survey_sys)
         else:
             # the bias comes from the Latin hypercube and files.metacal_bias is never read, so there is no table
             # whose provenance could be checked -- the prior interval itself has to match the forward model
             LOGGER.warning(
-                "count shape noise with bias 'prior' does not read files.metacal_bias, so the systematics "
+                "count shape noise with bias 'absolute_prior' does not read files.metacal_bias, so the systematics "
                 "consistency of the source clustering bias cannot be checked here. Make sure that "
                 f"analysis.grid.priors.bsc was chosen for survey_systematics={sn_survey_sys}"
             )

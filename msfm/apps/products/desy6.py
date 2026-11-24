@@ -16,8 +16,8 @@ Steps, in order:
                  mask, and the MagLim weight maps that correct the observed lens counts, from the catalog
     maps         shear and count maps of every source and lens bin, and the source response, in dirs.cache, where the
                  builders of msfm.utils.catalog load them
-    values       n_gal, m prior, Aeff and the lens bias fiducials, written into the config lines marked
-                 "# <- step values: <dotted.key>"
+    values       n_gal, m prior, Aeff, the lens bias fiducials and the source clustering anchor, written into the config
+                 lines marked "# <- step values: <dotted.key>"
     noise        shape-noise file: (e1 / R, e2 / R, w, pix) per galaxy of every source bin
     systematics  source imaging-systematics maps, copied from the nside-512 export of an lss_sys run
     sc_bias      source-clustering bias table, fit per grid cosmology and on fiducial_bench, on perm_0000
@@ -92,6 +92,8 @@ SC_BIAS_PERM = 0
 SC_BIAS_ARMS = {"clean": False, "contam": True}
 # the key "fiducial", which the benchmark mocks read, is fit on the benchmark at the fiducial cosmology and resolution
 SC_BIAS_FIDUCIAL_DIR = os.path.join("benchmarks", "fiducial_bench")
+# step values: the anchor b_sc * sigma8 of the shape_noise bias "prior", from the key "fiducial" of step sc_bias
+BSC_SIGMA8_KEY = "analysis.modelling.lensing.shape_noise.bsc_sigma8"
 
 
 def _out_path(rel_path):
@@ -375,7 +377,10 @@ def step_values(conf, args):
     file, which is the observation the clean simulations are compared to, so the two match in expectation. The m prior
     is the mean and std of the M_BIN samples, and Aeff is the full-resolution mask area stored in the pixel file. The
     lens bias fiducials are BG_FIDUCIAL_POWER_LAW averaged over the n(z) of step nz, as for v18, where the config marks
-    them; a config can instead set all of them by hand. Per-bin values follow the config's z_bins.
+    them; a config can instead set all of them by hand. Where the config marks BSC_SIGMA8_KEY, the anchor of the
+    shape_noise bias "prior" is the key "fiducial" of the table of step sc_bias (the configured arm) times sigma8 of
+    the benchmark it is fit on, so such a config runs this step again after sc_bias. Per-bin values follow the
+    config's z_bins.
 
     With --check, writes nothing and exits with 1 if any marked value is stale.
 
@@ -396,11 +401,17 @@ def step_values(conf, args):
         for z in lens_bins
     ]
     inputs = [pixel_path, *maps.values(), m_path, *nz_paths]
+    # the source clustering anchor, derived where the config marks it
+    derive_bsc_sigma8 = BSC_SIGMA8_KEY in products.marked_keys(conf_path)
+    if derive_bsc_sigma8:
+        bias_path = _out_path(conf["files"]["metacal_bias"])
+        meta_path = os.path.join(REPO_DIR, conf["files"]["meta_info"])
+        inputs += [bias_path, meta_path]
     if args.dry_run:
         return _dry_run("values", inputs, [conf_path])
     for path in inputs:
         if not os.path.isfile(path):
-            raise FileNotFoundError(f"{_rel(path)} does not exist, run the steps nz, pixels and maps first")
+            raise FileNotFoundError(f"{_rel(path)} does not exist, run the steps nz, pixels, maps (and sc_bias) first")
 
     n_side = conf["analysis"]["n_side"]
     footprint_conf = conf["analysis"]["footprint"]
@@ -466,11 +477,31 @@ def step_values(conf, args):
     else:
         LOGGER.info(f"bias fiducials {[conf['analysis']['fiducial'][p] for p in bg_params]}, set in the config")
 
+    if derive_bsc_sigma8:
+        # the table arm has to match the forward model's imaging systematics, as for the bias "fixed"
+        configuration._check_metacal_bias_matches_forward_model(conf, files.get_shape_noise(conf)[3])
+        s8 = conf["analysis"]["fiducial"]["s8"]
+        bench_s8 = _fiducial_bench_s8(meta_path)
+        assert bench_s8 == s8, f"analysis.fiducial.s8 {s8} is not sigma8 of {SC_BIAS_FIDUCIAL_DIR}, {bench_s8}"
+        b_fiducial = files.read_metacal_bias("fiducial", conf)
+        values[BSC_SIGMA8_KEY] = [float(b) for b in b_fiducial * s8]
+        LOGGER.info(f"source clustering anchor b_sc * sigma8 = {values[BSC_SIGMA8_KEY]}, from b = {b_fiducial}")
+
     written = products.write_marked_values(conf, conf_path, values, args.check, rel=_rel)
     # with --provenance an up-to-date config is recorded too: these inputs at this commit give its values
     if args.check or not (written or args.provenance):
         return None
     return inputs, [conf_path]
+
+
+def _fiducial_bench_s8(meta_path):
+    """sigma8 of SC_BIAS_FIDUCIAL_DIR, the benchmark the bias-table key "fiducial" is fit on, from the metainfo."""
+    with h5py.File(meta_path, "r") as f:
+        bench = f["parameters/benchmark"][:]
+    name = os.path.basename(SC_BIAS_FIDUCIAL_DIR)
+    types = [t.decode() if isinstance(t, bytes) else str(t) for t in bench["benchmark_type"]]
+    assert types.count(name) == 1, f"{_rel(meta_path)} lists the benchmark {name} {types.count(name)} times"
+    return float(bench["s8"][types.index(name)])
 
 
 def _configured_bins(conf, sample, per_survey_bin):

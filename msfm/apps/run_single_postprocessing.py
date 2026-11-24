@@ -35,7 +35,7 @@ import h5py
 import time
 import yaml
 
-from msfm.utils import files, logger, input_output, imports, mocks, observation, parameters, configuration
+from msfm.utils import files, logger, input_output, imports, mocks, observation, parameters, configuration, lensing
 
 hp = imports.import_healpy(parallel=False)
 
@@ -275,7 +275,18 @@ def main(indices, args):
             # count+fixed: per-cosmology metacal bias read from files.metacal_bias
             tomo_bg_metacal = files.read_metacal_bias(files.metacal_bias_key(perm_dir), conf=msfm_conf)
         elif bias == "prior":
-            # count+prior or gatti+prior: sample bsc from the prior (assigned per patch below)
+            # count+prior: the anchor at the fiducial amplitude, defined for the fiducial cosmology only
+            assert files.metacal_bias_key(perm_dir) == "fiducial", (
+                f"shape_noise bias 'prior' is evaluated at analysis.fiducial (s8, Asc), but {perm_dir} is not a "
+                f"fiducial or benchmark simulation"
+            )
+            fiducial = msfm_conf["analysis"]["fiducial"]
+            tomo_bg_metacal = lensing.source_clustering_bias(
+                files.get_bsc_sigma8(msfm_conf), fiducial["s8"], fiducial["Asc"]
+            )
+            LOGGER.info(f"Source clustering bias {tomo_bg_metacal} at Asc = {fiducial['Asc']}, s8 = {fiducial['s8']}")
+        elif bias == "absolute_prior":
+            # count or gatti: sample one bsc for all bins from the prior (assigned per patch below)
             sc_prior = parameters.get_prior_intervals(["bsc"], conf=msfm_conf)
             bsc_samples = np.random.default_rng(seed=index).uniform(
                 sc_prior[0, 0], sc_prior[0, 1], size=msfm_conf["analysis"]["n_patches"]
@@ -293,7 +304,7 @@ def main(indices, args):
                 LOGGER.warning("Debug mode: only processing the first patch")
                 break
 
-            if bias == "prior" and args.tomo_bg_metacal is None:
+            if bias == "absolute_prior" and args.tomo_bg_metacal is None:
                 tomo_bg_metacal = bsc_samples[i_patch]
 
             # unique seed per (permutation, patch) so the 80 realizations have independent noise

@@ -70,7 +70,7 @@ analysis:
       linear: [bg1, bg2, bg3, bg4]
       quadratic: [bg1_q, bg2_q, bg3_q, bg4_q]
       stochasticity: [rg]
-    # source-clustering bias, sampled from the Latin hypercube for shape_noise bias: prior
+    # source-clustering bias, sampled from the Latin hypercube for shape_noise bias: absolute_prior
     sc: [bsc]
   footprint:
     # the original DES footprint is first rotated around the y- and then the z-axis to enable the cut-outs
@@ -106,8 +106,9 @@ analysis:
         # (survey inhomogeneity retained) with the shape noise density-modulated by the simulation LSS
         # in_place (rotate galaxies in place) | gatti (calibrated density modulation) | count (Poisson resampling)
         method: gatti
-        # fixed | prior (ignored for in_place). gatti+prior samples bsc from the Latin hypercube (params.sc = [bsc])
-        bias: prior
+        # fixed | absolute_prior (ignored for in_place). gatti+absolute_prior samples bsc from the Latin hypercube
+        # (params.sc = [bsc])
+        bias: absolute_prior
       # whether to include the TATT cross-term on top of NLA
       extended_nla: True
       nla:
@@ -160,7 +161,7 @@ analysis:
       bg3: [0.8, 3.0]
       bg4: [0.8, 3.0]
       rg: [0.6, 1.0]
-      # source-clustering bias prior (sampled into the Latin hypercube for shape_noise bias: prior)
+      # source-clustering bias prior (sampled into the Latin hypercube for shape_noise bias: absolute_prior)
       bsc: [0.5, 1.5]
       Om_s8_border_points:
         [

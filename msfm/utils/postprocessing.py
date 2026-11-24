@@ -475,7 +475,7 @@ def postprocess_shape_noise(
         # per-cosmology metacal source-clustering bias from files.metacal_bias
         count_bias = files.read_metacal_bias(bgs_key, conf)[i_z]
     else:
-        # count+prior samples the bias per patch; in_place/gatti do not resample counts
+        # the sampled biases come per patch through bsc_samples; in_place/gatti do not resample counts
         count_bias = None
 
     # DES Y3 imaging systematics of the source density, in the base patch frame (see the patch loop below)
@@ -504,7 +504,9 @@ def postprocess_shape_noise(
         # normalize to number density contrast
         delta_full_sky_norm = (delta_full_sky - np.mean(delta_full_sky)) / np.mean(delta_full_sky)
 
-        assert bias != "prior" or bsc_samples is not None, "count+prior needs bsc_samples to set the per patch bias"
+        assert (
+            bias not in files.SAMPLED_BIASES or bsc_samples is not None
+        ), f"count with bias {bias!r} needs bsc_samples to set the per patch bias"
     else:
         LOGGER.warning(f"Rotating galaxies in place for shape noise (method {method!r})")
         pix_cat = gamma_cat[:, 3]
@@ -523,7 +525,10 @@ def postprocess_shape_noise(
         seeds = [_shape_noise_seed(simset, bgs_key, i_perm, i_patch, i_z, i) for i in range(n_noise_per_signal)]
 
         if method == "count":
-            bias_patch = bsc_samples[(i_perm * n_patches) + i_patch] if bias == "prior" else count_bias
+            # bsc_samples is (n_examples, n_z_metacal), one bias per example and bin
+            bias_patch = (
+                bsc_samples[(i_perm * n_patches) + i_patch, i_z] if bias in files.SAMPLED_BIASES else count_bias
+            )
 
             # expected counts of this patch. Built per patch rather than once on the full sky, so that the clip and
             # renormalization of galaxy_density_to_count act on the footprint, which is both where n_bar was measured
@@ -558,8 +563,8 @@ def postprocess_shape_noise(
                 # density-modulate the rotate-in-place noise (Gatti et al. eq. 5). f_sc uses the
                 # simulation LSS of the cut-out (patch_pix, aligned with the signal), while var_ref is a
                 # real-data property placed at base_patch_pix like the noise itself. b_sc is the per-bin
-                # source-clustering bias: fixed -> config fixed_bsc[i_z]; prior -> per-patch bsc_samples.
-                b_sc = fixed_bsc[i_z] if bias == "fixed" else bsc_samples[(i_perm * n_patches) + i_patch]
+                # source-clustering bias: fixed -> config fixed_bsc[i_z]; absolute_prior -> per-patch bsc_samples.
+                b_sc = fixed_bsc[i_z] if bias == "fixed" else bsc_samples[(i_perm * n_patches) + i_patch, i_z]
                 f_sc = lensing.source_clustering_factor(delta_full_sky_norm[patch_pix], b_sc)
 
                 # per metacal bin (corr_variance, A_corr, coeff_kurtosis), no-op (1, 1, 0) by default

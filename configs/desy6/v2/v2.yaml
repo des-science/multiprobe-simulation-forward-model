@@ -1,7 +1,7 @@
 # DES Y6 forward model, version 2: version 1 (configs/desy6/v1/v1.yaml, itself based on
-# configs/desy3/v18/v18.yaml) with the intrinsic-alignment prior of the DES Y6 3x2pt key project. Values are v1's
-# unless marked or commented otherwise. The Y6 products come from `python -m msfm.apps.products.desy6 <step>`
-# (data/desy6/README.md):
+# configs/desy3/v18/v18.yaml) with the intrinsic-alignment prior of the DES Y6 3x2pt key project and a source
+# clustering amplitude prior. Values are v1's unless marked or commented otherwise. The Y6 products come from
+# `python -m msfm.apps.products.desy6 <step>` (data/desy6/README.md):
 #   # <- step <name>                 the step writes this file
 #   # <- step values: <dotted.key>   the step values writes this value, do not edit it by hand
 dirs:
@@ -75,6 +75,8 @@ analysis:
     bg:
       linear: [bg1, bg3, bg4, bg5, bg6]
       quadratic: [bg1_q, bg3_q, bg4_q, bg5_q, bg6_q]
+    # source clustering amplitude (shape_noise bias prior)
+    sc: [Asc]
   footprint:
     # step pixels asserts that the four rotated Y6 patches do not overlap
     rotation:
@@ -104,8 +106,10 @@ analysis:
       shape_noise:
         # in_place (rotate galaxies in place) | gatti (calibrated density modulation) | count (Poisson resampling)
         method: count
-        # fixed (per-cosmology bias from files.metacal_bias) | prior (b_sc sampled from the Latin hypercube)
-        bias: fixed
+        # fixed (files.metacal_bias) | prior (Asc * bsc_sigma8 / s8) | absolute_prior (one b_sc for all bins)
+        bias: prior
+        # b_sc * sigma8 per source bin, from the fiducial fit of step sc_bias
+        bsc_sigma8: [0.7940266113281257, 1.0972528839111342, 1.2334475097656272, 1.6271667480468768] # <- step values: analysis.modelling.lensing.shape_noise.bsc_sigma8
         # largest count per pixel in the histogram the bias is fit to (default 200), above Y6's largest, 359
         bias_fit_max_count: 400
         # imprint files.metacal_systematics on the source density before the resampling
@@ -161,6 +165,8 @@ analysis:
       bg4: [0.8, 3.0]
       bg5: [0.8, 3.0]
       bg6: [0.8, 3.0]
+      # source clustering amplitude, deliberately wide
+      Asc: [0.5, 1.5]
       Om_s8_border_points:
         [
           [0.1, 1.4],
@@ -202,3 +208,5 @@ analysis:
     bg4: 1.76
     bg5: 1.93
     bg6: 1.90
+    # source clustering amplitude
+    Asc: 1.0

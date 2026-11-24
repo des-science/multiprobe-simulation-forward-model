@@ -204,10 +204,12 @@ def main(indices, args):
 
     # configuration
     conf = files.load_config(args.config)
-    # shape-noise model; a "prior" source-clustering bias is sampled from the Latin hypercube on the grid and has no
+    # shape-noise model; a sampled source-clustering bias comes from the Latin hypercube on the grid and has no
     # fiducial counterpart
     _, sn_bias, _, _ = files.get_shape_noise(conf)
-    assert sn_bias != "prior", "The prior source-clustering bias is not implemented for the fiducial"
+    assert (
+        sn_bias not in files.SAMPLED_BIASES
+    ), f"The source-clustering bias {sn_bias!r} is sampled and not implemented for the fiducial"
     if not args.to_san:
         with open(os.path.join(args.dir_out, "config.yaml"), "w") as f:
             yaml.dump(conf, f)

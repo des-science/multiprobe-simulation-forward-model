@@ -192,6 +192,14 @@ pixels it contains.
   The fiducial set, the mocks and the signal C_l of y3-deep-lss's scale-cut step read these values.
   A config that sets all of them by hand, unmarked, has none derived (`configs/desy6/v2` takes the
   key project's).
+- **Source clustering anchor** `analysis.modelling.lensing.shape_noise.bsc_sigma8`, only where the
+  config marks it (`configs/desy6/v2`): b σ8 per source bin for the shape-noise bias `prior`, which
+  draws b = Asc · (b σ8) / σ8 per patch. It is the key `fiducial` of the `sc_bias` table (the arm
+  `files.metacal_bias_arm`) times σ8 of `fiducial_bench` from `files.meta_info`, which must equal
+  `analysis.fiducial.s8`; 0.794, 1.097, 1.233, 1.627 from the `contam` arm. Such a config runs
+  `values` again after `sc_bias`. `configuration.print_and_check_modeling_in_config` checks the
+  anchor against the table, so a config with another arm, like the mock without the imaging
+  systematics, has to keep the bias `fixed`.
 - **Checks:** the footprint holds the same fraction of the galaxies as of the mask area, within
   0.02; the pixel file matches the config's rotation and threshold; and the m means match DES's
   within 1e-5. About 11% of the mask lies in pixels below the threshold, so about 10% of the
@@ -242,7 +250,8 @@ pixels it contains.
   one-point function of the observed counts of `maps` (`source_clustering_bias.fit_bias_table`).
   One group per arm: `clean` (no imaging systematics) and `contam` (the contamination of
   `systematics` imprinted), picked by `files.metacal_bias_arm`. v1 uses `contam`, since its forward
-  model imprints the same systematics. The projection root, which holds `grid/` and `benchmarks/`, is
+  model imprints the same systematics. v2 (bias `prior`) reads only the key `fiducial` of the
+  `contam` arm, through `values`, and the grid keys stay unused. The projection root, which holds `grid/` and `benchmarks/`, is
   the `projection` of `configs/desy6/v1/locations.yaml`, unless `--source` names another. The key `fiducial`, which `run_single_postprocessing.py` reads for every benchmark
   mock, is fit on `benchmarks/fiducial_bench`: the fiducial cosmology, the fiducial set's
   resolution and the config's fiducial n(z). DES Y6 has no fiducial projection.

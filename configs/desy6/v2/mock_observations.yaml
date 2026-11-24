@@ -4,8 +4,8 @@
 # <label>_obs_maps.h5. The labels are the Y3 ones, so y3-deep-lss and msi find the files unchanged.
 #
 # The inputs are relative to the projection root. All four are CosmoGridV1 benchmarks at the fiducial cosmology,
-# projected with the fiducial n(z) and m, and read the bias-table key "fiducial", which step sc_bias fits on
-# fiducial_bench.
+# projected with the fiducial n(z) and m. Their source clustering bias is the prior's at analysis.fiducial.Asc = 1,
+# which equals the bias-table key "fiducial" that step sc_bias fits on fiducial_bench.
 base: v2.yaml
 n_perms: 20
 args:
@@ -32,6 +32,7 @@ mocks:
             shape_noise:
               method: in_place
               survey_systematics: False
+  # the clean table read directly: the anchor of the prior is fit with the imaging systematics
   fiducial_bench_source_clustering_no_sys:
     input: benchmarks/fiducial_bench
     config:
@@ -41,4 +42,5 @@ mocks:
         modelling:
           lensing:
             shape_noise:
+              bias: fixed
               survey_systematics: False

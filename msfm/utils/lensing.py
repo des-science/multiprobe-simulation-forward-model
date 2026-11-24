@@ -343,6 +343,23 @@ def source_clustering_factor(delta, b_sc, floor=1e-3):
     return 1.0 / np.sqrt(np.clip(1.0 + b_sc * delta, a_min=floor, a_max=None))
 
 
+def source_clustering_bias(bsc_sigma8, s8, Asc):
+    """Per-bin source-clustering bias of the shape_noise bias "prior", b_sc = Asc * bsc_sigma8 / sigma8.
+
+    The observed source counts fix the amplitude of the source density contrast, b_sc * sigma8, rather than b_sc,
+    so the anchor bsc_sigma8 holds b_sc * sigma8 from the fit at the fiducial cosmology and Asc scales it.
+
+    Args:
+        bsc_sigma8 (np.ndarray): (n_z,) anchor b_sc * sigma8, see files.get_bsc_sigma8.
+        s8 (float): sigma8 of the simulated cosmology.
+        Asc (float, np.ndarray): Amplitude, a scalar or one per example.
+
+    Returns:
+        np.ndarray: (n_z,) for a scalar Asc, else (n_examples, n_z).
+    """
+    return np.multiply.outer(np.asarray(Asc, dtype=np.float64), np.asarray(bsc_sigma8, dtype=np.float64)) / s8
+
+
 def shape_noise_variance_map(gamma_abs, w, pix, n_pix):
     """Per-pixel reference (no source-clustering) shape-noise variance of the weighted mean ellipticity.
 

@@ -22,6 +22,9 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("once", category=UserWarning)
 LOGGER = logger.get_logger(__file__)
 
+# the shape_noise biases that sample the source clustering parameter analysis.params.sc in the Latin hypercube
+SAMPLED_BIASES = ("prior", "absolute_prior")
+
 
 def load_config(conf=None):
     """Loads or passes through a config
@@ -520,9 +523,13 @@ def get_shape_noise(conf=None):
           "gatti"    -> calibrated Gatti et al. (https://arxiv.org/abs/2307.13860) density modulation
           "count"    -> count-based Poisson resampling of the catalog
       - bias: where the per-bin source-clustering bias b_sc comes from (ignored for "in_place")
-          "fixed" -> gatti: cosmology-independent `fixed_bsc` from the config
-                     count: per-cosmology bias read from files.metacal_bias
-          "prior" -> b_sc sampled from the Latin hypercube (params.sc = [bsc])
+          "fixed"          -> gatti: cosmology-independent `fixed_bsc` from the config
+                              count: per-cosmology bias read from files.metacal_bias
+          "prior"          -> count only: b_sc = Asc * bsc_sigma8 / sigma8 per bin, with the amplitude Asc sampled
+                              from the Latin hypercube (params.sc = [Asc]) and the anchor `bsc_sigma8` from the
+                              config, see get_bsc_sigma8
+          "absolute_prior" -> one b_sc for all bins, sampled from the Latin hypercube (params.sc = [bsc]) independent
+                              of the cosmology
       - survey_systematics: whether to imprint the DES Y3 imaging systematics of
           files.metacal_systematics on the model source density before it is resampled, see
           files.get_metacal_systematics. Only "count" acts on the source density, so it is False for
@@ -558,9 +565,12 @@ def get_shape_noise(conf=None):
         return method, None, None, False
 
     bias = sn_conf.get("bias")
-    valid_biases = ("fixed", "prior")
+    valid_biases = ("fixed", *SAMPLED_BIASES)
     if bias not in valid_biases:
         raise ValueError(f"shape_noise bias must be one of {valid_biases} for method {method!r}, got {bias!r}")
+    # the anchor is fit with the count model, so it is no Gatti modulation bias
+    if bias == "prior" and method != "count":
+        raise ValueError(f"shape_noise bias 'prior' is only defined for method 'count', got method {method!r}")
 
     fixed_bsc = None
     if method == "gatti" and bias == "fixed":
@@ -581,6 +591,34 @@ def get_shape_noise(conf=None):
         )
 
     return method, bias, fixed_bsc, survey_systematics
+
+
+def get_bsc_sigma8(conf=None):
+    """The anchor of the shape_noise bias "prior": b_sc * sigma8 per metacal bin, from
+    analysis.modelling.lensing.shape_noise.bsc_sigma8. A simulation at sigma8 with amplitude Asc gets
+    b_sc = Asc * bsc_sigma8 / sigma8, see lensing.source_clustering_bias.
+
+    Args:
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary
+            (the config is passed through) or None (the default config is loaded). Defaults to None.
+
+    Raises:
+        ValueError: If the key is absent, has the wrong length, or a value is not finite and positive.
+
+    Returns:
+        np.ndarray: (n_z,) float64 array in the order of survey.metacal.z_bins.
+    """
+    conf = load_config(conf)
+
+    n_z = len(conf["survey"]["metacal"]["z_bins"])
+    bsc_sigma8 = conf["analysis"]["modelling"]["lensing"]["shape_noise"].get("bsc_sigma8")
+    if bsc_sigma8 is None or len(bsc_sigma8) != n_z:
+        raise ValueError(f"shape_noise bsc_sigma8 must be a length-{n_z} list, got {bsc_sigma8!r}")
+    bsc_sigma8 = np.asarray(bsc_sigma8, dtype=np.float64)
+    if not np.all(np.isfinite(bsc_sigma8) & (bsc_sigma8 > 0)):
+        raise ValueError(f"shape_noise bsc_sigma8 must be finite and positive, got {bsc_sigma8}")
+
+    return bsc_sigma8
 
 
 def read_sc_calibration(conf, b_sc):

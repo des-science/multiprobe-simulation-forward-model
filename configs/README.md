@@ -16,7 +16,7 @@ repository.
 
 | | |
 |---|---|
-| `desy6/v2/` | DES Y6, second version: v1 with choices of the DES Y6 3x2pt key project, starting with its intrinsic-alignment prior. In preparation |
+| `desy6/v2/` | DES Y6, second version: v1 with choices of the DES Y6 3x2pt key project, starting with its intrinsic-alignment prior, and the source clustering bias marginalized over an amplitude prior (shape-noise bias `prior`). In preparation |
 | `desy6/v1/` | DES Y6, first version. `v1.yaml` is based on `desy3/v18/v18.yaml`; its data-derived values, on the lines marked `# <- step values`, are written by `python -m msfm.apps.products.desy6 values`. Which products exist yet: `data/desy6/README.md` |
 | `desy3/v18/` | DES Y3 production: `v18.yaml`, plus the mock-observation variants in `obs/`. **Frozen** |
 | `desy3/v17/`, `desy3/v16/` | earlier DES Y3 generations, from before one config per version, still read by their pipelines and studies. They have no `locations.yaml` |

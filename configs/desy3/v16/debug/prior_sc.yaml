@@ -100,8 +100,9 @@ analysis:
       shape_noise:
         # in_place (rotate galaxies in place) | gatti (calibrated density modulation) | count (Poisson resampling)
         method: count
-        # fixed | prior (ignored for in_place). prior samples bsc from the Latin hypercube (params.sc = [bsc])
-        bias: prior
+        # fixed | prior | absolute_prior (ignored for in_place). absolute_prior samples bsc from the Latin hypercube
+        # (params.sc = [bsc])
+        bias: absolute_prior
       # whether to include the TATT cross-term on top of NLA
       extended_nla: True
       nla:
