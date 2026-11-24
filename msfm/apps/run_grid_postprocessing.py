@@ -250,10 +250,14 @@ def main(indices, args):
         astro_params += conf["analysis"]["params"]["bg"]["quadratic"]
     if sn_bias == "prior":
         astro_params += conf["analysis"]["params"]["sc"]
-    LOGGER.info(f"Sampling the astrophysical parameters {astro_params} from a Latin hypercube")
+    LOGGER.info(
+        f"Sampling the astrophysical parameters {astro_params} from a Latin hypercube, with the truncated Gaussian "
+        f"priors {parameters.get_gaussian_priors(astro_params, conf)} and the others uniform"
+    )
+    fixed_params = parameters.get_fixed_parameters(conf)
+    if fixed_params:
+        LOGGER.info(f"Fixed on the grid: {fixed_params}")
     n_bg_bins = len(conf["analysis"]["params"]["bg"]["linear"])
-
-    astro_priors = parameters.get_prior_intervals(astro_params, conf=conf)
 
     # .tfrecords
     if n_cosmos % args.n_files == 0:
@@ -325,7 +329,7 @@ def main(indices, args):
 
                 latin_sampler = qmc.LatinHypercube(d=len(astro_params), seed=i_cosmo)
                 unscaled_samples = latin_sampler.random(n_examples_per_cosmo // n_noise_per_signal)
-                astro_samples = qmc.scale(unscaled_samples, l_bounds=astro_priors[:, 0], u_bounds=astro_priors[:, 1])
+                astro_samples = parameters.unit_to_prior(unscaled_samples, astro_params, conf)
                 astro_samples = astro_samples.astype(np.float32)
 
                 bsc_samples = astro_samples[:, -1] if sn_bias == "prior" else None
@@ -384,12 +388,10 @@ def main(indices, args):
                     if sn_bias == "prior":
                         astro_sample = astro_sample[:-1]
 
-                    # lensing
-                    if extended_nla:
-                        Aia, n_Aia, bta = astro_sample[:3]
-                    else:
-                        Aia, n_Aia = astro_sample[:2]
-                        bta = None
+                    # lensing, by name since an IA parameter is either sampled or in analysis.grid.fixed
+                    astro = {**fixed_params, **dict(zip(astro_params, astro_sample))}
+                    Aia, n_Aia = astro["Aia"], astro["n_Aia"]
+                    bta = astro["bta"] if extended_nla else None
 
                     # clustering
                     if power_law_biasing:

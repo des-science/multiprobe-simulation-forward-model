@@ -189,7 +189,9 @@ pixels it contains.
   pivot z0 = 0.62, averaged over each lens bin's n(z) from `nz`. The result is 1.35, 1.50, 1.57,
   1.63, 1.67 for bins 1 and 3-6. The pivot is a constant of the step, since only the sources have a
   `z0` key. Each value is written as the shortest decimal of the float32 amplitude msfm computes.
-  Only the fiducial set and the mocks read these values.
+  The fiducial set, the mocks and the signal C_l of y3-deep-lss's scale-cut step read these values.
+  A config that sets all of them by hand, unmarked, has none derived (`configs/desy6/v2` takes the
+  key project's).
 - **Checks:** the footprint holds the same fraction of the galaxies as of the mask area, within
   0.02; the pixel file matches the config's rotation and threshold; and the m means match DES's
   within 1e-5. About 11% of the mask lies in pixels below the threshold, so about 10% of the

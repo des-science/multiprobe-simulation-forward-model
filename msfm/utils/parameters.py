@@ -8,6 +8,7 @@ Functions to read in the parameter values stored in the config
 """
 
 import numpy as np
+from scipy.stats import qmc, truncnorm
 
 from msfm.utils import files, redshift
 
@@ -96,7 +97,8 @@ def get_parameters(params=None, conf=None):
 
 def get_prior_intervals(params=None, conf=None):
     """Return the array of priors over the cosmological parameters
-    (just the intervals without the additional restrictions)
+    (just the intervals without the additional restrictions). That is the interval of a uniform prior in
+    analysis.grid.priors, or the truncation of a Gaussian one in analysis.grid.gaussian_priors.
 
     Args:
         params (list, optional): List of strings like ["Om", "s8", "H0", "Ob", "ns", "w0", "Aia"]. Defaults to None,
@@ -111,9 +113,75 @@ def get_prior_intervals(params=None, conf=None):
     conf = files.load_config(conf)
     params = get_parameters(params, conf)
 
-    priors = np.array([conf["analysis"]["grid"]["priors"][param] for param in params])
+    # the uniform priors, and the truncation of the Gaussian ones
+    gaussian_priors = conf["analysis"]["grid"].get("gaussian_priors") or {}
+    intervals = {**conf["analysis"]["grid"]["priors"], **{param: p[2:] for param, p in gaussian_priors.items()}}
+    priors = np.array([intervals[param] for param in params])
 
     return priors
+
+
+def get_gaussian_priors(params=None, conf=None):
+    """Return the Gaussian priors among the parameters. analysis.grid.gaussian_priors holds each as [mean, standard
+    deviation, lower, upper], truncated to [lower, upper], which get_prior_intervals returns.
+
+    Args:
+        params (list, optional): List of strings like ["Om", "s8", "H0", "Ob", "ns", "w0", "Aia"]. Defaults to None,
+            then all parameters in config.yaml are used.
+        conf (str, dict, optional): The config, either specified as a str pointing to a file or a dict. Defaults to
+            None, then the standard config of this repo is used.
+
+    Returns:
+        dict: {param: (mean, standard deviation)} from analysis.grid.gaussian_priors, empty if the config has none. The
+            other parameters have uniform priors.
+    """
+    conf = files.load_config(conf)
+    params = get_parameters(params, conf)
+
+    gaussian_priors = conf["analysis"]["grid"].get("gaussian_priors") or {}
+
+    return {param: tuple(float(x) for x in gaussian_priors[param][:2]) for param in params if param in gaussian_priors}
+
+
+def get_fixed_parameters(conf=None):
+    """Return the parameters of the forward model that are held at a value on the grid instead of sampled, so they
+    are no labels.
+
+    Args:
+        conf (str, dict, optional): The config, either specified as a str pointing to a file or a dict. Defaults to
+            None, then the standard config of this repo is used.
+
+    Returns:
+        dict: {param: value} from analysis.grid.fixed, empty if the config has none.
+    """
+    conf = files.load_config(conf)
+
+    return {param: float(value) for param, value in (conf["analysis"]["grid"].get("fixed") or {}).items()}
+
+
+def unit_to_prior(unit, params, conf=None):
+    """Map points of the unit hypercube onto the priors: uniform on the interval of analysis.grid.priors, or the
+    truncated Gaussian of analysis.grid.gaussian_priors, through its inverse CDF.
+
+    Args:
+        unit (np.ndarray): shape (n_samples, n_params), in [0, 1).
+        params (list): The parameter name per column of unit.
+        conf (str, dict, optional): The config, either specified as a str pointing to a file or a dict. Defaults to
+            None, then the standard config of this repo is used.
+
+    Returns:
+        np.ndarray: shape (n_samples, n_params). Without Gaussian priors, identical to scipy.stats.qmc.scale.
+    """
+    conf = files.load_config(conf)
+    intervals = get_prior_intervals(params, conf)
+
+    samples = qmc.scale(unit, l_bounds=intervals[:, 0], u_bounds=intervals[:, 1])
+    for param, (mu, sigma) in get_gaussian_priors(params, conf).items():
+        i = params.index(param)
+        lo, hi = intervals[i]
+        samples[:, i] = truncnorm.ppf(unit[:, i], (lo - mu) / sigma, (hi - mu) / sigma, loc=mu, scale=sigma)
+
+    return samples
 
 
 def get_fiducials(params=None, conf=None):

@@ -8,6 +8,7 @@ from msfm.utils import locations
 
 REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DESY6 = os.path.join(REPO_DIR, "configs/desy6/v1/v1.yaml")
+DESY6_V2 = os.path.join(REPO_DIR, "configs/desy6/v2/v2.yaml")
 DESY3 = os.path.join(REPO_DIR, "configs/desy3/v18/v18.yaml")
 
 
@@ -36,9 +37,17 @@ def test_desy3_resolves_the_v18_paths():
     assert "projection" not in resolved
 
 
+def test_desy6_v2_resolves_its_roots_directly():
+    resolved = locations.load(DESY6_V2)
+    assert resolved["data_dir"] == "/ritom/scratch/cscs/athomsen/desy6/v2"
+    assert resolved["obs_dir"] == "/ritom/scratch/cscs/athomsen/desy6/v2/obs"
+    assert resolved["runs_dir"] == "/ritom/scratch/cscs/athomsen/deep_lss/runs/desy6/v2"
+
+
 def test_dataset_config_is_named_after_its_version():
     assert locations.dataset_config("desy6/v1") == DESY6
     assert locations.dataset_config("desy3/v18/") == DESY3
+    assert os.path.isfile(locations.dataset_config("desy6/v2"))
 
 
 def test_obs_defaults_to_data(tmp_path):

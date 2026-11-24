@@ -1,6 +1,7 @@
 #!/bin/bash
-# Submits the DES Y6 v1 tfrecord production and its validation on daint: a packed array (one exclusive GH200 node per
-# element, $SLOTS cosmologies per node on its CPUs) and the merge after it (afterok). Port of
+# Submits the DES Y6 tfrecord production of $CONFIG (default v1; CONFIG=$PWD/configs/desy6/v2/v2.yaml for v2) and
+# its validation on daint: a packed array (one exclusive GH200 node per element, $SLOTS cosmologies per node on its
+# CPUs) and the merge after it (afterok). Port of
 # ../../../perlmutter/desy3/v18/packed/submit.sh, with the same interface.
 #
 # Usage:
@@ -23,9 +24,9 @@
 # (msfm/utils/locations.py); every output directory below lies under $DATA_ROOT.
 #
 # Overrides (environment):
-#   CONFIG DIR_IN DATA_ROOT                      the msfm config, the projection and the output root
+#   CONFIG DIR_IN DATA_ROOT                      the msfm config (an absolute path), the projection and the output root
 #   DIR_OUT PACKED_LOGS JOB_NAME                 per-chain paths and names, see below (obs ignores JOB_NAME)
-#   MOCKS                                        obs: the mock registry
+#   MOCKS                                        obs: the mock registry, by default the one next to $CONFIG
 #   TFR_DIR GRID_CLS REPRODUCE_DIR               validate: the .tfrecords, the merged Cls and a --debug rerun of grid
 #   SLOTS OMP                                    tasks per node and cores per task. OMP must divide 72 (one Grace)
 #   NODE_TIME MERGE_TIME PARTITION               per-element wall clock, merge wall clock, partition (normal)
@@ -48,11 +49,17 @@ export TASK_SCRIPT=$REPO/pipelines/daint/common/packed_task.sh
 # login-node environment of the preflight and of the msfm CLIs (locations, mocks)
 UENV=pytorch/v2.9.1:v2
 PY=$HOME/dlss/torch_env/bin/python
+# uenv run refuses to nest, so inside this uenv already (e.g. an srun with --uenv) python runs directly
+py() {
+    if [[ ${UENV_LABEL:-} == "$UENV" ]]; then "$PY" "$@"; else uenv run --view=default "$UENV" -- "$PY" "$@"; fi
+}
 
 CONFIG=${CONFIG:-$REPO/configs/desy6/v1/v1.yaml}
-MOCKS=${MOCKS:-$REPO/configs/desy6/v1/mock_observations.yaml}
+MOCKS=${MOCKS:-$(dirname "$CONFIG")/mock_observations.yaml}
+# the job-name tag, from configs/<survey>/<version>/: desy6_v1
+TAG=$(basename "$(dirname "$(dirname "$CONFIG")")")_$(basename "$(dirname "$CONFIG")")
 # the projection (input) and the config's output root come from the locations.yaml next to $CONFIG
-LOCATIONS=$(uenv run --view=default "$UENV" -- "$PY" -m msfm.utils.locations "$CONFIG") \
+LOCATIONS=$(py -m msfm.utils.locations "$CONFIG") \
     || { echo "cannot resolve the locations of $CONFIG" >&2; exit 1; }
 location() { sed -n "s|^$1=||p" <<< "$LOCATIONS"; }
 DIR_IN=${DIR_IN:-$(location projection)}
@@ -78,7 +85,7 @@ chain_cfg() {
     case "$1" in
         grid)
             APP=$REPO/msfm/apps/run_grid_postprocessing.py
-            JOB_NAME=${JOB_NAME:-tfr_grid_desy6_v1}
+            JOB_NAME=${JOB_NAME:-tfr_grid_$TAG}
             DIR_OUT=${DIR_OUT:-$DATA_ROOT/tfrecords/grid}
             SIMSET=grid
             N_TOTAL=2500
@@ -91,7 +98,7 @@ chain_cfg() {
         validate)
             # reads one .tfrecord (6.7 GB) per task, so I/O-bound: many tasks with few cores each
             APP=$REPO/dev/scripts/validation/grid_tfrecords.py
-            JOB_NAME=${JOB_NAME:-tfr_validate_desy6_v1}
+            JOB_NAME=${JOB_NAME:-tfr_validate_$TAG}
             DIR_OUT=${DIR_OUT:-$DATA_ROOT/validation}
             TFR_DIR=${TFR_DIR:-$DATA_ROOT/tfrecords/grid}
             GRID_CLS=${GRID_CLS:-$DATA_ROOT/cls/grid_cls.h5}
@@ -109,7 +116,7 @@ chain_cfg() {
             # one mock of $MOCKS: its permutations are the indices, and the merge writes <label>_obs_maps.h5. One node;
             # fiducial_bench took 3:42 and its merge 26 s (README.md), so both wall clocks have a wide margin
             APP=$REPO/msfm/apps/run_single_postprocessing.py
-            JOB_NAME=obs_desy6_v1_$LABEL
+            JOB_NAME=obs_${TAG}_$LABEL
             DIR_OUT=${DIR_OUT:-$DATA_ROOT/obs}
             N_TOTAL=$N_PERMS
             SLOTS=${SLOTS:-24}
@@ -133,7 +140,7 @@ chain_cfg() {
 preflight() {
     local index_file=$1 chain=$2
     echo "[preflight] projected files under $DIR_IN and the config's files, on the login node"
-    uenv run --view=default "$UENV" -- "$PY" -I - "$REPO" "$CONFIG" "$DIR_IN" "$index_file" "$chain" "${TFR_DIR:-}" \
+    py -I - "$REPO" "$CONFIG" "$DIR_IN" "$index_file" "$chain" "${TFR_DIR:-}" \
         <<'EOF'
 import os
 import sys
@@ -203,7 +210,7 @@ done_indices() {
 
 # the registry CLI, in the preflight environment
 mocks_cli() {
-    uenv run --view=default "$UENV" -- "$PY" -m msfm.utils.mocks "$@"
+    py -m msfm.utils.mocks "$@"
 }
 
 # obs: every selected mock is checked before any is submitted, then each gets its own array and merge

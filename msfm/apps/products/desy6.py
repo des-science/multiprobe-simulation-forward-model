@@ -374,8 +374,8 @@ def step_values(conf, args):
     notebooks/desy3/config.ipynb did for Y3. For MagLim the count is the raw one times the weight maps of the pixel
     file, which is the observation the clean simulations are compared to, so the two match in expectation. The m prior
     is the mean and std of the M_BIN samples, and Aeff is the full-resolution mask area stored in the pixel file. The
-    lens bias fiducials are BG_FIDUCIAL_POWER_LAW averaged over the n(z) of step nz, as for v18. Per-bin values follow
-    the config's z_bins.
+    lens bias fiducials are BG_FIDUCIAL_POWER_LAW averaged over the n(z) of step nz, as for v18, where the config marks
+    them; a config can instead set all of them by hand. Per-bin values follow the config's z_bins.
 
     With --check, writes nothing and exits with 1 if any marked value is stale.
 
@@ -446,19 +446,25 @@ def step_values(conf, args):
     values["survey.metacal.shear_bias.multiplicative.sigma"] = _configured_bins(conf, "metacal", sigma)
     LOGGER.info(f"Aeff = {area:.3f} deg^2, footprint {footprint_area:.1f} deg^2")
 
-    # untruncated, as redshift.get_tomo_amplitudes_according_to_config treats the lens sample
-    bg, n_bg, z0 = BG_FIDUCIAL_POWER_LAW
-    z, nz = files.load_redshift_distributions("maglim", conf)
-    bg_fiducial = redshift.get_tomo_amplitudes(bg, n_bg, z, nz, z0=z0, truncate_nz=False)
+    # the lens bias fiducials, derived where the config marks them and set by hand otherwise
     bg_params = conf["analysis"]["params"]["bg"]["linear"]
     assert bg_params == [f"bg{files.get_z_bin_number(z)}" for z in lens_bins], f"{bg_params} do not follow {lens_bins}"
-    for param, value in zip(bg_params, bg_fiducial):
-        # the shortest decimal that gives back the float32 amplitude
-        values[f"analysis.fiducial.{param}"] = float(str(value))
-    LOGGER.info(
-        f"bias fiducials {[values[f'analysis.fiducial.{p}'] for p in bg_params]}, power law (bg, n_bg, z0) "
-        f"{BG_FIDUCIAL_POWER_LAW}"
-    )
+    bg_keys = [f"analysis.fiducial.{param}" for param in bg_params]
+    n_marked = len(set(bg_keys) & products.marked_keys(conf_path))
+    assert n_marked in (0, len(bg_keys)), f"{_rel(conf_path)} must mark all or none of {bg_keys}"
+    if n_marked:
+        # untruncated, as redshift.get_tomo_amplitudes_according_to_config treats the lens sample
+        bg, n_bg, z0 = BG_FIDUCIAL_POWER_LAW
+        z, nz = files.load_redshift_distributions("maglim", conf)
+        bg_fiducial = redshift.get_tomo_amplitudes(bg, n_bg, z, nz, z0=z0, truncate_nz=False)
+        for key, value in zip(bg_keys, bg_fiducial):
+            # the shortest decimal that gives back the float32 amplitude
+            values[key] = float(str(value))
+        LOGGER.info(
+            f"bias fiducials {[values[key] for key in bg_keys]}, power law (bg, n_bg, z0) {BG_FIDUCIAL_POWER_LAW}"
+        )
+    else:
+        LOGGER.info(f"bias fiducials {[conf['analysis']['fiducial'][p] for p in bg_params]}, set in the config")
 
     written = products.write_marked_values(conf, conf_path, values, args.check, rel=_rel)
     # with --provenance an up-to-date config is recorded too: these inputs at this commit give its values

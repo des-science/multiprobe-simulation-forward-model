@@ -1,0 +1,9 @@
+# Where DES Y6 v2 lives on daint: machine paths only, read by msfm, y3-deep-lss and msi through msfm.utils.locations
+# (the keys and the layout below each are documented there).
+#
+# /ritom is purged, so data and runs are copied to the lp184 store, archive and runs_archive. The projection is v1's.
+projection: /capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/000_test/cosmogrid/processed/desy6/CosmoGrid/bary
+data: /ritom/scratch/cscs/athomsen/desy6/v2
+archive: /capstor/store/cscs/userlab/lp184/athomsen/deep_lss/data/desy6/v2
+runs: /ritom/scratch/cscs/athomsen/deep_lss/runs/desy6/v2
+runs_archive: /capstor/store/cscs/userlab/lp184/athomsen/deep_lss/runs/desy6/v2

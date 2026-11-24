@@ -1,0 +1,44 @@
+# DES Y6 v2 mock observations, made by msfm/apps/run_single_postprocessing.py --mock <label> and submitted with
+# CONFIG=$PWD/configs/desy6/v2/v2.yaml pipelines/daint/desy6/v1/submit.sh obs <label>|all. The format is
+# documented in msfm/utils/mocks.py: each mock is v2.yaml with its config: block merged on top, and its output is
+# <label>_obs_maps.h5. The labels are the Y3 ones, so y3-deep-lss and msi find the files unchanged.
+#
+# The inputs are relative to the projection root. All four are CosmoGridV1 benchmarks at the fiducial cosmology,
+# projected with the fiducial n(z) and m, and read the bias-table key "fiducial", which step sc_bias fits on
+# fiducial_bench.
+base: v2.yaml
+n_perms: 20
+args:
+  with_lensing: True
+  with_clustering: True
+mocks:
+  # the reference: the fiducial set's resolution (900 Mpc/h box, 576M particles, 69 shells)
+  fiducial_bench:
+    input: benchmarks/fiducial_bench
+  # simulation accuracy, one setting changed each: a 2250 Mpc/h box, 15x the particles, 392 shells
+  box_size:
+    input: benchmarks/box_size
+  particle_count:
+    input: benchmarks/particle_count
+  redshift_resolution:
+    input: benchmarks/redshift_resolution
+  # source clustering: none at all (the shapes rotated in place), and the count model without the imaging systematics
+  fiducial_bench_source_clustering_in_place:
+    input: benchmarks/fiducial_bench
+    config:
+      analysis:
+        modelling:
+          lensing:
+            shape_noise:
+              method: in_place
+              survey_systematics: False
+  fiducial_bench_source_clustering_no_sys:
+    input: benchmarks/fiducial_bench
+    config:
+      files:
+        metacal_bias_arm: clean
+      analysis:
+        modelling:
+          lensing:
+            shape_noise:
+              survey_systematics: False

@@ -227,6 +227,8 @@ def _check_record(ctx, raw, r, out, fail):
 def _check_labels(ctx, index, out, fail):
     from scipy.stats import qmc
 
+    from msfm.utils import parameters
+
     n_cosmo = len(ctx.cosmo_params)
     cosmo = np.array([ctx.info[p][index] for p in ctx.cosmo_params], dtype=np.float32)
     if not np.all(out["cosmo"][:, :n_cosmo] == cosmo):
@@ -235,7 +237,7 @@ def _check_labels(ctx, index, out, fail):
     # the grid app's draw, one cosmology per file
     lo, hi = ctx.astro_priors[:, 0], ctx.astro_priors[:, 1]
     sampler = qmc.LatinHypercube(d=len(ctx.astro_params), seed=index)
-    expected = qmc.scale(sampler.random(ctx.n_signal), l_bounds=lo, u_bounds=hi).astype(np.float32)
+    expected = parameters.unit_to_prior(sampler.random(ctx.n_signal), ctx.astro_params, ctx.conf).astype(np.float32)
     astro = out["cosmo"][:, n_cosmo:]
     if not np.array_equal(astro, expected):
         fail("astro labels", f"not the Latin hypercube draw, max |diff| {np.abs(astro - expected).max():.3g}")

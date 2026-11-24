@@ -4,7 +4,7 @@ A dataset is one version of a survey, with one forward-model config named after 
 
 ```
 configs/<survey>/<version>/
-    <version>.yaml            the forward-model config, e.g. desy6/v1/v1.yaml
+    <version>.yaml            the forward-model config, e.g. desy6/v2/v2.yaml
     locations.yaml            where the dataset's data lie on disk (below)
     mock_observations.yaml    its mock observations (msfm/utils/mocks.py)
 ```
@@ -16,6 +16,7 @@ repository.
 
 | | |
 |---|---|
+| `desy6/v2/` | DES Y6, second version: v1 with choices of the DES Y6 3x2pt key project, starting with its intrinsic-alignment prior. In preparation |
 | `desy6/v1/` | DES Y6, first version. `v1.yaml` is based on `desy3/v18/v18.yaml`; its data-derived values, on the lines marked `# <- step values`, are written by `python -m msfm.apps.products.desy6 values`. Which products exist yet: `data/desy6/README.md` |
 | `desy3/v18/` | DES Y3 production: `v18.yaml`, plus the mock-observation variants in `obs/`. **Frozen** |
 | `desy3/v17/`, `desy3/v16/` | earlier DES Y3 generations, from before one config per version, still read by their pipelines and studies. They have no `locations.yaml` |
@@ -47,8 +48,8 @@ Every key is optional, values must be absolute, and an unknown key is an error.
 `msfm.utils.locations` resolves the paths of a dataset's config:
 
 ```bash
-python -m msfm.utils.locations configs/desy6/v1/v1.yaml             # key=value lines
-python -m msfm.utils.locations configs/desy6/v1/v1.yaml --key obs_dir
+python -m msfm.utils.locations configs/desy6/v2/v2.yaml             # key=value lines
+python -m msfm.utils.locations configs/desy6/v2/v2.yaml --key obs_dir
 ```
 
 The resolved keys are `projection`, `data_dir`, `obs_dir` (`<obs or data>/obs`), `runs_dir`,
@@ -57,9 +58,9 @@ file. Scripts read paths through this CLI, never by parsing the YAML, and an env
 still overrides one path for a one-off run.
 
 The y3-deep-lss and msi submission scripts take the dataset as `VERSION`, i.e.
-`configs/$VERSION/<version>.yaml`: `VERSION=desy6/v1` or `VERSION=desy3/v18`. `VERSION` has no
+`configs/$VERSION/<version>.yaml`: `VERSION=desy6/v2` or `VERSION=desy3/v18`. `VERSION` has no
 default, so a script run without it stops rather than fall back to another survey's data. In
-Python, `msfm.utils.locations.dataset_config("desy6/v1")` gives the config's path.
+Python, `msfm.utils.locations.dataset_config("desy6/v2")` gives the config's path.
 
 ## History
 

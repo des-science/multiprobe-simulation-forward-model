@@ -79,6 +79,12 @@ def yaml_value(value):
     return yaml_number(value)
 
 
+def marked_keys(conf_path):
+    """Returns the set of dotted config keys whose lines carry a value marker in conf_path."""
+    with open(conf_path) as f:
+        return {match["dotted"] for match in map(VALUE_MARKER.match, f.read().splitlines()) if match is not None}
+
+
 def write_marked_values(conf, conf_path, values, check, rel=os.path.relpath):
     """Writes values (dotted config key -> number or per-bin list) into the marked lines of the config.
 

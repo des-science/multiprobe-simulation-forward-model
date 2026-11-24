@@ -5,7 +5,7 @@ Created November 2026
 Author: Arne Thomsen
 
 Where the data of a dataset lives on disk, written once per version next to its config, e.g.
-configs/desy6/v1/locations.yaml beside configs/desy6/v1/v1.yaml, and read by msfm, y3-deep-lss and msi. A dataset
+configs/desy6/v2/locations.yaml beside configs/desy6/v2/v2.yaml, and read by msfm, y3-deep-lss and msi. A dataset
 is one version of a survey with one config, configs/<survey>/<version>/<version>.yaml (dataset_config). The file
 holds machine paths only, never a science choice, so moving a directory changes no config.
 
@@ -38,7 +38,7 @@ REPO_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 
 def dataset_config(dataset):
-    """The msfm config of a dataset <survey>/<version>, e.g. desy6/v1 gives <repo>/configs/desy6/v1/v1.yaml."""
+    """The msfm config of a dataset <survey>/<version>, e.g. desy6/v2 gives <repo>/configs/desy6/v2/v2.yaml."""
     dataset = os.path.normpath(dataset)
     return os.path.join(REPO_DIR, "configs", dataset, f"{os.path.basename(dataset)}.yaml")
 
@@ -98,7 +98,7 @@ def get(config_path, key):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("config", help="msfm config, e.g. configs/desy6/v1/v1.yaml")
+    parser.add_argument("config", help="msfm config, e.g. configs/desy6/v2/v2.yaml")
     parser.add_argument("--key", default=None, help="print only this resolved path")
     args = parser.parse_args(argv)
 
