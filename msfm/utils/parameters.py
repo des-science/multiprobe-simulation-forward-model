@@ -10,7 +10,9 @@ Functions to read in the parameter values stored in the config
 import numpy as np
 from scipy.stats import qmc, truncnorm
 
-from msfm.utils import files, redshift
+from msfm.utils import files, logger, redshift
+
+LOGGER = logger.get_logger(__file__)
 
 # Parameters stored in raw CosmoGrid units in the label tables / tfrecords (bary_Mc ~ 1e12-1e15)
 # but expressed as log10 in the config priors/fiducials and everywhere downstream (summary
@@ -22,6 +24,13 @@ LOG10_PARAMS = ("bary_Mc",)
 # A raw Mc is > ~1e12 while a log10(Mc) is ~12, so this threshold cleanly separates the two and
 # catches a double conversion (log10 applied to an already-log10'd table).
 LOG10_RAW_MIN = 1e10
+
+# The groups of analysis.params whose labels each probe's maps depend on, the default network target
+PROBE_GROUPS = {"lensing": ("cosmo", "bary", "ia", "sc"), "clustering": ("cosmo", "bary", "bg", "stochasticity")}
+
+# The labels that reports and diagnostics marginalize by default: the network and the flow are conditioned on them,
+# the posteriors are read without them
+REPORT_MARGINALIZED = ("ns", "Ob", "H0", "bary_Mc", "bary_nu")
 
 
 def raw_to_prior_units(cosmos, params, copy=True):
@@ -93,6 +102,72 @@ def get_parameters(params=None, conf=None):
             pass
 
     return params
+
+
+def probe_parameter_spec(with_lensing, with_clustering, conf=None):
+    """Return the default parameter spec of a probe for resolve_parameters: the groups of PROBE_GROUPS of the maps
+    it includes that the config has.
+
+    Args:
+        with_lensing (bool): Whether the probe includes the lensing maps.
+        with_clustering (bool): Whether the probe includes the clustering maps.
+        conf (str, dict, optional): The config, either specified as a str pointing to a file or a dict. Defaults to
+            None, then the standard config of this repo is used.
+
+    Returns:
+        list: Group names of analysis.params.
+    """
+    conf = files.load_config(conf)
+    assert with_lensing or with_clustering, "a probe includes the lensing or the clustering maps"
+
+    spec = []
+    for probe, included in (("lensing", with_lensing), ("clustering", with_clustering)):
+        if included:
+            spec += [
+                group for group in PROBE_GROUPS[probe] if group in conf["analysis"]["params"] and group not in spec
+            ]
+
+    return spec
+
+
+def resolve_parameters(spec, conf=None):
+    """Return the labels a spec selects, in the order of get_parameters.
+
+    Args:
+        spec (list): Label names and group names of analysis.params (cosmo, bary, ia, bg, stochasticity, sc), like
+            ["cosmo", "ia"] or ["Om", "s8", "w0"]. A group selects its members that are labels, so a parameter in
+            analysis.grid.fixed or switched off by the modelling is left out.
+        conf (str, dict, optional): The config, either specified as a str pointing to a file or a dict. Defaults to
+            None, then the standard config of this repo is used.
+
+    Raises:
+        ValueError: When an entry is neither a label nor a group.
+
+    Returns:
+        list: The selected labels, in the order of get_parameters, which is the order of the stored labels.
+    """
+    conf = files.load_config(conf)
+    labels = get_parameters(None, conf)
+    groups = conf["analysis"]["params"]
+
+    selected = []
+    for entry in spec:
+        if entry in groups:
+            members = groups[entry] or []
+            if isinstance(members, dict):
+                members = [param for sub in members.values() for param in (sub or [])]
+            members = [param for param in members if param in labels]
+        elif entry in labels:
+            members = [entry]
+        else:
+            raise ValueError(f"{entry} is neither a label {labels} nor a group {list(groups)} of this config")
+        selected += [param for param in members if param not in selected]
+
+    resolved = [param for param in labels if param in selected]
+    if resolved != selected:
+        LOGGER.warning(f"Reordered the parameters {selected} to the order of the stored labels, {resolved}")
+
+    return resolved
 
 
 def get_prior_intervals(params=None, conf=None):

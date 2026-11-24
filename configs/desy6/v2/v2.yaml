@@ -61,6 +61,8 @@ analysis:
   n_side_down: 16
   # number of cut-outs from the full sky
   n_patches: 4
+  # the labels, in this order. Downstream, a network target names labels or these groups
+  # (msfm.utils.parameters.resolve_parameters)
   params:
     # the six CosmoGrid parameters come first, in its order
     cosmo: [Om, s8, Ob, H0, ns, w0]
