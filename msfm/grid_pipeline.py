@@ -81,6 +81,8 @@ class GridPipeline(MSFMpipeline):
 
         # used to return the correct labels
         self.all_params = parameters.get_parameters(conf=conf)
+        # the labels stored raw (bary_Mc), returned in log10 like the priors and fiducials of the config
+        self.log10_label_indices = [i for i, param in enumerate(self.params) if param in parameters.LOG10_PARAMS]
 
         # used to reshape the stored tensors, and for nothing else
         self.n_all_params = len(self.all_params)
@@ -434,6 +436,16 @@ class GridPipeline(MSFMpipeline):
             # label, cosmo params
             cosmo = data_vectors.pop("cosmo")
             cosmo = tf.gather(cosmo, [self.all_params.index(param) for param in self.params], axis=1)
+            for i in self.log10_label_indices:
+                column = cosmo[:, i : i + 1]
+                is_raw = tf.debugging.assert_greater(
+                    tf.reduce_min(column),
+                    tf.constant(parameters.LOG10_RAW_MIN, cosmo.dtype),
+                    message=f"expected the raw {self.params[i]} labels of the tfrecords",
+                )
+                with tf.control_dependencies([is_raw]):
+                    column = tf.math.log(column) / tf.math.log(tf.constant(10.0, cosmo.dtype))
+                cosmo = tf.concat([cosmo[:, :i], column, cosmo[:, i + 1 :]], axis=1)
 
             if self.return_maps:
                 if self.with_lensing:
