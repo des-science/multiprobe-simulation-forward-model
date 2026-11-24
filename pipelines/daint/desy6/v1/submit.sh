@@ -49,7 +49,7 @@ export TASK_SCRIPT=$REPO/pipelines/daint/common/packed_task.sh
 UENV=pytorch/v2.9.1:v2
 PY=$HOME/dlss/torch_env/bin/python
 
-CONFIG=${CONFIG:-$REPO/configs/desy6/v1/default.yaml}
+CONFIG=${CONFIG:-$REPO/configs/desy6/v1/v1.yaml}
 MOCKS=${MOCKS:-$REPO/configs/desy6/v1/mock_observations.yaml}
 # the projection (input) and the config's output root come from the locations.yaml next to $CONFIG
 LOCATIONS=$(uenv run --view=default "$UENV" -- "$PY" -m msfm.utils.locations "$CONFIG") \

@@ -13,7 +13,7 @@ results. Paths below are relative to this directory.
 
 ## Production inputs
 
-The `files:` and `dirs:` of `configs/desy3/v18/default.yaml`:
+The `files:` and `dirs:` of `configs/desy3/v18/v18.yaml`:
 
 ```yaml
 dirs:

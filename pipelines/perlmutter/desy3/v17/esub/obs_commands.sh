@@ -90,7 +90,7 @@ esub ../../../../msfm/apps/run_single_postprocessing.py \
 # table is the one fit against this same contaminated model (desy3_metacal_bias_sys.h5,
 # enforced by configuration.py), so b is not absorbing the systematics: bin 4 is 1.98 here against
 # 3.06 in the clean fit.
-# NOTE: configs/desy3/v18/default.yaml can NOT be used here -- it is delta-NLA and carries a ds channel.
+# NOTE: configs/desy3/v18/v18.yaml can NOT be used here -- it is delta-NLA and carries a ds channel.
 # Also defined (deliberately duplicated, not derived) as a packed regular-QOS submission in
 # ../packed/submit_single_mock.sh -- if you change dir_in/dir_out/suffix_out/msfm_config here,
 # check that script too, and vice versa.

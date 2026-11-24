@@ -3,7 +3,7 @@
 The inputs to the DES Y6 forward model that come straight from the survey data: n(z), the footprint,
 the catalog maps, the lens weight maps, the survey numbers in the config, and the shape-noise catalog. One script makes
 all of them from the public Y6 release, `msfm/apps/products/desy6.py`, for
-`configs/desy6/v1/default.yaml`.
+`configs/desy6/v1/v1.yaml`.
 
 ## Status
 
@@ -50,7 +50,7 @@ From the repository root, in `torch_env` (`pytorch/v2.9.1:v2` uenv, plus healspa
 ```bash
 # login node: nz, values
 uenv run --view=default pytorch/v2.9.1:v2 -- ~/dlss/torch_env/bin/python \
-    -m msfm.apps.products.desy6 <step> --config configs/desy6/v1/default.yaml
+    -m msfm.apps.products.desy6 <step> --config configs/desy6/v1/v1.yaml
 
 # one CPU node: pixels, maps, noise (dry run on the login node first, then sbatch)
 pipelines/daint/desy6/products/run.sh <step>    # PARTITION, TIME, LOGDIR; DRYRUN=1 prints the sbatch line

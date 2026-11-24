@@ -1,10 +1,10 @@
 # Where DES Y3 v18 lives on daint: machine paths only, read by msfm, y3-deep-lss and msi through msfm.utils.locations
-# (the keys and the layout below each are documented there). Every per-config path appends the config's stem, e.g.
-# data -> /ritom/scratch/cscs/athomsen/v18/default for default.yaml.
+# (the keys and the layout below each are documented there).
 #
 # The tfrecords and Cls are on /ritom scratch (the /iopsstor copy is purged), the mock observations on the a0158
 # store. The runs are the frozen v18 production runs on the store, the only complete copy; their scratch copy is
-# purged. The projection was read on Perlmutter and has no daint path.
-data: /ritom/scratch/cscs/athomsen/v18
-obs: /capstor/store/cscs/swissai/a0158/athomsen/deep_lss/data/v18
-runs: /capstor/store/cscs/swissai/a0158/athomsen/deep_lss/runs/v18
+# purged. The projection was read on Perlmutter and has no daint path. Every path ends in default/, named after the
+# config's former name default.yaml, under which v18 was produced.
+data: /ritom/scratch/cscs/athomsen/v18/default
+obs: /capstor/store/cscs/swissai/a0158/athomsen/deep_lss/data/v18/default
+runs: /capstor/store/cscs/swissai/a0158/athomsen/deep_lss/runs/v18/default

@@ -34,7 +34,7 @@ COMMON_PACKED=$REPO/pipelines/perlmutter/common
 # absolute path to the driver, exported to the slurm scripts. It must be absolute: Slurm copies
 # the batch script into /var/spool/slurmd/<job>, so the executors cannot locate it themselves.
 DRIVER=$REPO/pipelines/common/run_packed.py
-CONFIG=$REPO/configs/desy3/v18/default.yaml
+CONFIG=$REPO/configs/desy3/v18/v18.yaml
 DIR_IN=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary
 DATA_ROOT=/pscratch/sd/a/athomsen/dlss/data/v18/baseline/tfrecords
 PACKED_LOGS=/pscratch/sd/a/athomsen/run_files/v18/packed_logs

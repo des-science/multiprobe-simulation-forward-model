@@ -7,7 +7,7 @@ Author: Arne Thomsen
 The mock observations of a forward-model version, all defined in one registry file next to the version's config,
 e.g. configs/desy6/v1/mock_observations.yaml:
 
-    base: default.yaml        # the config every mock starts from, relative to the registry
+    base: v1.yaml             # the config every mock starts from, relative to the registry
     n_perms: 20               # permutations per mock, perm_0000 .. perm_<n_perms - 1>
     args:                     # forward-model flags of run_single_postprocessing.py, for every mock
       with_lensing: True

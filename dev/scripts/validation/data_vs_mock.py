@@ -22,7 +22,7 @@ numbers:
 
 Writes obs.npz (the four observed data vectors and Cls), summary.npz, cls.png and with --grid_cls coverage.png to
 --out. CPU, tf_env (make_shape_noise_map uses tensorflow_probability), on a compute node:
-    python dev/scripts/validation/data_vs_mock.py --config configs/desy6/v1/default.yaml \
+    python dev/scripts/validation/data_vs_mock.py --config configs/desy6/v1/v1.yaml \
         --tfrecord <grid .tfrecord> --out <dir> [--scan <scan.h5>] [--grid_cls <grid_cls.h5>]
 """
 

@@ -74,7 +74,7 @@ executables (`resources` / `setup` / `main` / `merge`), so they are always launc
 esub msfm/apps/run_single_postprocessing.py \
     --dir_in=/path/to/CosmoGrid/bary/grid/cosmo_008963 \
     --dir_out=/path/to/output \
-    --msfm_config=configs/desy3/v18/default.yaml \
+    --msfm_config=configs/desy3/v18/v18.yaml \
     --with_lensing --with_clustering \
     --mode=run --function=all --tasks="0" --n_jobs=1
 ```
@@ -98,8 +98,8 @@ All four live in [`msfm/apps/`](msfm/apps/).
 ### Configuration
 
 One YAML per forward-model generation under [`configs/`](configs/), grouped by survey as
-`configs/<survey>/<version>/<subversion>.yaml` (`configs/desy3/v18/default.yaml`,
-`configs/desy6/v1/default.yaml`; see [`configs/README.md`](configs/README.md)), defining survey properties
+`configs/<survey>/<version>/<version>.yaml` (`configs/desy3/v18/v18.yaml`,
+`configs/desy6/v1/v1.yaml`; see [`configs/README.md`](configs/README.md)), defining survey properties
 (galaxy number densities, shear-calibration priors, response factors, tomographic bins for both
 the metacalibration source sample and the MagLim lens sample), the input data paths, the
 parameter priors, and the forward-modeling switches. The config is passed to every app as

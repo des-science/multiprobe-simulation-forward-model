@@ -23,17 +23,17 @@ Steps, in order:
     sc_bias      source-clustering bias table, fit per grid cosmology and on fiducial_bench, on perm_0000
 
 Usage:
-    python -m msfm.apps.products.desy6 nz --config configs/desy6/v1/default.yaml
-    python -m msfm.apps.products.desy6 pixels --config configs/desy6/v1/default.yaml   # compute node, needs healsparse
-    python -m msfm.apps.products.desy6 maps --config configs/desy6/v1/default.yaml --max-objects 100000   # smoke test
-    python -m msfm.apps.products.desy6 maps --config configs/desy6/v1/default.yaml   # compute node, ~140M objects
-    python -m msfm.apps.products.desy6 values --config configs/desy6/v1/default.yaml
-    python -m msfm.apps.products.desy6 values --config configs/desy6/v1/default.yaml --check   # exit 1 if stale
-    python -m msfm.apps.products.desy6 noise --config configs/desy6/v1/default.yaml   # compute node, ~2 GB out
-    python -m msfm.apps.products.desy6 systematics --config configs/desy6/v1/default.yaml \
+    python -m msfm.apps.products.desy6 nz --config configs/desy6/v1/v1.yaml
+    python -m msfm.apps.products.desy6 pixels --config configs/desy6/v1/v1.yaml   # compute node, needs healsparse
+    python -m msfm.apps.products.desy6 maps --config configs/desy6/v1/v1.yaml --max-objects 100000   # smoke test
+    python -m msfm.apps.products.desy6 maps --config configs/desy6/v1/v1.yaml   # compute node, ~140M objects
+    python -m msfm.apps.products.desy6 values --config configs/desy6/v1/v1.yaml
+    python -m msfm.apps.products.desy6 values --config configs/desy6/v1/v1.yaml --check   # exit 1 if stale
+    python -m msfm.apps.products.desy6 noise --config configs/desy6/v1/v1.yaml   # compute node, ~2 GB out
+    python -m msfm.apps.products.desy6 systematics --config configs/desy6/v1/v1.yaml \
         --source <lss_sys>/output/desy6/<label>/<label>_512.h5
-    python -m msfm.apps.products.desy6 sc_bias --config configs/desy6/v1/default.yaml --max-cosmologies 1   # smoke
-    python -m msfm.apps.products.desy6 sc_bias --config configs/desy6/v1/default.yaml   # compute node, minutes
+    python -m msfm.apps.products.desy6 sc_bias --config configs/desy6/v1/v1.yaml --max-cosmologies 1   # smoke
+    python -m msfm.apps.products.desy6 sc_bias --config configs/desy6/v1/v1.yaml   # compute node, minutes
 
 sc_bias reads the projection of the config's locations.yaml (msfm.utils.locations) unless --source names another.
 
@@ -778,7 +778,7 @@ def _record_provenance(conf, conf_path, step, commit, inputs, outputs):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("step", choices=list(STEPS), help="the product to derive")
-    parser.add_argument("--config", required=True, help="DES Y6 config, e.g. configs/desy6/v1/default.yaml")
+    parser.add_argument("--config", required=True, help="DES Y6 config, e.g. configs/desy6/v1/v1.yaml")
     parser.add_argument("--check", action="store_true", help="values only: write nothing, exit 1 if a value is stale")
     parser.add_argument("--dry-run", action="store_true", help="list the inputs and outputs, write nothing")
     parser.add_argument(

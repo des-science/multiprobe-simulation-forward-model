@@ -32,7 +32,7 @@ DIR_OUT=/pscratch/sd/a/athomsen/dlss/data/v18/baseline/obs
 PACKED_LOGS=/pscratch/sd/a/athomsen/run_files/v18/packed_logs
 
 FIDUCIAL_BENCH=/global/cfs/cdirs/des/cosmogrid/processed/v11desy3/CosmoGrid/bary/benchmarks/fiducial_bench
-DEFAULT_CONFIG=$REPO/configs/desy3/v18/default.yaml
+DEFAULT_CONFIG=$REPO/configs/desy3/v18/v18.yaml
 
 # arm_cfg <arm> sets DIR_IN / MSFM_CONFIG / SUFFIX_OUT / EXTRA_ARGS / JOB_NAME, ported 1:1 from the
 # retired ../../../../deprecated/perlmutter/desy3/v18_esub/obs_commands.sh (same dir_in/config/suffix/extra-flags per

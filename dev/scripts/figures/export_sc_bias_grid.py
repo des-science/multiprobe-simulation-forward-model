@@ -38,7 +38,7 @@ REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--config", default=os.path.join(REPO_DIR, "configs/desy3/v18/default.yaml"))
+    parser.add_argument("--config", default=os.path.join(REPO_DIR, "configs/desy3/v18/v18.yaml"))
     parser.add_argument(
         "--bias_file",
         default=os.path.join(REPO_DIR, "data/desy3/desy3_metacal_bias.h5"),

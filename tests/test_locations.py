@@ -7,14 +7,14 @@ import pytest
 from msfm.utils import locations
 
 REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-DESY6 = os.path.join(REPO_DIR, "configs/desy6/v1/default.yaml")
-DESY3 = os.path.join(REPO_DIR, "configs/desy3/v18/default.yaml")
+DESY6 = os.path.join(REPO_DIR, "configs/desy6/v1/v1.yaml")
+DESY3 = os.path.join(REPO_DIR, "configs/desy3/v18/v18.yaml")
 
 
 def _dataset(tmp_path, text):
     """A config next to a locations file with the given text. Returns the config path."""
     (tmp_path / "locations.yaml").write_text(text)
-    config = tmp_path / "default.yaml"
+    config = tmp_path / "v1.yaml"
     config.write_text("survey: {name: TEST}\n")
     return str(config)
 
@@ -36,11 +36,13 @@ def test_desy3_resolves_the_v18_paths():
     assert "projection" not in resolved
 
 
-def test_obs_defaults_to_data_and_follows_the_config_stem(tmp_path):
-    (tmp_path / "locations.yaml").write_text("data: /d\n")
-    config = tmp_path / "variant.yaml"
-    config.write_text("")
-    assert locations.load(str(config)) == {"data_dir": "/d/variant", "obs_dir": "/d/variant/obs"}
+def test_dataset_config_is_named_after_its_version():
+    assert locations.dataset_config("desy6/v1") == DESY6
+    assert locations.dataset_config("desy3/v18/") == DESY3
+
+
+def test_obs_defaults_to_data(tmp_path):
+    assert locations.load(_dataset(tmp_path, "data: /d\n")) == {"data_dir": "/d", "obs_dir": "/d/obs"}
 
 
 def test_empty_file_resolves_nothing(tmp_path):
@@ -59,7 +61,7 @@ def test_value_must_be_an_absolute_path(tmp_path, value):
 
 
 def test_missing_file_is_an_error(tmp_path):
-    config = tmp_path / "default.yaml"
+    config = tmp_path / "v1.yaml"
     config.write_text("")
     with pytest.raises(FileNotFoundError, match="locations.yaml does not exist"):
         locations.load(str(config))

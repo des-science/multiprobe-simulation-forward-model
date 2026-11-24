@@ -77,7 +77,7 @@ def parse_args():
     # inputs
     parser.add_argument(
         "--msfm_config",
-        default=os.path.join(REPO_DIR, "configs/desy3/v18/default.yaml"),
+        default=os.path.join(REPO_DIR, "configs/desy3/v18/v18.yaml"),
         help="msfm forward model config. Must be the one --mock_file was produced with",
     )
     parser.add_argument(

@@ -74,7 +74,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "--config",
-        default=os.path.join(REPO_DIR, "configs/desy3/v18/default.yaml"),
+        default=os.path.join(REPO_DIR, "configs/desy3/v18/v18.yaml"),
         help="msfm forward model config. Must be the one --bias_file was fitted under",
     )
     parser.add_argument(

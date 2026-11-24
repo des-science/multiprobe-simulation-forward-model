@@ -4,19 +4,19 @@
 Created November 2026
 Author: Arne Thomsen
 
-Where the data of a dataset lives on disk, written once per version next to its configs, e.g.
-configs/desy6/v1/locations.yaml, and read by msfm, y3-deep-lss and msi. The file holds machine paths only, never a
-science choice, so moving a directory changes no config.
+Where the data of a dataset lives on disk, written once per version next to its config, e.g.
+configs/desy6/v1/locations.yaml beside configs/desy6/v1/v1.yaml, and read by msfm, y3-deep-lss and msi. A dataset
+is one version of a survey with one config, configs/<survey>/<version>/<version>.yaml (dataset_config). The file
+holds machine paths only, never a science choice, so moving a directory changes no config.
 
     projection    the CosmoGrid projection, input (holds grid/ and benchmarks/)
-    data          msfm outputs: <data>/<config>/{tfrecords/grid, cls/grid_cls.h5, obs, validation, packed_logs}
-    obs           the mock observations, when they are not under data: <obs>/<config>/obs
-    runs          y3-deep-lss runs, read by msi: <runs>/<config>/<representation>/<probe>/<run>
+    data          msfm outputs: <data>/{tfrecords/grid, cls/grid_cls.h5, obs, validation, packed_logs}
+    obs           the mock observations, when they are not under data: <obs>/obs
+    runs          y3-deep-lss runs, read by msi: <runs>/<representation>/<probe>/<run>
     archive       a durable copy of data, laid out the same way; no script reads it
     runs_archive  a durable copy of runs, laid out the same way; no script reads it
 
-<config> is the stem of the msfm config, e.g. default for configs/desy6/v1/default.yaml. Every key is optional,
-since a dataset may lack one, and every value must be an absolute path.
+Every key is optional, since a dataset may lack one, and every value must be an absolute path.
 
 The resolved paths of a config are projection, data_dir, obs_dir, runs_dir, archive_dir and runs_archive_dir,
 present when the dataset has them. Shell scripts read them through the CLI, and an environment variable may still
@@ -34,6 +34,13 @@ from msfm.utils import input_output
 
 FILE_NAME = "locations.yaml"
 KEYS = ("projection", "data", "obs", "runs", "archive", "runs_archive")
+REPO_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def dataset_config(dataset):
+    """The msfm config of a dataset <survey>/<version>, e.g. desy6/v1 gives <repo>/configs/desy6/v1/v1.yaml."""
+    dataset = os.path.normpath(dataset)
+    return os.path.join(REPO_DIR, "configs", dataset, f"{os.path.basename(dataset)}.yaml")
 
 
 def locations_file(config_path):
@@ -68,17 +75,16 @@ def load(config_path):
     if not os.path.isfile(path):
         raise FileNotFoundError(f"{path} does not exist, so {config_path} has no data locations")
     roots = read(path)
-    config = os.path.splitext(os.path.basename(config_path))[0]
 
     resolved = {}
     if "projection" in roots:
         resolved["projection"] = roots["projection"]
     for key in ("data", "runs", "archive", "runs_archive"):
         if key in roots:
-            resolved[f"{key}_dir"] = os.path.join(roots[key], config)
+            resolved[f"{key}_dir"] = roots[key]
     obs_root = roots.get("obs", roots.get("data"))
     if obs_root is not None:
-        resolved["obs_dir"] = os.path.join(obs_root, config, "obs")
+        resolved["obs_dir"] = os.path.join(obs_root, "obs")
     return resolved
 
 
@@ -92,7 +98,7 @@ def get(config_path, key):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("config", help="msfm config, e.g. configs/desy6/v1/default.yaml")
+    parser.add_argument("config", help="msfm config, e.g. configs/desy6/v1/v1.yaml")
     parser.add_argument("--key", default=None, help="print only this resolved path")
     args = parser.parse_args(argv)
 

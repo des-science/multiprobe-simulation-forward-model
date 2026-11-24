@@ -31,7 +31,7 @@ import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
-CONFIG = os.path.join(REPO, "configs/desy3/v18/default.yaml")
+CONFIG = os.path.join(REPO, "configs/desy3/v18/v18.yaml")
 FIDUCIAL_DIR = "/capstor/store/cscs/swissai/a0158/athomsen/deep_lss/data/fiducial/cosmo_fiducial"
 STAGES = ("obs", "single", "grid")
 N_GRID_PERMS = 4  # run_grid_postprocessing --debug stops after perm 3

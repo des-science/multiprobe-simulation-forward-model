@@ -1,6 +1,6 @@
 # DES Y6 v1 tfrecords on daint
 
-`submit.sh` produces the Y6 v1 training set: `configs/desy6/v1/default.yaml` run through
+`submit.sh` produces the Y6 v1 training set: `configs/desy6/v1/v1.yaml` run through
 `msfm/apps/run_grid_postprocessing.py`, one `.tfrecord` per grid cosmology (2500 files, 20 perms × 4
 patches × 5 noise realizations each). It is a port of `../../../perlmutter/desy3/v18/packed/submit.sh`
 and keeps its interface. The executor is `../../common/packed_node.slurm` + `packed_task.sh`, which
@@ -82,7 +82,7 @@ likely a varint-encoded index growing with the cosmology.
 each) on one node, followed by a merge.
 
 Every mock is defined in `configs/desy6/v1/mock_observations.yaml` and nowhere else: its input below
-the projection root, the keys of `default.yaml` it changes, and its forward-model flags (format in
+the projection root, the keys of `v1.yaml` it changes, and its forward-model flags (format in
 `msfm/utils/mocks.py`). A new mock is a new entry there; this script reads only the labels.
 
 ```bash
@@ -142,7 +142,7 @@ JOB_NAME=tfr_reproduce_desy6_v1 DIR_OUT=/ritom/scratch/cscs/athomsen/desy6/v1/de
 ARRAY=0 SKIP_MERGE=1 ./submit.sh validate
 ./submit.sh --rerun validate
 # 3. the observation against one mock and the whole grid, on a compute node
-python dev/scripts/validation/data_vs_mock.py --config configs/desy6/v1/default.yaml \
+python dev/scripts/validation/data_vs_mock.py --config configs/desy6/v1/v1.yaml \
     --tfrecord <a grid .tfrecord> --out <validation>/data_vs_mock \
     --scan <validation>/scan.h5 --grid_cls <...>/cls/grid_cls.h5
 ```

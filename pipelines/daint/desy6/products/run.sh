@@ -9,7 +9,7 @@
 # here and not in the queue.
 #
 # Variables:
-#   CONFIG        config relative to the repo, default configs/desy6/v1/default.yaml
+#   CONFIG        config relative to the repo, default configs/desy6/v1/v1.yaml
 #   TIME          wall clock, default 00:30:00
 #   PARTITION     default debug: each step fits its 30 min limit (one job at a time there)
 #   ACCOUNT       default lp184
@@ -31,7 +31,7 @@ case $STEP in
 esac
 
 REPO_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
-CONFIG=${CONFIG:-configs/desy6/v1/default.yaml}
+CONFIG=${CONFIG:-configs/desy6/v1/v1.yaml}
 TIME=${TIME:-00:30:00}
 PARTITION=${PARTITION:-debug}
 ACCOUNT=${ACCOUNT:-lp184}
