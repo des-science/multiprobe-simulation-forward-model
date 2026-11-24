@@ -1,14 +1,15 @@
 # Pipelines
 
 Submission scripts for the msfm forward-model postprocessing, sorted **by cluster first**:
-`pipelines/<cluster>/<survey>/<version>/`. The cluster decides whether a script can run at all
-(accounts, filesystems, queues, containers), so it is the top level. Below it, the survey and
-version mirror the configs: `pipelines/<cluster>/<survey>/<version>/` holds the submission scripts
-for `configs/<survey>/<version>/`.
+`pipelines/<cluster>/<survey>/`. The cluster decides whether a script can run at all (accounts,
+filesystems, queues, containers), so it is the top level. Below it, the survey mirrors the configs.
+DES Y6 has one script for all its versions, `daint/desy6/submit.sh`, which takes the version as
+`VERSION` (`desy6/v2` for `configs/desy6/v2/`). The DES Y3 versions each have their own folder,
+`pipelines/<cluster>/desy3/<version>/`.
 
 | cluster | status | surveys and versions | how jobs are submitted |
 |---|---|---|---|
-| [`daint/`](daint/README.md) (CSCS Alps, GH200) | **active** | DES Y6: `desy6/products/` (data products), `desy6/v1/` (grid tfrecords) | packed whole exclusive nodes, CPUs only; `lp184` |
+| [`daint/`](daint/README.md) (CSCS Alps, GH200) | **active** | DES Y6: `desy6/products/` (data products), `desy6/submit.sh` (tfrecords and mocks of every version) | packed whole exclusive nodes, CPUs only; `lp184` |
 | [`perlmutter/`](perlmutter/README.md) (NERSC, CPU nodes) | frozen | DES Y3: `desy3/v17/` (esub + packed), `desy3/v18/packed/` | esub on the `shared` QOS, or packed whole nodes on `regular` |
 | [`deprecated/`](deprecated/README.md) | never run again | Euler, Perlmutter and Clariden scripts of older versions | — |
 
@@ -30,7 +31,8 @@ pipelines/
       packed_task.sh           one task of it
     desy6/
       products/run.sh          submits a compute-node step of the Y6 data products
-      v1/submit.sh             grid tfrecord production (preflight, packed array, merge), see v1/README.md
+      submit.sh                tfrecords and mocks of VERSION (preflight, packed array, merge)
+      README.md                how to run it, sizing and cost, the v1 records
   perlmutter/                  NERSC Perlmutter CPU nodes; the DES Y3 production, frozen
     README.md                  the packed regular-QOS rationale: pinning, bandwidth-knee sizing
     common/
@@ -51,7 +53,8 @@ pipelines/
 
 | version | status | configs | notes |
 |---|---|---|---|
-| v1 | in preparation | `configs/desy6/v1/` | First DES Y6 forward model. `daint/desy6/v1/submit.sh grid`; waits for the complete projection and step `sc_bias`. |
+| v1 | done (2026-11-21) | `configs/desy6/v1/` | First DES Y6 forward model. `VERSION=desy6/v1 daint/desy6/submit.sh grid`. |
+| v2 | in preparation | `configs/desy6/v2/` | The KP's IA prior and fiducials, the source clustering bias marginalized. `VERSION=desy6/v2 daint/desy6/submit.sh grid`. |
 
 `daint/desy6/products/run.sh <pixels|maps|noise>` submits a compute-node step of the Y6 data
 products (`msfm.apps.products.desy6`, see `data/desy6/README.md`) after running its `--dry-run` on

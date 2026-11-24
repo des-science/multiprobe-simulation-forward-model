@@ -21,7 +21,7 @@ esub ../../msfm/apps/run_single_postprocessing.py \
     --additional_slurm_args="--account=des,--constraint=cpu,--qos=shared,--licenses=cfs,--licenses=scratch"
 
 A mock of a registry (msfm.utils.mocks) takes everything but the paths from the registry, here the projection root as
---dir_in and the output directory (pipelines/daint/desy6/v1/submit.sh obs):
+--dir_in and the output directory (pipelines/daint/desy6/submit.sh obs):
 
 python msfm/apps/run_single_postprocessing.py --mocks=configs/desy6/v1/mock_observations.yaml --mock=fiducial_bench \
     --dir_in=<projection root> --dir_out=<obs dir>

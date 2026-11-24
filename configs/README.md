@@ -22,9 +22,9 @@ repository.
 | `desy3/v17/`, `desy3/v16/` | earlier DES Y3 generations, from before one config per version, still read by their pipelines and studies. They have no `locations.yaml` |
 | `desy3/deprecated/` | v5 to v15 and `marcel` |
 
-Versions are numbered per survey, so Y6 starts again at `v1`. `pipelines/<cluster>/<survey>/<version>/`
-holds the submission scripts for the version of the same name, on the cluster it runs on (DES Y3 on
-`perlmutter`, DES Y6 on `daint`).
+Versions are numbered per survey, so Y6 starts again at `v1`. The submission scripts live in
+`pipelines/<cluster>/<survey>/`, on the cluster the survey runs on: DES Y6's `daint/desy6/submit.sh`
+takes the version as `VERSION`, and each DES Y3 version has its own `perlmutter/desy3/<version>/`.
 
 A config's repo paths (`files:`, `dirs:`) lie either directly in `data/`, for the inputs shared by
 all surveys, or under `data/<survey.name in lower case>/`. msfm raises on any other `data/` path

@@ -20,4 +20,4 @@ they count the GPUs' HBM, so budget memory against 476 GB.
 | `common/packed_node.slurm` | generic packed executor: one srun step of `SLOTS` tasks in the tensorflow container, `--cpu-bind=none`; `FUNCTION=merge` runs the merge on the whole node |
 | `common/packed_task.sh` | one task: takes its index from `INDEX_FILE`, pins itself with `taskset` to `OMP` cores inside one Grace, calls `../common/run_packed.py` |
 | `desy6/products/run.sh <pixels\|maps\|noise>` | one compute-node step of the Y6 data products (`msfm.apps.products.desy6`), after its `--dry-run` on the login node |
-| `desy6/v1/submit.sh grid` | the Y6 v1 grid tfrecords: login-node preflight, the packed array, the merge; see `desy6/v1/README.md` |
+| `desy6/submit.sh grid` | the grid tfrecords, mocks and validation of the Y6 version `VERSION` (required): login-node preflight, the packed array, the merge; see `desy6/README.md` |

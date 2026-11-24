@@ -1,7 +1,7 @@
 # DES Y6 v1 mock observations, made by msfm/apps/run_single_postprocessing.py --mock <label> and submitted with
-# pipelines/daint/desy6/v1/submit.sh obs <label>|all. The format is documented in msfm/utils/mocks.py: each mock is
-# v1.yaml with its config: block merged on top, and its output is <label>_obs_maps.h5. The labels are the Y3
-# ones, so y3-deep-lss and msi find the files unchanged.
+# VERSION=desy6/v1 pipelines/daint/desy6/submit.sh obs <label>|all. The format is documented in msfm/utils/mocks.py:
+# each mock is v1.yaml with its config: block merged on top, and its output is <label>_obs_maps.h5. The labels are
+# the Y3 ones, so y3-deep-lss and msi find the files unchanged.
 #
 # The inputs are relative to the projection root. All four are CosmoGridV1 benchmarks at the fiducial cosmology,
 # projected with the fiducial n(z) and m, and read the bias-table key "fiducial", which step sc_bias fits on

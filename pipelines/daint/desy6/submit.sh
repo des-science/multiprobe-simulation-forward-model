@@ -1,10 +1,9 @@
 #!/bin/bash
-# Submits the DES Y6 tfrecord production of $CONFIG (default v1; CONFIG=$PWD/configs/desy6/v2/v2.yaml for v2) and
-# its validation on daint: a packed array (one exclusive GH200 node per element, $SLOTS cosmologies per node on its
-# CPUs) and the merge after it (afterok). Port of
-# ../../../perlmutter/desy3/v18/packed/submit.sh, with the same interface.
+# Submits the tfrecord production of the DES Y6 dataset $VERSION (configs/$VERSION/<version>.yaml) and its validation
+# on daint: a packed array (one exclusive GH200 node per element, $SLOTS cosmologies per node on its CPUs) and the
+# merge after it (afterok). Port of ../../perlmutter/desy3/v18/packed/submit.sh, with the same interface.
 #
-# Usage:
+# Usage, VERSION=desy6/v1, desy6/v2, ... required:
 #   DRY_RUN=1 ./submit.sh grid            # preflight + print the sbatch calls, submit nothing
 #   ./submit.sh grid                      # fresh run: submit every index
 #   ./submit.sh --rerun grid              # submit only the indices whose .tfrecord is missing or a stub
@@ -20,13 +19,13 @@
 #
 # The mocks are defined in $MOCKS alone (msfm/utils/mocks.py); this script only knows their labels.
 #
-# The input projection ($DIR_IN) and the output root ($DATA_ROOT) are those of the locations.yaml next to $CONFIG
+# The input projection ($DIR_IN) and the output root ($DATA_ROOT) are those of configs/$VERSION/locations.yaml
 # (msfm/utils/locations.py); every output directory below lies under $DATA_ROOT.
 #
 # Overrides (environment):
-#   CONFIG DIR_IN DATA_ROOT                      the msfm config (an absolute path), the projection and the output root
+#   DIR_IN DATA_ROOT                             the projection and the output root
 #   DIR_OUT PACKED_LOGS JOB_NAME                 per-chain paths and names, see below (obs ignores JOB_NAME)
-#   MOCKS                                        obs: the mock registry, by default the one next to $CONFIG
+#   MOCKS                                        obs: the mock registry, configs/$VERSION/mock_observations.yaml
 #   TFR_DIR GRID_CLS REPRODUCE_DIR               validate: the .tfrecords, the merged Cls and a --debug rerun of grid
 #   SLOTS OMP                                    tasks per node and cores per task. OMP must divide 72 (one Grace)
 #   NODE_TIME MERGE_TIME PARTITION               per-element wall clock, merge wall clock, partition (normal)
@@ -40,7 +39,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-REPO=$(cd ../../../.. && pwd)
+REPO=$(cd ../../.. && pwd)
 # absolute, since Slurm runs the batch script from a spool copy
 DRIVER=$REPO/pipelines/common/run_packed.py
 NODE_SCRIPT=$REPO/pipelines/daint/common/packed_node.slurm
@@ -54,11 +53,16 @@ py() {
     if [[ ${UENV_LABEL:-} == "$UENV" ]]; then "$PY" "$@"; else uenv run --view=default "$UENV" -- "$PY" "$@"; fi
 }
 
-CONFIG=${CONFIG:-$REPO/configs/desy6/v1/v1.yaml}
+# no default, so a run never writes into another version's folder
+CONFIG=$REPO/configs/${VERSION:-}/$(basename "${VERSION:-none}").yaml
+if ! [[ ${VERSION:-} =~ ^desy6/v[0-9]+$ ]] || [ ! -f "$CONFIG" ]; then
+    echo "Set VERSION to a dataset of configs/desy6/: $(cd "$REPO/configs" && echo desy6/v*)" >&2
+    exit 1
+fi
 MOCKS=${MOCKS:-$(dirname "$CONFIG")/mock_observations.yaml}
-# the job-name tag, from configs/<survey>/<version>/: desy6_v1
-TAG=$(basename "$(dirname "$(dirname "$CONFIG")")")_$(basename "$(dirname "$CONFIG")")
-# the projection (input) and the config's output root come from the locations.yaml next to $CONFIG
+# the job-name tag: desy6_v2
+TAG=${VERSION/\//_}
+# the projection (input) and the config's output root come from configs/$VERSION/locations.yaml
 LOCATIONS=$(py -m msfm.utils.locations "$CONFIG") \
     || { echo "cannot resolve the locations of $CONFIG" >&2; exit 1; }
 location() { sed -n "s|^$1=||p" <<< "$LOCATIONS"; }
@@ -331,5 +335,5 @@ RERUN=
 case "${1:-}" in
     grid|fiducial|validate) submit_chain "$1" "$RERUN" ;;
     obs) submit_obs "${2:-}" "$RERUN" ;;
-    *) echo "usage: [DRY_RUN=1] $0 [--rerun] grid|validate|obs <label>|obs all" >&2; exit 1 ;;
+    *) echo "usage: VERSION=desy6/<version> [DRY_RUN=1] $0 [--rerun] grid|validate|obs <label>|obs all" >&2; exit 1 ;;
 esac

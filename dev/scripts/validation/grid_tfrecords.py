@@ -37,7 +37,7 @@ merge:
 main writes <dir_out>/scan/index_XXXX.npz and records failures instead of raising. merge writes scan.h5, report.txt
 (PASS, WARN, FAIL or INFO per check), noise.png and signal.png, and exits 1 on any FAIL.
 
-Usage, CPU, tf_env (pipelines/daint/desy6/v1/submit.sh validate submits both):
+Usage, CPU, tf_env (pipelines/daint/desy6/submit.sh validate submits both):
     python pipelines/common/run_packed.py --app dev/scripts/validation/grid_tfrecords.py --function main --tasks 0 \\
         --config <yaml> --dir_tfrecords <dir> --dir_out <dir> [--dir_in <projection root>] [--grid_cls <h5>]
     python pipelines/common/run_packed.py --app dev/scripts/validation/grid_tfrecords.py --function merge --tasks 0 \\
