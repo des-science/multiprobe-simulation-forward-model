@@ -34,6 +34,10 @@ PROBE_GROUPS = {"lensing": ("cosmo", "bary", "ia", "sc"), "clustering": ("cosmo"
 # the posteriors are read without them. Asc, the source clustering amplitude, is not expected to be constrained
 REPORT_MARGINALIZED = ("ns", "Ob", "H0", "bary_Mc", "bary_nu", "Asc")
 
+# The posterior variants (msi chain suffixes) that fix parameters by dropping them, so their chains are narrower than
+# the run's labels: lambdaCDM drops w0, nla bta, refpriors the baryons. They compose, e.g. _lambdaCDM_nla_refpriors
+VARIANT_FIXED = {"lambdaCDM": ("w0",), "nla": ("bta",), "refpriors": ("bary_Mc", "bary_nu")}
+
 
 def raw_to_prior_units(cosmos, params, copy=True):
     """Convert label columns stored in raw CosmoGrid units to the config's prior units.
@@ -170,6 +174,22 @@ def resolve_parameters(spec, conf=None):
         LOGGER.warning(f"Reordered the parameters {selected} to the order of the stored labels, {resolved}")
 
     return resolved
+
+
+def chain_columns(params, variant=""):
+    """Return the columns of a posterior chain of a variant, the run's params less those VARIANT_FIXED drops.
+
+    Args:
+        params (list): The parameters of the run.
+        variant (str, optional): The chain suffix, e.g. "_lambdaCDM". Its qualifiers are matched as whole
+            underscore-separated tokens, so a label that merely contains one keeps its columns. Defaults to "".
+
+    Returns:
+        list: The column names, in the order of params.
+    """
+    tokens = set((variant or "").split("_"))
+    dropped = {param for qualifier, fixed in VARIANT_FIXED.items() if qualifier in tokens for param in fixed}
+    return [param for param in params if param not in dropped]
 
 
 def get_prior_intervals(params=None, conf=None):
