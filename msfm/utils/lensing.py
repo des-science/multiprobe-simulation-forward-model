@@ -77,7 +77,8 @@ def m_bias_from_projection(conf):
 def check_projection(conf, full_maps_file):
     """Assert that a projected full-sky file belongs to the configured survey. DES Y3 and Y6 projections share the
     filename and the bin labels, but only a Y6 one stores each realization's m (the attr shearm of nz/<bin>), so the
-    file must have it exactly when the config takes m from the projection.
+    file must have it exactly when the config takes m from the projection. With lens magnification, the file must also
+    store the convergence of every lens bin.
 
     Args:
         conf (dict): The config.
@@ -86,12 +87,20 @@ def check_projection(conf, full_maps_file):
     with h5py.File(full_maps_file, "r") as f:
         nz = f.get("nz", {})
         has_m = all(z_bin in nz and "shearm" in nz[z_bin].attrs for z_bin in conf["survey"]["metacal"]["z_bins"])
+        missing_kl = [z_bin for z_bin in conf["survey"]["maglim"]["z_bins"] if f"map/kg/{z_bin}" not in f]
 
     from_projection = m_bias_from_projection(conf)
     assert has_m == from_projection, (
         f"{full_maps_file} {'stores' if has_m else 'does not store'} the shearm of each realization, but the "
         f"{conf['survey']['name']} config has survey.metacal.shear_bias.multiplicative.source "
         f"{'projection' if from_projection else 'prior'}. Is --dir_in the projection of another survey?"
+    )
+
+    # the magnification of the lens counts needs the convergence of the lens n(z), which only a projection made for it
+    # stores. A projection that has it also serves a config without magnification
+    assert not (files.get_magnification(conf)[0] and missing_kl), (
+        f"{full_maps_file} has no convergence map/kg/<bin> of the lens bins {missing_kl}, which the config's "
+        "analysis.modelling.clustering.magnification needs. Is --dir_in a projection without the lens convergence?"
     )
 
 

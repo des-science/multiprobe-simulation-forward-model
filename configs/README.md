@@ -30,6 +30,24 @@ A config's repo paths (`files:`, `dirs:`) lie either directly in `data/`, for th
 all surveys, or under `data/<survey.name in lower case>/`. msfm raises on any other `data/` path
 (`msfm.utils.configuration.check_survey_paths`).
 
+## Lens magnification
+
+`analysis.modelling.clustering.magnification` (absent means False) magnifies each lens bin's counts as
+n̄ (1 + b δ)(1 + C κ), with C = 2 (α − 1) and κ the convergence of the lens n(z). It needs a projection that stores
+`map/kg/<lens bin>` next to `map/dg/<lens bin>`, unscaled by C. A config that turns it on has
+
+```yaml
+survey.maglim.map_types: {input: [dg, kg], output: [dg, kl]}
+analysis.params.mag: [amag1, amag3, ...]   # one alpha per lens bin, named by its bin number
+analysis.grid.gaussian_priors.amag1: [...] # or a uniform prior, for every alpha
+analysis.fiducial.amag1: ...               # the mock observations use it
+```
+
+The α are labels, drawn per example like the biases, but in no group of
+`msfm.utils.parameters.PROBE_GROUPS`. A network target leaves them out unless it names them, so the networks
+marginalize them over their prior. `msfm.utils.configuration` checks that these keys agree. Only the grid and the
+mock observations implement it, not the fiducial postprocessing.
+
 ## Data locations
 
 Where a dataset's data live outside the repo is written once, in its `locations.yaml`. msfm,

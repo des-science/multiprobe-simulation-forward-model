@@ -44,6 +44,9 @@ def galaxy_density_to_count(
         bg (np.ndarray): Effective linear galaxy biasing parameter (optionally per tomographic bin).
         qdg (np.ndarray, optional): Squared galaxy density contrast map (optionally per tomographic bin).
         qbg (np.ndarray, optional): Effective quadratic galaxy biasing parameter (optionally per tomographic bin).
+        mg (np.ndarray, optional): Convergence of the lens n(z), shaped like dg, mean-subtracted within the footprint.
+        cg (np.ndarray, optional): Magnification coefficient per tomographic bin, see magnification_coefficient.
+            Together with mg, it magnifies the counts as n_bar (1 + bg dg)(1 + cg mg).
         systematics_map (np.ndarray, optional): DES Y3 weight map w = 1/F of the maglim sample, see
             files.get_clustering_systematics. The clean simulated counts are DIVIDED by it to imprint the survey
             contamination F. Zeros (the data vector padding) are left untouched. Defaults to None.
@@ -114,6 +117,20 @@ def galaxy_density_to_count(
         ng *= mask
 
     return ng
+
+
+def magnification_coefficient(alpha):
+    """The magnification coefficient C = 2 (alpha - 1) of each lens bin, with alpha the slope of the cumulative number
+    counts at the magnitude limit (Eq. 12 of https://arxiv.org/abs/2601.14833), the alpha of Table 3 in
+    https://arxiv.org/pdf/2601.14559.
+
+    Args:
+        alpha (np.ndarray): (n_z_maglim,) alpha per lens bin.
+
+    Returns:
+        np.ndarray: (n_z_maglim,) C per lens bin, the cg of galaxy_density_to_count.
+    """
+    return 2.0 * (np.asarray(alpha, dtype=np.float32) - 1.0)
 
 
 def galaxy_count_to_noise(ng, n_noise, np_seed=None):

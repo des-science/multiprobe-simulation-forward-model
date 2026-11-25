@@ -175,6 +175,8 @@ def setup(args):
         type=float,
         nargs="+",
         default=None,
+        help="magnification coefficient C = 2 (alpha - 1) per lens bin, overriding the config's fiducial alpha "
+        "(zeros switch the magnification off). Needs the convergence of the lens bins in the projection",
     )
     parser.add_argument(
         "--contaminate_survey_systematics",

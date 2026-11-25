@@ -245,11 +245,13 @@ def main(indices, args):
     astro_params = conf["analysis"]["params"]["ia"]["nla"].copy()
     if extended_nla:
         astro_params += conf["analysis"]["params"]["ia"]["tatt"]
-    astro_params += conf["analysis"]["params"]["bg"]["linear"]
-    if quadratic_biasing:
-        astro_params += conf["analysis"]["params"]["bg"]["quadratic"]
-    if sn_bias in files.SAMPLED_BIASES:
-        astro_params += conf["analysis"]["params"]["sc"]
+    bg_params = conf["analysis"]["params"]["bg"]["linear"]
+    qbg_params = conf["analysis"]["params"]["bg"]["quadratic"] if quadratic_biasing else []
+    magnification, mag_params = files.get_magnification(conf)
+    sc_params = conf["analysis"]["params"]["sc"] if sn_bias in files.SAMPLED_BIASES else []
+
+    # in the order of parameters.get_parameters, which is the order of the stored labels
+    astro_params += bg_params + qbg_params + mag_params + sc_params
     # the anchor b_sc * sigma8 of the bias "prior", see lensing.source_clustering_bias
     bsc_sigma8 = files.get_bsc_sigma8(conf) if sn_bias == "prior" else None
     n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])
@@ -260,7 +262,6 @@ def main(indices, args):
     fixed_params = parameters.get_fixed_parameters(conf)
     if fixed_params:
         LOGGER.info(f"Fixed on the grid: {fixed_params}")
-    n_bg_bins = len(conf["analysis"]["params"]["bg"]["linear"])
 
     # .tfrecords
     if n_cosmos % args.n_files == 0:
@@ -335,14 +336,15 @@ def main(indices, args):
                 astro_samples = parameters.unit_to_prior(unscaled_samples, astro_params, conf)
                 astro_samples = astro_samples.astype(np.float32)
 
-                # (n_examples, n_z_metacal) source clustering bias per example and bin, the last sampled column
+                # (n_examples, n_z_metacal) source clustering bias per example and bin, from the sampled sc column
+                sc_samples = astro_samples[:, astro_params.index(sc_params[0])] if sc_params else None
                 if sn_bias == "prior":
                     # an amplitude on the anchor, at this cosmology's sigma8
                     s8 = cosmo_params_info["s8"][i_cosmo]
-                    bsc_samples = lensing.source_clustering_bias(bsc_sigma8, s8, astro_samples[:, -1])
+                    bsc_samples = lensing.source_clustering_bias(bsc_sigma8, s8, sc_samples)
                 elif sn_bias == "absolute_prior":
                     # one bias for every bin
-                    bsc_samples = np.repeat(astro_samples[:, -1:], n_z_metacal, axis=1)
+                    bsc_samples = np.repeat(sc_samples[:, np.newaxis], n_z_metacal, axis=1)
                 else:
                     bsc_samples = None
                 if bsc_samples is not None:
@@ -386,9 +388,16 @@ def main(indices, args):
                 # (n_examples_per_cosmo, n_noise_per_signaln_pix, n_z_bins)
                 sn_examples = data_vec_container["sn"] if store_lensing else [None] * n_examples_per_cosmo
 
+                # (n_examples_per_cosmo, n_pix, n_z_maglim) convergence of the lens n(z)
+                kl_examples = (
+                    data_vec_container["kl"] if store_clustering and magnification else [None] * n_examples_per_cosmo
+                )
+
                 # loop over the n_examples_per_cosmo
-                for i_signal, (kg, ia, ds, sn_samples, dg, qdg) in LOGGER.progressbar(
-                    enumerate(zip(kg_examples, ia_examples, ds_examples, sn_examples, dg_examples, qdg_examples)),
+                for i_signal, (kg, ia, ds, sn_samples, dg, qdg, kl) in LOGGER.progressbar(
+                    enumerate(
+                        zip(kg_examples, ia_examples, ds_examples, sn_examples, dg_examples, qdg_examples, kl_examples)
+                    ),
                     at_level="info",
                     desc="Looping through the per cosmology examples",
                     total=n_examples_per_cosmo // n_noise_per_signal,
@@ -400,34 +409,30 @@ def main(indices, args):
                     astro_sample = astro_samples[i_signal]
                     cosmo_sample = np.concatenate([cosmo, astro_sample])
 
-                    # to keep the indexing identical
-                    if sn_bias in files.SAMPLED_BIASES:
-                        astro_sample = astro_sample[:-1]
-
-                    # lensing, by name since an IA parameter is either sampled or in analysis.grid.fixed
+                    # by name, since an IA parameter is either sampled or in analysis.grid.fixed
                     astro = {**fixed_params, **dict(zip(astro_params, astro_sample))}
+
+                    # lensing
                     Aia, n_Aia = astro["Aia"], astro["n_Aia"]
                     bta = astro["bta"] if extended_nla else None
 
                     # clustering
+                    tomo_bg = [astro[p] for p in bg_params]
+                    tomo_qbg = [astro[p] for p in qbg_params] if quadratic_biasing else None
                     if power_law_biasing:
+                        # the amplitude and the exponent
+                        tomo_bg = redshift.get_tomo_amplitudes_according_to_config(conf, *tomo_bg, "maglim")
                         if quadratic_biasing:
-                            bg, n_bg, qbg, n_qbg = astro_sample[-4:]
-                            tomo_qbg = redshift.get_tomo_amplitudes_according_to_config(conf, qbg, n_qbg, "maglim")
-                        else:
-                            bg, n_bg = astro_sample[-2:]
-                            tomo_qbg = None
-                        tomo_bg = redshift.get_tomo_amplitudes_according_to_config(conf, bg, n_bg, "maglim")
+                            tomo_qbg = redshift.get_tomo_amplitudes_according_to_config(conf, *tomo_qbg, "maglim")
                     elif per_bin_biasing:
-                        # one bias per lens bin, at the end of the sample (linear, then quadratic)
-                        if quadratic_biasing:
-                            tomo_bg = np.array(astro_sample[-2 * n_bg_bins : -n_bg_bins])
-                            tomo_qbg = np.array(astro_sample[-n_bg_bins:])
-                        else:
-                            tomo_bg = np.array(astro_sample[-n_bg_bins:])
-                            tomo_qbg = None
+                        # one bias per lens bin
+                        tomo_bg = np.array(tomo_bg)
+                        tomo_qbg = np.array(tomo_qbg) if quadratic_biasing else None
                     else:
                         raise ValueError("Unsupported configuration of clustering bias")
+                    tomo_cg = (
+                        clustering.magnification_coefficient([astro[p] for p in mag_params]) if magnification else None
+                    )
 
                     if store_lensing:
                         # the realization's own m from the projection, or one draw from the prior
@@ -438,7 +443,7 @@ def main(indices, args):
                     else:
                         kg, sn_samples, alm_kg, alm_sn_samples = None, None, None, None
                     dg, pn_samples, alm_dg, alm_pn_samples = (
-                        clustering_transform(dg, tomo_bg, qdg, tomo_qbg, np_seed=i_sobol + i_signal)
+                        clustering_transform(dg, tomo_bg, qdg, tomo_qbg, kl, tomo_cg, np_seed=i_sobol + i_signal)
                         if store_clustering
                         else (None, None, None, None)
                     )
@@ -639,16 +644,22 @@ def _get_clustering_transform(conf, pixel_file):
         # quadratic
         qdg=None,
         tomo_qdg=None,
+        # magnification
+        kl=None,
+        tomo_cg=None,
         # noise
         np_seed=None,
     ):
         assert (not quadratic_biasing and ((qdg is None) or (tomo_qdg is None))) or (
             quadratic_biasing and (qdg is not None) and (tomo_qdg is not None)
         ), "The galaxy biasing setup must be consistent"
+        assert (kl is None) == (tomo_cg is None), "The magnification needs both the convergence and the coefficients"
         LOGGER.debug(f"Per z bin linear bias = {tomo_bg}")
 
         if quadratic_biasing:
             LOGGER.debug(f"Per z bin quadratic bias = {tomo_qdg}")
+        if tomo_cg is not None:
+            LOGGER.debug(f"Per z bin magnification coefficient = {tomo_cg}")
 
         # the distinction between linear and quadratic biasing is done in main with conditional None values
         dg = clustering.galaxy_density_to_count(
@@ -659,6 +670,9 @@ def _get_clustering_transform(conf, pixel_file):
             # quadratic
             qdg,
             tomo_qdg,
+            # magnification
+            mg=kl,
+            cg=tomo_cg,
             # misc
             systematics_map=tomo_maglim_sys_dv,
             mask=maglim_mask,

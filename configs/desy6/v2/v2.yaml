@@ -77,6 +77,8 @@ analysis:
       quadratic: [bg1_q, bg3_q, bg4_q, bg5_q, bg6_q]
     # source clustering amplitude (shape_noise bias prior)
     sc: [Asc]
+    # lens magnification alpha, one per lens bin (maglim3 -> amag3), only with modelling.clustering.magnification
+    mag: []
   footprint:
     # step pixels asserts that the four rotated Y6 patches do not overlap
     rotation:
@@ -131,6 +133,8 @@ analysis:
       stochasticity: False
       # the lens weight maps (step pixels) correct the observed counts and stay out of the forward model
       maglim_survey_systematics_map: False
+      # magnify the lens counts by the convergence of the lens n(z), which this projection does not store
+      magnification: False
   normalization:
     lensing: [1, 1, 1, 1]
     clustering: [1, 1, 1, 1, 1]

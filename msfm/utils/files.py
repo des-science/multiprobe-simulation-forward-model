@@ -621,6 +621,27 @@ def get_bsc_sigma8(conf=None):
     return bsc_sigma8
 
 
+def get_magnification(conf=None):
+    """Whether the lens counts are magnified, analysis.modelling.clustering.magnification (absent means False). Then
+    each lens bin's counts are n_bar (1 + b delta)(1 + C kappa), see clustering.magnification_coefficient, with kappa
+    the convergence of the lens n(z) (input map type kg of survey.maglim) and alpha the labels analysis.params.mag.
+
+    Args:
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary
+            (the config is passed through) or None (the default config is loaded). Defaults to None.
+
+    Returns:
+        tuple: (magnification, mag_params). mag_params is the list analysis.params.mag, empty when magnification is
+            False.
+    """
+    conf = load_config(conf)
+
+    magnification = bool(conf["analysis"]["modelling"]["clustering"].get("magnification", False))
+    mag_params = list(conf["analysis"]["params"].get("mag") or []) if magnification else []
+
+    return magnification, mag_params
+
+
 def read_sc_calibration(conf, b_sc):
     """Load the Gatti source-clustering calibration factors and evaluate them at the bias b_sc.
 

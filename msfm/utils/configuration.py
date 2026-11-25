@@ -143,7 +143,7 @@ def print_and_check_modeling_in_config(conf):
         f"survey_systematics={sn_survey_sys}"
     )
     if sn_bias in files.SAMPLED_BIASES:
-        # the grid reads the last sampled column as the bias and strips exactly one
+        # the grid reads the bias from the one sc column
         sc_params = conf["analysis"]["params"].get("sc") or []
         assert len(sc_params) == 1, (
             f"shape_noise bias {sn_bias!r} requires exactly one analysis.params.sc ([Asc] for prior, [bsc] for "
@@ -185,6 +185,28 @@ def print_and_check_modeling_in_config(conf):
         assert len(conf["analysis"]["params"]["bg"]["quadratic"]) == len(
             bg_params
         ), "Quadratic per bin biasing needs one analysis.params.bg.quadratic entry per lens bin"
+
+    # lens magnification: one alpha per lens bin, named by the bin number (maglim3 -> amag3), and the convergence of
+    # the lens n(z) as a second maglim input map
+    magnification, mag_params = files.get_magnification(conf)
+    maglim_maps = dict(
+        zip(conf["survey"]["maglim"]["map_types"]["input"], conf["survey"]["maglim"]["map_types"]["output"])
+    )
+    assert magnification == ("kg" in maglim_maps), (
+        f"magnification {magnification} requires the input map type kg in survey.maglim.map_types exactly when it "
+        f"is True, got {list(maglim_maps)}"
+    )
+    if magnification:
+        assert conf_clustering["per_bin_biasing"], "magnification is only implemented for per_bin_biasing"
+        assert maglim_maps["kg"] == "kl", "the maglim input map type kg must have the output map type kl"
+        per_bin_mag = [f"amag{files.get_z_bin_number(z_bin)}" for z_bin in conf["survey"]["maglim"]["z_bins"]]
+        assert mag_params == per_bin_mag, f"magnification needs analysis.params.mag {per_bin_mag}, got {mag_params}"
+        for param in mag_params:
+            assert param in gaussian_priors or param in grid["priors"], f"the magnification label {param} has no prior"
+            assert param in conf["analysis"]["fiducial"], f"the magnification label {param} has no fiducial value"
+        LOGGER.info(f"Lens magnification with the labels {mag_params}")
+    else:
+        assert not conf["analysis"]["params"].get("mag"), "analysis.params.mag must be empty without magnification"
 
     if conf_clustering["stochasticity"]:
         assert conf["analysis"]["params"]["bg"]["stochasticity"] == ["rg"]

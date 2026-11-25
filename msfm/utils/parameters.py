@@ -100,6 +100,8 @@ def get_parameters(params=None, conf=None):
         params += conf["analysis"]["params"]["bg"]["linear"]
         if conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]:
             params += conf["analysis"]["params"]["bg"]["quadratic"]
+        # lens magnification, before sc so that the Asc column stays last
+        params += files.get_magnification(conf)[1]
         try:
             _, sn_bias, _, _ = files.get_shape_noise(conf)
             if sn_bias in files.SAMPLED_BIASES:

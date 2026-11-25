@@ -159,9 +159,11 @@ def _set_up_per_example_dv_container(conf, pixel_file, is_fiducial, keep_b_mode=
                 dvs_shape = (n_patches, n_noise_per_signal, data_vec_len, n_z_bins)
             else:
                 dvs_shape = None
-        elif out_map_type == "dg":
+        elif out_map_type in ["dg", "dg2", "kl"]:
             n_z_bins = len(conf["survey"]["maglim"]["z_bins"])
             dvs_shape = (n_patches, data_vec_len, n_z_bins)
+        else:
+            raise ValueError(f"Unknown output map type {out_map_type}")
 
         if dvs_shape is not None:
             data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
@@ -280,12 +282,14 @@ def _set_up_per_cosmo_dv_container(conf, pixel_file):
         if out_map_type in ["kg", "ia", "ds"]:
             n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
             dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
-        elif out_map_type == "dg":
+        elif out_map_type in ["dg", "dg2", "kl"]:
             n_z_bins = len(conf["survey"]["maglim"]["z_bins"])
             dvs_shape = (n_perms_per_cosmo * n_patches, data_vec_len, n_z_bins)
         elif out_map_type == "sn":
             n_z_bins = len(conf["survey"]["metacal"]["z_bins"])
             dvs_shape = (n_perms_per_cosmo * n_patches, n_noise_per_signal, data_vec_len, n_z_bins)
+        else:
+            raise ValueError(f"Unknown output map type {out_map_type}")
 
         data_vec_container[out_map_type] = np.zeros(dvs_shape, dtype=np.float32)
 
@@ -643,6 +647,9 @@ def postprocess_maglim_bin(
 ):
     if in_map_type in ["dg", "dg2"]:
         delta_dvs = postprocess_clustering(full_sky_map, conf, i_z, simset, pixel_file, "maglim", i_sobol, rng)
+    elif in_map_type == "kg" and out_map_type == "kl":
+        # the convergence of the lens n(z), for the magnification of the lens counts
+        delta_dvs = _cut_out_scalar_patches(full_sky_map, conf, i_z, pixel_file, "maglim", remove_mean=True)
     else:
         raise ValueError(f"Unknown input map type {in_map_type} for maglim/galaxy clustering")
 
@@ -652,6 +659,22 @@ def postprocess_maglim_bin(
 def postprocess_clustering(
     delta_full_sky, conf, i_z, simset, pixel_file, galaxy_sample="maglim", i_sobol=None, rng=None
 ):
+    # DeepLSS-style stochasticity has to be applied to the full-sky maps
+    if conf["analysis"]["modelling"]["clustering"]["stochasticity"] and (i_sobol is not None) and (rng is not None):
+        delta_full_sky = clustering.extend_sobol_sequence_by_stochasticity(conf, delta_full_sky, simset, i_sobol, rng)
+
+    # shape (n_patches, data_vec_len)
+    return _cut_out_scalar_patches(delta_full_sky, conf, i_z, pixel_file, galaxy_sample, divide_by_mean=True)
+
+
+def _cut_out_scalar_patches(
+    full_sky_map, conf, i_z, pixel_file, galaxy_sample, remove_mean=False, divide_by_mean=False
+):
+    """Cut a scalar full-sky map out of the patches of a galaxy sample's bin, see maps.map_to_data_vec for the mean.
+
+    Returns:
+        np.ndarray: shape (n_patches, data_vec_len).
+    """
     n_pix = hp.nside2npix(conf["analysis"]["n_side"])
     n_patches = conf["analysis"]["n_patches"]
 
@@ -662,25 +685,23 @@ def postprocess_clustering(
     data_vec_len = len(data_vec_pix)
     base_patch_pix = patches_pix[0]
 
-    # DeepLSS-style stochasticity has to be applied to the full-sky maps
-    if conf["analysis"]["modelling"]["clustering"]["stochasticity"] and (i_sobol is not None) and (rng is not None):
-        delta_full_sky = clustering.extend_sobol_sequence_by_stochasticity(conf, delta_full_sky, simset, i_sobol, rng)
-
-    delta_dvs = np.zeros((n_patches, data_vec_len), dtype=np.float32)
+    dvs = np.zeros((n_patches, data_vec_len), dtype=np.float32)
     for i_patch, patch_pix in enumerate(patches_pix):
         # always populate the same patch
-        delta_patch = np.zeros(n_pix, dtype=np.float32)
-        delta_patch[base_patch_pix] = delta_full_sky[patch_pix]
+        patch = np.zeros(n_pix, dtype=np.float32)
+        patch[base_patch_pix] = full_sky_map[patch_pix]
 
         # cut out padded data vector
-        delta_dv = maps.map_to_data_vec(
-            delta_patch, data_vec_len, corresponding_pix, base_patch_pix, divide_by_mean=True
+        dvs[i_patch] = maps.map_to_data_vec(
+            patch,
+            data_vec_len,
+            corresponding_pix,
+            base_patch_pix,
+            remove_mean=remove_mean,
+            divide_by_mean=divide_by_mean,
         )
 
-        delta_dvs[i_patch] = delta_dv
-
-    # shape (n_patches, data_vec_len)
-    return delta_dvs
+    return dvs
 
 
 # shared utils ########################################################################################################

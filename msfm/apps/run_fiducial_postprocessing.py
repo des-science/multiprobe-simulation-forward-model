@@ -236,6 +236,8 @@ def main(indices, args):
     stochasticity = conf["analysis"]["modelling"]["clustering"]["stochasticity"]
     assert not quadratic_biasing, "The quadratic biasing has not been implemented yet"
     assert not stochasticity, "The stochasticity has not been implemented yet"
+    # no magnification labels among the perturbations, which are routed by substrings of their names
+    assert not files.get_magnification(conf)[0], "The lens magnification has not been implemented yet"
 
     # directories
     file_dir = os.path.dirname(__file__)

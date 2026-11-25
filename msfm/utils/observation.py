@@ -610,26 +610,32 @@ def forward_model_cosmogrid(
                 LOGGER.info(f"Using tomo_qbg={tomo_qbg} from the function call")
                 qdg_dv = dg_dv**2 * np.sign(dg_dv)
 
-            # TODO
+            # lens magnification, by the convergence of the lens n(z)
+            magnification, mag_params = files.get_magnification(conf)
+            if tomo_cg is None:
+                if magnification:
+                    tomo_cg = clustering.magnification_coefficient(
+                        [conf["analysis"]["fiducial"][p] for p in mag_params]
+                    )
+                    LOGGER.info(f"Using tomo_cg={tomo_cg} from the fiducial alpha of the config")
+                else:
+                    LOGGER.info("No lens magnification")
+            else:
+                tomo_cg = np.asarray(tomo_cg, dtype=np.float32)
+                LOGGER.info(f"Using tomo_cg={tomo_cg} from the function call")
+
             if tomo_cg is not None:
-                LOGGER.warning(f"!!!EXPERIMENTAL!!! Using tomo_cg={tomo_cg} from the function call")
+                mg = np.stack([hp.ud_grade(f[f"map/kg/{z_bin}"], n_side) for z_bin in maglim_bins], axis=-1)
 
-                perm_index = int(map_dir[-4:])
-
-                mg = []
-                for i, z_bin in enumerate(maglim_bins):
-                    mg_file = f"/pscratch/sd/a/athomsen/laura/DES_maps_260128/mag_map_bin_{i+1}_run_{perm_index}.npy"
-                    mg.append(np.load(mg_file))
-                mg = np.stack(mg, axis=-1)
-
+                # cut out the footprint and subtract the mean (within the patch and tomographic bin)
                 mg_patch = np.zeros_like(mg)
                 mg_patch[patch_pix] = mg[cutout_patch_pix]
+                mg_patch[patch_pix] -= np.mean(mg_patch[patch_pix], axis=0)
+
                 mg_patch = maps.tomographic_reorder(mg_patch, r2n=True)
                 mg_dv = mg_patch[data_vec_pix]
-
             else:
                 mg_dv = None
-                tomo_cg = None
 
             if survey_sys:
                 LOGGER.info("Including the maglim survey systematics map in the forward model")
