@@ -192,6 +192,63 @@ def in_grid_prior_torch(cosmos, prior_data, hull_tol=1e-10):
     return in_prior
 
 
+def get_gaussian_prior_data(params=None, conf=None, gaussian_priors=None):
+    """Resolve the Gaussian terms of the analysis prior once, for ``gaussian_log_prior``. The config's
+    analysis.grid.gaussian_priors always apply, each truncated by the box of ``in_grid_prior``. An entry of
+    ``gaussian_priors`` adds a term or replaces the config's of the same name. The special name "Obh2" puts the
+    term on the derived Ob * (H0/100)^2. Names not in params are skipped with a warning.
+
+    Args:
+        params (list, optional): Parameter names in the same order as the ``cosmos`` last axis. Defaults to
+            None, then all parameters in the config are used.
+        conf (str, dict, optional): Config (path, dict, or None for the repo default).
+        gaussian_priors (dict, optional): Further terms as ``{name: (mu, sigma)}``. Defaults to None.
+
+    Returns:
+        list or None: ``(kind, index, mu, sigma)`` per term, or None when there is none.
+    """
+    conf = files.load_config(conf)
+    params = parameters.get_parameters(params, conf)
+    gaussian_priors = {**parameters.get_gaussian_priors(params, conf), **(gaussian_priors or {})}
+
+    gaussian_data = []
+    for name, (mu, sigma) in gaussian_priors.items():
+        if name == "Obh2":
+            if "Ob" not in params or "H0" not in params:
+                LOGGER.warning("gaussian_priors: 'Obh2' needs Ob and H0 in params; ignored")
+                continue
+            gaussian_data.append(("Obh2", (params.index("Ob"), params.index("H0")), mu, sigma))
+        elif name in params:
+            gaussian_data.append(("param", params.index(name), mu, sigma))
+        else:
+            LOGGER.warning(f"gaussian_priors: {name!r} not in params; ignored")
+
+    return gaussian_data or None
+
+
+def gaussian_log_prior(cosmos, gaussian_data):
+    """Log density of the Gaussian prior terms, up to a constant, for numpy arrays and torch tensors alike.
+
+    Args:
+        cosmos (np.ndarray, torch.Tensor): Parameters of shape (..., n_params), in the order the terms were
+            resolved for.
+        gaussian_data (list): Output of ``get_gaussian_prior_data``, or None.
+
+    Returns:
+        np.ndarray, torch.Tensor or float: Shape (...,), or 0.0 without terms.
+    """
+    log_prior = 0.0
+    for kind, idx, mu, sigma in gaussian_data or ():
+        if kind == "Obh2":
+            i_Ob, i_H0 = idx
+            value = cosmos[..., i_Ob] * (cosmos[..., i_H0] / 100.0) ** 2
+        else:
+            value = cosmos[..., idx]
+        log_prior = log_prior - 0.5 * ((value - mu) / sigma) ** 2
+
+    return log_prior
+
+
 def get_min_w0(Om, margin=0.01):
     """Calculates the minimum possible w0 value given an Om value. The minimum w0 value is calculated with a formula
     from the concept creator and ensures that the "w0 phantom crossing" occurs after z = 0.
