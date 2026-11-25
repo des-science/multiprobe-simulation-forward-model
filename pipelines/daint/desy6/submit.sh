@@ -12,10 +12,11 @@
 #   ./submit.sh obs <label>|all           # the mock observations of $MOCKS, one array and one merge per mock
 #   ./submit.sh --rerun obs <label>|all   # only the permutations without an output, for a mock not merged yet
 #
-# Before any sbatch, a login-node preflight checks that every submitted index has all its projected files under
-# $DIR_IN and that every file the config names exists (files.metacal_bias needs step sc_bias first). For validate it
-# also checks that the index's .tfrecord exists. For obs it runs `python -m msfm.utils.mocks check` on every selected
-# mock before submitting any: config, files, permutations and bias-table key.
+# Before any sbatch, a login-node preflight (`python -m msfm.utils.preflight`) checks the config, that every file it
+# names exists (files.metacal_bias needs step sc_bias first) and that every submitted index has all its projected
+# files under $DIR_IN. For validate it also checks that the index's .tfrecord exists. For obs it runs
+# `python -m msfm.utils.mocks check` on every selected mock before submitting any: config, files, permutations and
+# bias-table key.
 #
 # The mocks are defined in $MOCKS alone (msfm/utils/mocks.py); this script only knows their labels.
 #
@@ -143,52 +144,9 @@ chain_cfg() {
 
 preflight() {
     local index_file=$1 chain=$2
-    echo "[preflight] projected files under $DIR_IN and the config's files, on the login node"
-    py -I - "$REPO" "$CONFIG" "$DIR_IN" "$index_file" "$chain" "${TFR_DIR:-}" \
-        <<'EOF'
-import os
-import sys
-
-import h5py
-import yaml
-
-repo, config, dir_in, index_file, chain, tfr_dir = sys.argv[1:]
-with open(config) as f:
-    conf = yaml.safe_load(f)
-problems = []
-
-# every file the config names, relative to the repo (the files: section also holds non-path values)
-for key, path in conf["files"].items():
-    if isinstance(path, str) and "/" in path and not os.path.exists(os.path.join(repo, path)):
-        problems.append(f"files.{key} = {path} does not exist")
-
-# the grid app reads <dir_in>/grid/<path_par>/perm_XXXX/projected_probes_maps_v11dmb.h5, the index-th cosmology
-with h5py.File(os.path.join(repo, conf["files"]["meta_info"]), "r") as f:
-    path_par = [p.decode().strip("/") for p in f["parameters/grid"]["path_par"]]
-n_perms = conf["analysis"]["grid"]["n_perms_per_cosmo"]
-indices = [int(line) for line in open(index_file) if line.strip()]
-missing = []
-for index in indices:
-    for i_perm in range(n_perms):
-        file = os.path.join(dir_in, "grid", path_par[index], f"perm_{i_perm:04d}", "projected_probes_maps_v11dmb.h5")
-        if not os.path.isfile(file):
-            missing.append(file)
-if missing:
-    problems.append(f"{len(missing)} of {len(indices) * n_perms} projected files are missing, e.g. {missing[0]}")
-
-# validate reads the grid app's output, <survey>_grid_dm{b,o}_XXXX.tfrecord, and a short stub is a failed write
-if chain == "validate":
-    model = "dmb" if conf["analysis"]["modelling"]["baryonified"] else "dmo"
-    tfrecords = [os.path.join(tfr_dir, f"{conf['survey']['name']}_grid_{model}_{i:04d}.tfrecord") for i in indices]
-    bad = [t for t in tfrecords if not os.path.isfile(t) or os.path.getsize(t) < 2**20]
-    if bad:
-        problems.append(f"{len(bad)} of {len(indices)} .tfrecords are missing or stubs, e.g. {bad[0]}")
-
-print(f"[preflight] {len(indices)} indices x {n_perms} perms checked")
-for problem in problems:
-    print(f"[preflight] {problem}", file=sys.stderr)
-sys.exit(1 if problems else 0)
-EOF
+    echo "[preflight] $chain: the config, its files and the projected files under $DIR_IN, on the login node"
+    py -m msfm.utils.preflight "$chain" "$CONFIG" --dir_in "$DIR_IN" --indices "$index_file" \
+        ${TFR_DIR:+--tfr_dir "$TFR_DIR"}
 }
 
 # indices whose output is complete: grid's .tfrecord (a task that dies mid-run can leave a short stub, real files are

@@ -37,8 +37,6 @@ from msfm.utils import input_output, locations, logger
 
 LOGGER = logger.get_logger(__file__)
 
-REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-
 # the flags of run_single_postprocessing.py a registry may set, by kind: a switch, a number or a list of numbers
 FORWARD_MODEL_ARGS = {
     "with_lensing": "flag",
@@ -162,7 +160,7 @@ def check(path, projection, selected=None):
     Returns:
         list: the problems found, empty if none
     """
-    from msfm.utils import configuration, filenames, files
+    from msfm.utils import configuration, filenames, files, preflight
 
     problems = []
     for label in selected or labels(path):
@@ -174,9 +172,7 @@ def check(path, projection, selected=None):
             problems.append(f"{label}: {type(err).__name__}: {err}")
             continue
 
-        for key, rel in mock.conf["files"].items():
-            if isinstance(rel, str) and "/" in rel and not os.path.exists(os.path.join(REPO_DIR, rel)):
-                problems.append(f"{label}: files.{key} = {rel} does not exist")
+        problems += [f"{label}: {problem}" for problem in preflight.missing_config_files(mock.conf)]
 
         cosmo_dir = os.path.join(projection, mock.input)
         with_bary = mock.conf["analysis"]["modelling"]["baryonified"]
