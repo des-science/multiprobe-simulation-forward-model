@@ -50,10 +50,10 @@ From the repository root, in `torch_env` (`pytorch/v2.9.1:v2` uenv, plus healspa
 ```bash
 # login node: nz, values
 uenv run --view=default pytorch/v2.9.1:v2 -- ~/dlss/torch_env/bin/python \
-    -m msfm.apps.products.desy6 <step> --config configs/desy6/v1/v1.yaml
+    -m msfm.apps.products.desy6 <step> --config configs/desy6/v2/v2.yaml
 
 # one CPU node: pixels, maps, noise (dry run on the login node first, then sbatch)
-pipelines/daint/desy6/products/run.sh <step>    # PARTITION, TIME, LOGDIR; DRYRUN=1 prints the sbatch line
+VERSION=desy6/v2 pipelines/daint/desy6/products/run.sh <step>    # PARTITION, TIME, LOGDIR; DRYRUN=1 prints the sbatch line
 ```
 
 - `--dry-run` lists what a step reads and writes, and writes nothing.

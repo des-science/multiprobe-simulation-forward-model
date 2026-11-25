@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Submits one compute-node step of the DES Y6 data products (msfm.apps.products.desy6) as a single-node CPU job.
 #
-#   pipelines/daint/desy6/products/run.sh <pixels|maps|noise> [extra step arguments]
-#   DRYRUN=1 pipelines/daint/desy6/products/run.sh maps      # print the sbatch command, submit nothing
+#   VERSION=desy6/v2 pipelines/daint/desy6/products/run.sh <pixels|maps|noise> [extra step arguments]
+#   DRYRUN=1 VERSION=desy6/v2 pipelines/daint/desy6/products/run.sh maps   # print the sbatch command, submit nothing
 #
 # nz and values run on the login node without this wrapper (data/desy6/README.md).
 # Before submitting, the step's --dry-run runs on the login node, so a missing input or a broken environment fails
 # here and not in the queue.
 #
 # Variables:
-#   CONFIG        config relative to the repo, default configs/desy6/v1/v1.yaml
+#   VERSION       required, the dataset desy6/v1, desy6/v2, ...: the config configs/$VERSION/<version>.yaml
 #   TIME          wall clock, default 00:30:00
 #   PARTITION     default debug: each step fits its 30 min limit (one job at a time there)
 #   ACCOUNT       default lp184
@@ -31,7 +31,8 @@ case $STEP in
 esac
 
 REPO_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
-CONFIG=${CONFIG:-configs/desy6/v1/v1.yaml}
+# no default, so a step never writes another version's products
+CONFIG=configs/${VERSION:-}/$(basename "${VERSION:-none}").yaml
 TIME=${TIME:-00:30:00}
 PARTITION=${PARTITION:-debug}
 ACCOUNT=${ACCOUNT:-lp184}
@@ -40,7 +41,11 @@ PY=${PY:-$HOME/dlss/torch_env/bin/python}
 LOGDIR=${LOGDIR:-${SCRATCH:?SCRATCH is not set, set LOGDIR}/msfm_desy6_products}
 
 cd "$REPO_DIR"
-[[ -f $CONFIG ]] || die "no config $CONFIG in $REPO_DIR"
+if ! [[ ${VERSION:-} =~ ^desy6/v[0-9]+$ ]] || [[ ! -f $CONFIG ]]; then
+    die "set VERSION to a dataset of configs/desy6/: $(cd configs && echo desy6/v*)"
+fi
+# the job and log name: desy6_v2_<step>
+TAG=${VERSION/\//_}_$STEP
 
 STEP_CMD=("$PY" -m msfm.apps.products.desy6 "$STEP" --config "$CONFIG" "$@")
 
@@ -61,14 +66,14 @@ fi
 mkdir -p "$LOGDIR"
 SB=(sbatch
     --account="$ACCOUNT"
-    --job-name="desy6_$STEP"
+    --job-name="$TAG"
     --partition="$PARTITION"
     --time="$TIME"
     --nodes=1
     --ntasks=1
     --cpus-per-task=288
     --chdir="$REPO_DIR"
-    --output="$LOGDIR/desy6_${STEP}_%j.log"
+    --output="$LOGDIR/${TAG}_%j.log"
     --uenv="$UENV"
     --view=default)
 # sbatch is disabled inside a uenv session unless the session's uenv is ignored; the job brings its own
@@ -80,5 +85,5 @@ if [[ ${DRYRUN:-0} == 1 ]]; then
     echo
     exit 0
 fi
-echo "run.sh: desy6 $STEP -> $PARTITION ($TIME), log $LOGDIR/desy6_${STEP}_<jobid>.log"
+echo "run.sh: $VERSION $STEP -> $PARTITION ($TIME), log $LOGDIR/${TAG}_<jobid>.log"
 exec "${SB[@]}"
