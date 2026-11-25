@@ -647,7 +647,7 @@ def postprocess_maglim_bin(
 ):
     if in_map_type in ["dg", "dg2"]:
         delta_dvs = postprocess_clustering(full_sky_map, conf, i_z, simset, pixel_file, "maglim", i_sobol, rng)
-    elif in_map_type == "kg" and out_map_type == "kl":
+    elif out_map_type == "kl":
         # the convergence of the lens n(z), for the magnification of the lens counts
         delta_dvs = _cut_out_scalar_patches(full_sky_map, conf, i_z, pixel_file, "maglim", remove_mean=True)
     else:

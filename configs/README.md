@@ -35,10 +35,11 @@ all surveys, or under `data/<survey.name in lower case>/`. msfm raises on any ot
 
 `analysis.modelling.clustering.magnification` (absent means False) magnifies each lens bin's counts as
 n̄ (1 + b δ)(1 + C κ), with C = 2 (α − 1) and κ the convergence of the lens n(z). It needs a projection that stores
-`map/kg/<lens bin>` next to `map/dg/<lens bin>`, unscaled by C. A config that turns it on has
+`map/dm/<lens bin>` next to `map/dg/<lens bin>`, unscaled by C. The input paired with the output `kl` names that
+key (`msfm.utils.files.get_lens_convergence_map_type`). A config that turns it on has
 
 ```yaml
-survey.maglim.map_types: {input: [dg, kg], output: [dg, kl]}
+survey.maglim.map_types: {input: [dg, dm], output: [dg, kl]}
 analysis.params.mag: [amag1, amag3, ...]   # one alpha per lens bin, named by its bin number
 analysis.grid.gaussian_priors.amag1: [...] # or a uniform prior, for every alpha
 analysis.fiducial.amag1: ...               # the mock observations use it

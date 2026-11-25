@@ -625,7 +625,8 @@ def forward_model_cosmogrid(
                 LOGGER.info(f"Using tomo_cg={tomo_cg} from the function call")
 
             if tomo_cg is not None:
-                mg = np.stack([hp.ud_grade(f[f"map/kg/{z_bin}"], n_side) for z_bin in maglim_bins], axis=-1)
+                lens_kappa = files.get_lens_convergence_map_type(conf)
+                mg = np.stack([hp.ud_grade(f[f"map/{lens_kappa}/{z_bin}"], n_side) for z_bin in maglim_bins], axis=-1)
 
                 # cut out the footprint and subtract the mean (within the patch and tomographic bin)
                 mg_patch = np.zeros_like(mg)

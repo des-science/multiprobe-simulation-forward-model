@@ -637,7 +637,7 @@ def get_bsc_sigma8(conf=None):
 def get_magnification(conf=None):
     """Whether the lens counts are magnified, analysis.modelling.clustering.magnification (absent means False). Then
     each lens bin's counts are n_bar (1 + b delta)(1 + C kappa), see clustering.magnification_coefficient, with kappa
-    the convergence of the lens n(z) (input map type kg of survey.maglim) and alpha the labels analysis.params.mag.
+    the convergence of the lens n(z) (see get_lens_convergence_map_type) and alpha the labels analysis.params.mag.
 
     Args:
         conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary
@@ -653,6 +653,31 @@ def get_magnification(conf=None):
     mag_params = list(conf["analysis"]["params"].get("mag") or []) if magnification else []
 
     return magnification, mag_params
+
+
+# the projection's key of the lens n(z) convergence, map/dm/<lens bin>, plain kappa without C
+LENS_CONVERGENCE_MAP_TYPE = "dm"
+
+
+def get_lens_convergence_map_type(conf=None):
+    """The projection's map type of the convergence of the lens n(z), which magnifies the lens counts: the input of
+    survey.maglim.map_types paired with the output kl, or LENS_CONVERGENCE_MAP_TYPE for a config without one (a mock
+    magnified through run_single_postprocessing --tomo_cg).
+
+    Args:
+        conf (str, dict, optional): Can be either a string (a config.yaml is read in), a dictionary
+            (the config is passed through) or None (the default config is loaded). Defaults to None.
+
+    Returns:
+        str: The map type, read from map/<map type>/<lens bin> of the projection.
+    """
+    conf = load_config(conf)
+
+    map_types = conf["survey"]["maglim"]["map_types"]
+    lens_kappa = [in_type for in_type, out_type in zip(map_types["input"], map_types["output"]) if out_type == "kl"]
+    assert len(lens_kappa) <= 1, f"survey.maglim.map_types has more than one input for the output kl: {lens_kappa}"
+
+    return lens_kappa[0] if lens_kappa else LENS_CONVERGENCE_MAP_TYPE
 
 
 def read_sc_calibration(conf, b_sc):

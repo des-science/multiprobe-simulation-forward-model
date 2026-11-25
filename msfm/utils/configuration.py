@@ -186,18 +186,17 @@ def print_and_check_modeling_in_config(conf):
         ), "Quadratic per bin biasing needs one analysis.params.bg.quadratic entry per lens bin"
 
     # lens magnification: one alpha per lens bin, named by the bin number (maglim3 -> amag3), and the convergence of
-    # the lens n(z) as a second maglim input map
+    # the lens n(z) as a second maglim input map, with the output kl
     magnification, mag_params = files.get_magnification(conf)
-    maglim_maps = dict(
-        zip(conf["survey"]["maglim"]["map_types"]["input"], conf["survey"]["maglim"]["map_types"]["output"])
-    )
-    assert magnification == ("kg" in maglim_maps), (
-        f"magnification {magnification} requires the input map type kg in survey.maglim.map_types exactly when it "
-        f"is True, got {list(maglim_maps)}"
+    maglim_outputs = conf["survey"]["maglim"]["map_types"]["output"]
+    assert magnification == ("kl" in maglim_outputs), (
+        f"magnification {magnification} requires the output map type kl in survey.maglim.map_types exactly when it "
+        f"is True, got {maglim_outputs}"
     )
     if magnification:
         assert conf_clustering["per_bin_biasing"], "magnification is only implemented for per_bin_biasing"
-        assert maglim_maps["kg"] == "kl", "the maglim input map type kg must have the output map type kl"
+        lens_kappa = files.get_lens_convergence_map_type(conf)
+        assert lens_kappa not in ["dg", "dg2"], f"the input of the maglim output kl is a convergence, not {lens_kappa}"
         per_bin_mag = [f"amag{files.get_z_bin_number(z_bin)}" for z_bin in conf["survey"]["maglim"]["z_bins"]]
         assert mag_params == per_bin_mag, f"magnification needs analysis.params.mag {per_bin_mag}, got {mag_params}"
         for param in mag_params:

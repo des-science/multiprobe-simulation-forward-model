@@ -84,10 +84,11 @@ def check_projection(conf, full_maps_file):
         conf (dict): The config.
         full_maps_file (str): Path to a projected_probes_maps file.
     """
+    lens_kappa = files.get_lens_convergence_map_type(conf)
     with h5py.File(full_maps_file, "r") as f:
         nz = f.get("nz", {})
         has_m = all(z_bin in nz and "shearm" in nz[z_bin].attrs for z_bin in conf["survey"]["metacal"]["z_bins"])
-        missing_kl = [z_bin for z_bin in conf["survey"]["maglim"]["z_bins"] if f"map/kg/{z_bin}" not in f]
+        missing_kl = [z_bin for z_bin in conf["survey"]["maglim"]["z_bins"] if f"map/{lens_kappa}/{z_bin}" not in f]
 
     from_projection = m_bias_from_projection(conf)
     assert has_m == from_projection, (
@@ -99,7 +100,7 @@ def check_projection(conf, full_maps_file):
     # the magnification of the lens counts needs the convergence of the lens n(z), which only a projection made for it
     # stores. A projection that has it also serves a config without magnification
     assert not (files.get_magnification(conf)[0] and missing_kl), (
-        f"{full_maps_file} has no convergence map/kg/<bin> of the lens bins {missing_kl}, which the config's "
+        f"{full_maps_file} has no convergence map/{lens_kappa}/<bin> of the lens bins {missing_kl}, which the config's "
         "analysis.modelling.clustering.magnification needs. Is --dir_in a projection without the lens convergence?"
     )
 

@@ -1,6 +1,6 @@
 # DES Y6 forward model, version 3 (preliminary): version 2 (configs/desy6/v2/v2.yaml) with lens magnification and the
 # magnification prior of the DES Y6 3x2pt key project. It needs a projection that stores the convergence of the lens
-# bins (map/kg/<lens bin>), which does not exist yet. Values are v2's unless marked or commented otherwise. The Y6
+# bins (map/dm/<lens bin>), which does not exist yet. Values are v2's unless marked or commented otherwise. The Y6
 # products come from `python -m msfm.apps.products.desy6 <step>` (data/desy6/README.md):
 #   # <- step <name>                 the step writes this file
 #   # <- step values: <dotted.key>   the step values writes this value, do not edit it by hand
@@ -46,9 +46,9 @@ survey:
     z0: 0.3
   # MagLim survey bins 1 and 3-6, bin 2 is dropped as in Sec. IV.8 of https://arxiv.org/pdf/2601.14559
   maglim:
-    # v3: kg, the convergence of the lens n(z), magnifies the counts and is no output map of its own
+    # v3: dm, the convergence of the lens n(z) without C, magnifies the counts and is no output map of its own
     map_types:
-      input: [dg, kg]
+      input: [dg, dm]
       output: [dg, kl]
     z_bins: [maglim1, maglim3, maglim4, maglim5, maglim6]
     # in galaxies/deg^2 inside the footprint, of the counts corrected by the lens weight maps
