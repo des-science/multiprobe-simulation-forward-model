@@ -448,6 +448,19 @@ def get_z_bin_number(z_bin):
     return int(match.group(1))
 
 
+def get_z_bin_columns(conf, sample):
+    """Return the columns of the configured bins in an array over all survey bins, where survey bin k is column k - 1.
+
+    Args:
+        conf (dict): The config.
+        sample (str): Either "metacal" or "maglim".
+
+    Returns:
+        list: One column per label of survey.<sample>.z_bins, in its order.
+    """
+    return [get_z_bin_number(z_bin) - 1 for z_bin in conf["survey"][sample]["z_bins"]]
+
+
 def load_redshift_distributions(galaxy_sample, conf=None):
     """Load the redshift distributions from disk to memory. The files are <survey>_nz_<sample>_bin<k>.txt, with
     <survey> the lower-case survey.name and k the bin number of each survey.<sample>.z_bins label.

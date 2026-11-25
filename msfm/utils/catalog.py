@@ -30,11 +30,6 @@ def cache_file(conf, name):
     return os.path.join(cache_dir, f"{conf['survey']['name'].lower()}_{name}")
 
 
-def _bin_columns(conf, sample):
-    """Cache columns of the configured bins: column k - 1 holds survey bin k."""
-    return [files.get_z_bin_number(z_bin) - 1 for z_bin in conf["survey"][sample]["z_bins"]]
-
-
 def _assert_desy3_catalog(conf):
     """Only the DES Y3 catalog is read here; the maps of other surveys come from their products script."""
     survey = conf["survey"]["name"]
@@ -188,7 +183,7 @@ def build_metacal_map_from_cat(
     # load from cache if available and not forcing recompute
     if not force_recompute:
         try:
-            columns = _bin_columns(conf, "metacal")
+            columns = files.get_z_bin_columns(conf, "metacal")
             wl_gamma_map = np.load(gamma_cache_dir)[:, columns]
             wl_count_map = np.load(count_cache_dir)[:, columns]
             LOGGER.info("Loaded metacal maps from cache")
@@ -387,7 +382,7 @@ def build_maglim_map_from_cat(conf, debug=True, force_recompute=False):
     # load from cache if available and not forcing recompute
     if not force_recompute:
         try:
-            gc_count_map = np.load(cache_dir)[:, _bin_columns(conf, "maglim")]
+            gc_count_map = np.load(cache_dir)[:, files.get_z_bin_columns(conf, "maglim")]
             LOGGER.info("Loaded maglim map from cache")
             return gc_count_map
         except FileNotFoundError:

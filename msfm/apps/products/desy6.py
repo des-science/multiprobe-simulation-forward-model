@@ -65,6 +65,8 @@ OUT_ROOT = "data/desy6"
 CONFIG_ROOT = "configs/desy6"
 STEP_ORDER = ["nz", "pixels", "maps", "values", "noise", "systematics", "sc_bias"]
 
+# config sample key -> number of survey bins of the release
+SURVEY_BINS = {"metacal": catalog_desy6.N_SOURCE_BINS, "maglim": catalog_desy6.N_LENS_BINS}
 # config sample key -> (n(z) HDU of the 3x2pt FITS, number of survey bins it must hold)
 NZ_HDUS = {"metacal": ("nz_source", catalog_desy6.N_SOURCE_BINS), "maglim": ("nz_lens", catalog_desy6.N_LENS_BINS)}
 
@@ -160,8 +162,6 @@ def step_nz(conf, args):
 
             bin_cols = [col for col in table.columns.names if re.fullmatch(r"BIN\d+", col)]
             assert bin_cols == [f"BIN{i}" for i in range(1, n_bins + 1)], f"{hdu_name}: columns {bin_cols}"
-            missing = {files.get_z_bin_number(z) for z in conf["survey"][sample]["z_bins"]} - set(range(1, n_bins + 1))
-            assert not missing, f"survey.{sample}.z_bins names survey bins {missing} that {hdu_name} does not have"
 
             for i_bin in range(1, n_bins + 1):
                 nz = np.asarray(table[f"BIN{i_bin}"], dtype=np.float64)
@@ -224,10 +224,6 @@ def step_pixels(conf, args):
     assert n_side % n_side_down == 0, f"n_side {n_side} is no multiple of n_side_down {n_side_down}"
     threshold = conf["analysis"]["footprint"]["coverage_threshold"]
     assert 0 < threshold <= 1, f"analysis.footprint.coverage_threshold {threshold} is not in (0, 1]"
-    survey_bins = {"metacal": catalog_desy6.N_SOURCE_BINS, "maglim": catalog_desy6.N_LENS_BINS}
-    for sample, n_bins in survey_bins.items():
-        missing = {files.get_z_bin_number(z) for z in conf["survey"][sample]["z_bins"]} - set(range(1, n_bins + 1))
-        assert not missing, f"survey.{sample}.z_bins names survey bins {missing} that Y6 does not have"
     pix_area = hp.nside2pixarea(n_side, degrees=True)
 
     coverage_sky, area = catalog_desy6.mask_coverage(conf, MASK_ROTATE_NSIDE)
@@ -293,7 +289,7 @@ def step_pixels(conf, args):
         )
 
         # every survey bin, so a change of z_bins needs no new file
-        for sample, n_bins in survey_bins.items():
+        for sample, n_bins in SURVEY_BINS.items():
             for name in ("patches", "patch_to_data_vec"):
                 group = f.require_group(f"{sample}/{name}")
                 for i_bin in range(1, n_bins + 1):
@@ -316,11 +312,10 @@ def step_pixels(conf, args):
     # the pipeline's loaders read the file back
     data_vec_back, patches_back, patch_to_data_vec_back, signs_back = files.load_pixel_file(conf)
     assert np.array_equal(data_vec_back, data_vec) and np.array_equal(signs_back, PATCH_GAMMA_2_SIGN), "read back"
-    for sample in survey_bins:
+    for sample in SURVEY_BINS:
         assert all(np.array_equal(p, patches) for p in patches_back[sample]), f"{sample} patches read back"
         assert all(np.array_equal(p, patch_to_data_vec) for p in patch_to_data_vec_back[sample]), f"{sample} read back"
-    lens_columns = [files.get_z_bin_number(z) - 1 for z in conf["survey"]["maglim"]["z_bins"]]
-    used_weights = lens_weights[:, lens_columns].astype(np.float32)
+    used_weights = lens_weights[:, files.get_z_bin_columns(conf, "maglim")].astype(np.float32)
     sys_map = files.get_clustering_systematics(conf, pixel_type="map")
     sys_dv = files.get_clustering_systematics(conf, pixel_type="data_vector")
     assert np.array_equal(sys_map, used_weights), "maglim systematics map read back"
@@ -506,7 +501,7 @@ def _fiducial_bench_s8(meta_path):
 
 def _configured_bins(conf, sample, per_survey_bin):
     """The values of the configured bins, in z_bins order, from the values of every survey bin."""
-    return [float(per_survey_bin[files.get_z_bin_number(z) - 1]) for z in conf["survey"][sample]["z_bins"]]
+    return [float(per_survey_bin[column]) for column in files.get_z_bin_columns(conf, sample)]
 
 
 def step_noise(conf, args):
@@ -598,8 +593,8 @@ def step_systematics(conf, args):
     n_side, n_bins = conf["analysis"]["n_side"], catalog_desy6.N_SOURCE_BINS
     n_pix = hp.nside2npix(n_side)
     # the loader reads bin{i} for the i-th configured bin
-    survey_bins = [files.get_z_bin_number(z) for z in conf["survey"]["metacal"]["z_bins"]]
-    assert survey_bins == list(range(1, n_bins + 1)), f"survey.metacal.z_bins must be all {n_bins} survey bins"
+    columns = files.get_z_bin_columns(conf, "metacal")
+    assert columns == list(range(n_bins)), f"survey.metacal.z_bins must be all {n_bins} survey bins"
 
     with h5py.File(source, "r") as f:
         label = str(f.attrs["label"])
@@ -860,6 +855,9 @@ def main(argv=None):
     if conf["survey"]["name"] != SURVEY_NAME:
         raise ValueError(f"{args.config} is a {conf['survey']['name']} config, these products are {SURVEY_NAME}")
     configuration.check_survey_paths(conf)
+    for sample, n_bins in SURVEY_BINS.items():
+        missing = {files.get_z_bin_number(z) for z in conf["survey"][sample]["z_bins"]} - set(range(1, n_bins + 1))
+        assert not missing, f"survey.{sample}.z_bins names survey bins {missing} that DES Y6 does not have"
 
     # checked before the step runs, so a dry run with --provenance catches uncommitted code too
     commit = _clean_commit() if args.provenance else None
