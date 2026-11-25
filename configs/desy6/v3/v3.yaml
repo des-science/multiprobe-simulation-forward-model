@@ -1,0 +1,231 @@
+# DES Y6 forward model, version 3 (preliminary): version 2 (configs/desy6/v2/v2.yaml) with lens magnification and the
+# magnification prior of the DES Y6 3x2pt key project. It needs a projection that stores the convergence of the lens
+# bins (map/kg/<lens bin>), which does not exist yet. Values are v2's unless marked or commented otherwise. The Y6
+# products come from `python -m msfm.apps.products.desy6 <step>` (data/desy6/README.md):
+#   # <- step <name>                 the step writes this file
+#   # <- step values: <dotted.key>   the step values writes this value, do not edit it by hand
+dirs:
+  # the public DES Y6 release, read in place
+  catalog: /capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/data_desy6a2
+  # relative to the root of this repository
+  redshift_distributions: data/desy6/redshift_distributions # <- step nz
+  # catalog maps, gitignored
+  cache: data/desy6/cache # <- step maps
+
+files:
+  # relative to the root of this repository
+  pixels: data/desy6/desy6_pixels_fiducial_512.h5 # <- step pixels
+  noise: data/desy6/desy6_noise_512.h5 # <- step noise
+  # inputs, outputs (sha256) and msfm commit of every product step
+  provenance: data/desy6/provenance.yaml
+  meta_info: data/CosmoGridV1_metainfo.h5
+  healpy_data: data/healpy_data
+  # lss_sys run metadetect_sources_MAIN19, Y3's method on the 19 DES Y6 survey-property templates
+  metacal_systematics: data/desy6/desy6_metacal_systematics_MAIN19_512.h5 # <- step systematics
+  metacal_bias: data/desy6/desy6_metacal_bias.h5 # <- step sc_bias
+  metacal_bias_arm: contam
+
+survey:
+  name: DESy6
+  # the metadetection sources, under msfm's key for the source sample
+  metacal:
+    map_types:
+      input: [kg, ia, dg, dg]
+      output: [kg, ia, sn, ds]
+    z_bins: [metacal1, metacal2, metacal3, metacal4]
+    # in galaxies/deg^2 inside the footprint
+    n_gal: [7433.825377591532, 7635.582963085136, 7677.574950556799, 8182.75987826189] # <- step values: survey.metacal.n_gal
+    shear_bias:
+      multiplicative:
+        # each realization's own m (attribute shearm of the projection's nz/<bin>). mu and sigma, the prior from the
+        # M_BIN columns of desy6_source_redshift.h5, only check that it lies within 5 sigma
+        source: projection
+        mu: [-0.003397673790742481, 0.00645519707938863, 0.015939349904159923, 0.001698109169479922] # <- step values: survey.metacal.shear_bias.multiplicative.mu
+        sigma: [0.005784359495438698, 0.006623822114448156, 0.005938030766082593, 0.01220024598003775] # <- step values: survey.metacal.shear_bias.multiplicative.sigma
+    # IA pivot redshift, from Sec. III.4 of https://arxiv.org/pdf/2601.14859
+    z0: 0.3
+  # MagLim survey bins 1 and 3-6, bin 2 is dropped as in Sec. IV.8 of https://arxiv.org/pdf/2601.14559
+  maglim:
+    # v3: kg, the convergence of the lens n(z), magnifies the counts and is no output map of its own
+    map_types:
+      input: [dg, kg]
+      output: [dg, kl]
+    z_bins: [maglim1, maglim3, maglim4, maglim5, maglim6]
+    # in galaxies/deg^2 inside the footprint, of the counts corrected by the lens weight maps
+    n_gal: [406.37168844151955, 310.35154530865645, 391.57145224529353, 305.6373656692489, 309.6290699389061] # <- step values: survey.maglim.n_gal
+  # in deg^2, the joint mask's area, as in DES's 3x2pt_pipeline_public.ipynb
+  Aeff: 4031.03590997686 # <- step values: survey.Aeff
+
+analysis:
+  n_side: 512
+  # smallest n_side of the networks, sets the padding of the data vectors
+  n_side_down: 16
+  # number of cut-outs from the full sky
+  n_patches: 4
+  # the labels, in this order. Downstream, a network target names labels or these groups
+  # (msfm.utils.parameters.resolve_parameters)
+  params:
+    # the six CosmoGrid parameters come first, in its order
+    cosmo: [Om, s8, Ob, H0, ns, w0]
+    bary: [bary_Mc, bary_nu]
+    # NLA plus the TATT cross term (extended_nla). bta is in analysis.grid.fixed, so it is no label
+    ia:
+      nla: [Aia, n_Aia]
+      tatt: []
+    # one per lens bin, named by its survey bin (maglim3 -> bg3)
+    bg:
+      linear: [bg1, bg3, bg4, bg5, bg6]
+      quadratic: [bg1_q, bg3_q, bg4_q, bg5_q, bg6_q]
+    # source clustering amplitude (shape_noise bias prior)
+    sc: [Asc]
+    # v3: lens magnification alpha, one per lens bin (maglim3 -> amag3). In no default network target, so the networks
+    # marginalize them over their prior
+    mag: [amag1, amag3, amag4, amag5, amag6]
+  footprint:
+    # step pixels asserts that the four rotated Y6 patches do not overlap
+    rotation:
+      y_rad: -0.125
+      z_rad: -1.22
+    # smallest mask coverage of a footprint pixel, chosen as in Y3 so that the footprint area matches the mask area
+    coverage_threshold: 0.73
+  # angles in arcmin, l_max Null is healpy's 3 * n_side - 1. Only l_min is baked into the .tfrecords, the smoothing is
+  # applied on the fly downstream
+  scale_cuts:
+    hard_cut: True
+    lensing:
+      l_min: [30, 30, 30, 30]
+      l_max: Null
+      theta_fwhm: Null
+    clustering:
+      l_min: [30, 30, 30, 30, 30]
+      l_max: Null
+      theta_fwhm: Null
+  modelling:
+    baryonified: True
+    store_cross_maps: False
+    # degrade the maps to Gaussian random fields, for comparisons with the power spectra
+    degrade_to_grf: False
+    lensing:
+      store: True
+      shape_noise:
+        # in_place (rotate galaxies in place) | gatti (calibrated density modulation) | count (Poisson resampling)
+        method: count
+        # fixed (files.metacal_bias) | prior (Asc * bsc_sigma8 / s8) | absolute_prior (one b_sc for all bins)
+        bias: prior
+        # b_sc * sigma8 per source bin, from the fiducial fit of step sc_bias
+        bsc_sigma8: [0.7940266113281257, 1.0972528839111342, 1.2334475097656272, 1.6271667480468768] # <- step values: analysis.modelling.lensing.shape_noise.bsc_sigma8
+        # largest count per pixel in the histogram the bias is fit to (default 200), above Y6's largest, 359
+        bias_fit_max_count: 400
+        # imprint files.metacal_systematics on the source density before the resampling
+        survey_systematics: True
+      # add the TATT cross term to NLA
+      extended_nla: True
+      nla:
+        # the per-bin IA amplitude from the fiducial n(z), not each realization's own, truncated to these quantiles
+        truncate_nz: True
+        z_min_quantile: 0.05
+        z_max_quantile: 0.95
+    clustering:
+      store: True
+      # linear bias per bin, the baseline of Sec. III.2 in https://arxiv.org/pdf/2601.14859
+      power_law_biasing: False
+      per_bin_biasing: True
+      quadratic_biasing: False
+      # scales the [-pi, pi] interval of the random alm phases, Null to discard
+      stochasticity: False
+      # the lens weight maps (step pixels) correct the observed counts and stay out of the forward model
+      maglim_survey_systematics_map: False
+      # v3: magnify the lens counts by the convergence of the lens n(z), n_bar (1 + b delta)(1 + 2 (alpha - 1) kappa)
+      magnification: True
+  normalization:
+    lensing: [1, 1, 1, 1]
+    clustering: [1, 1, 1, 1, 1]
+  power_spectra:
+    l_min: 30
+    l_max: 1500
+    n_bins: 33
+  grid:
+    # CosmoGridV1
+    n_cosmos: 2500
+    n_perms_per_cosmo: 20
+    n_noise_per_signal: 5
+    # every label has a uniform (priors) or a Gaussian prior (gaussian_priors), every other parameter of the forward
+    # model a fixed value (fixed). Uniform on [lower, upper], Om and s8 further restricted to Om_s8_border_points
+    priors:
+      # from Table 1 in https://arxiv.org/pdf/2201.07771
+      Om: [0.1, 0.5]
+      s8: [0.4, 1.4]
+      S8: [0.23094010767585035, 1.8073922282301278]
+      H0: [64, 82]
+      Ob: [0.03, 0.06]
+      ns: [0.87, 1.07]
+      w0: [-2, -0.333]
+      # baryons
+      bary_Mc: [12.0, 15.0]
+      bary_nu: [-2, 2.0]
+      # intrinsic alignment, A1 of Table 3 in https://arxiv.org/pdf/2601.14559
+      Aia: [-1.0, 3.0]
+      # galaxy clustering
+      bg1: [0.8, 3.0]
+      bg3: [0.8, 3.0]
+      bg4: [0.8, 3.0]
+      bg5: [0.8, 3.0]
+      bg6: [0.8, 3.0]
+      # source clustering amplitude, deliberately wide
+      Asc: [0.5, 1.5]
+      Om_s8_border_points:
+        [
+          [0.1, 1.4],
+          [0.2, 1.4],
+          [0.5, 0.65],
+          [0.5, 0.4],
+          [0.3, 0.4],
+          [0.1, 0.9],
+        ]
+    # [mean, standard deviation, lower, upper], truncated to [lower, upper]
+    gaussian_priors:
+      # intrinsic alignment, eta1 of Table 3 in https://arxiv.org/pdf/2601.14559, where 3 is the standard deviation
+      # (Table 2 of https://arxiv.org/pdf/2602.10065)
+      n_Aia: [0.0, 3.0, -5.0, 5.0]
+      # v3: lens magnification, alpha of Table 3 in https://arxiv.org/pdf/2601.14559, half the Balrog C_sample of
+      # Table 2 in https://arxiv.org/pdf/2601.14833 (so the widths are standard deviations), truncated to 5 sigma
+      amag1: [1.58, 0.04, 1.38, 1.78]
+      amag3: [2.04, 0.08, 1.64, 2.44]
+      amag4: [2.21, 0.08, 1.81, 2.61]
+      amag5: [2.45, 0.14, 1.75, 3.15]
+      amag6: [2.42, 0.13, 1.77, 3.07]
+    # held at this value on every grid point
+    fixed:
+      # intrinsic alignment, b_TA of Table 3 in https://arxiv.org/pdf/2601.14559
+      bta: 1.0
+  fiducial:
+    # from Table 1 in https://arxiv.org/pdf/2201.07771
+    Om: 0.26
+    s8: 0.84
+    S8: 0.7819974424510607
+    H0: 67.36
+    Ob: 0.0493
+    ns: 0.9649
+    w0: -1
+    # baryons
+    bary_Mc: 13.82
+    bary_nu: 0.0
+    # intrinsic alignment, the synthetic-data values of Table 3 in https://arxiv.org/pdf/2601.14859, and bta at its
+    # fixed grid value
+    Aia: 0.13
+    n_Aia: 2.0
+    bta: 1.0
+    # galaxy clustering, the synthetic-data b1 of Table 3 in https://arxiv.org/pdf/2601.14859
+    bg1: 1.54
+    bg3: 1.85
+    bg4: 1.76
+    bg5: 1.93
+    bg6: 1.90
+    # source clustering amplitude
+    Asc: 1.0
+    # v3: lens magnification, the prior means
+    amag1: 1.58
+    amag3: 2.04
+    amag4: 2.21
+    amag5: 2.45
+    amag6: 2.42

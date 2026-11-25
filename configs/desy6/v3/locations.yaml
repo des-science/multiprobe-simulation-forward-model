@@ -1,0 +1,9 @@
+# Where DES Y6 v3 lives on daint: machine paths only, read by msfm, y3-deep-lss and msi through msfm.utils.locations
+# (the keys and the layout below each are documented there).
+#
+# /ritom is purged, so data and runs are copied to the lp184 store, archive and runs_archive. No projection yet: v3
+# needs one that stores the convergence of the lens bins, which v1's and v2's does not.
+data: /ritom/scratch/cscs/athomsen/desy6/v3
+archive: /capstor/store/cscs/userlab/lp184/athomsen/deep_lss/data/desy6/v3
+runs: /ritom/scratch/cscs/athomsen/deep_lss/runs/desy6/v3
+runs_archive: /capstor/store/cscs/userlab/lp184/athomsen/deep_lss/runs/desy6/v3
