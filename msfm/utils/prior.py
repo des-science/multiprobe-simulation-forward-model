@@ -11,7 +11,6 @@ by Janis Fluri
 import numpy as np
 from scipy.spatial import Delaunay, ConvexHull
 from scipy.optimize import fsolve
-from scipy.stats import norm
 
 from msfm.utils import files, parameters, logger
 
@@ -77,7 +76,7 @@ def in_grid_prior(cosmos, conf=None, params=None):
     return in_prior
 
 
-def log_posterior(cosmos, log_probs, conf=None, params=None, gaussian_kwargs=None):
+def log_posterior(cosmos, log_probs, conf=None, params=None):
     """Vectorized version of the log posterior to be used in the MCMC runs, for example with emcee.
 
     Args:
@@ -99,9 +98,6 @@ def log_posterior(cosmos, log_probs, conf=None, params=None, gaussian_kwargs=Non
     """
     # - infinity if outside the pior range, given input probability otherwise
     log_post = np.where(in_grid_prior(cosmos, conf, params), np.squeeze(log_probs), -np.inf)
-
-    if gaussian_kwargs is not None:
-        log_post += gaussian_prior(cosmos, conf, params, **gaussian_kwargs)
 
     return log_post
 
@@ -266,21 +262,6 @@ def get_min_w0(Om, margin=0.01):
 
     w0 = fsolve(f, -1.05)[0]
     return w0 + margin
-
-
-def gaussian_prior(cosmos, conf=None, params=None, std_fac=0.01, params_unaffected=["Om", "s8"]):
-    """For debugging purposes only! This has no physical meaing"""
-    conf = files.load_config(conf)
-    params = parameters.get_parameters(params, conf)
-    fiducials = parameters.get_fiducials(params, conf)
-    prior_size = np.squeeze(np.diff(parameters.get_prior_intervals(params, conf)))
-
-    log_prior = np.zeros(cosmos.shape[0])
-    for i, param in enumerate(params):
-        if param not in params_unaffected:
-            log_prior += norm(loc=fiducials[i], scale=std_fac * prior_size[i]).logpdf(cosmos[:, i])
-
-    return log_prior
 
 
 def generate_randoms(params=None, conf=None, n_draws=100_000, output_S8=False, invert=False):
