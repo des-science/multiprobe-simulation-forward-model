@@ -83,31 +83,60 @@ def get_parameters(params=None, conf=None):
     """
     if params is None:
         conf = files.load_config(conf)
+        params = get_sobol_parameters(conf) + get_latin_hypercube_parameters(conf)
 
-        # sobol
-        params = conf["analysis"]["params"]["cosmo"].copy()
-        if conf["analysis"]["modelling"]["baryonified"]:
-            params += conf["analysis"]["params"]["bary"]
+    return params
 
-        if conf["analysis"]["modelling"]["clustering"]["stochasticity"]:
-            params += conf["analysis"]["params"]["stochasticity"]
 
-        # latin hypercube
-        params += conf["analysis"]["params"]["ia"]["nla"]
-        if conf["analysis"]["modelling"]["lensing"]["extended_nla"]:
-            params += conf["analysis"]["params"]["ia"]["tatt"]
+def get_sobol_parameters(conf=None):
+    """Return the labels that the Sobol sequence of the CosmoGrid sets, the first ones of get_parameters.
 
-        params += conf["analysis"]["params"]["bg"]["linear"]
-        if conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]:
-            params += conf["analysis"]["params"]["bg"]["quadratic"]
-        # lens magnification, before sc so that the Asc column stays last
-        params += files.get_magnification(conf)[1]
-        try:
-            _, sn_bias, _, _ = files.get_shape_noise(conf)
-            if sn_bias in files.SAMPLED_BIASES:
-                params += conf["analysis"]["params"]["sc"]
-        except KeyError:
-            pass
+    Args:
+        conf (str, dict, optional): The config, either specified as a str pointing to a file or a dict. Defaults to
+            None, then the standard config of this repo is used.
+
+    Returns:
+        list: The cosmology, the baryons and the stochasticity, as far as the modelling includes them.
+    """
+    conf = files.load_config(conf)
+
+    params = conf["analysis"]["params"]["cosmo"].copy()
+    if conf["analysis"]["modelling"]["baryonified"]:
+        params += conf["analysis"]["params"]["bary"]
+    if conf["analysis"]["modelling"]["clustering"]["stochasticity"]:
+        params += conf["analysis"]["params"]["stochasticity"]
+
+    return params
+
+
+def get_latin_hypercube_parameters(conf=None):
+    """Return the labels that the grid samples per example from a Latin hypercube, the last ones of get_parameters.
+
+    Args:
+        conf (str, dict, optional): The config, either specified as a str pointing to a file or a dict. Defaults to
+            None, then the standard config of this repo is used.
+
+    Returns:
+        list: The intrinsic alignment, the galaxy bias, the lens magnification and the source clustering, as far as
+            the modelling includes them.
+    """
+    conf = files.load_config(conf)
+
+    params = conf["analysis"]["params"]["ia"]["nla"].copy()
+    if conf["analysis"]["modelling"]["lensing"]["extended_nla"]:
+        params += conf["analysis"]["params"]["ia"]["tatt"]
+
+    params += conf["analysis"]["params"]["bg"]["linear"]
+    if conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]:
+        params += conf["analysis"]["params"]["bg"]["quadratic"]
+    # lens magnification, before sc so that the Asc column stays last
+    params += files.get_magnification(conf)[1]
+    try:
+        _, sn_bias, _, _ = files.get_shape_noise(conf)
+        if sn_bias in files.SAMPLED_BIASES:
+            params += conf["analysis"]["params"]["sc"]
+    except KeyError:
+        pass
 
     return params
 

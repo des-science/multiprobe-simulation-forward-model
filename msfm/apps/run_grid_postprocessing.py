@@ -242,16 +242,12 @@ def main(indices, args):
     per_bin_biasing = conf["analysis"]["modelling"]["clustering"]["per_bin_biasing"]
     quadratic_biasing = conf["analysis"]["modelling"]["clustering"]["quadratic_biasing"]
 
-    astro_params = conf["analysis"]["params"]["ia"]["nla"].copy()
-    if extended_nla:
-        astro_params += conf["analysis"]["params"]["ia"]["tatt"]
+    # the stored labels are the Sobol ones and these
+    astro_params = parameters.get_latin_hypercube_parameters(conf)
     bg_params = conf["analysis"]["params"]["bg"]["linear"]
     qbg_params = conf["analysis"]["params"]["bg"]["quadratic"] if quadratic_biasing else []
     magnification, mag_params = files.get_magnification(conf)
     sc_params = conf["analysis"]["params"]["sc"] if sn_bias in files.SAMPLED_BIASES else []
-
-    # in the order of parameters.get_parameters, which is the order of the stored labels
-    astro_params += bg_params + qbg_params + mag_params + sc_params
     # the anchor b_sc * sigma8 of the bias "prior", see lensing.source_clustering_bias
     bsc_sigma8 = files.get_bsc_sigma8(conf) if sn_bias == "prior" else None
     n_z_metacal = len(conf["survey"]["metacal"]["z_bins"])

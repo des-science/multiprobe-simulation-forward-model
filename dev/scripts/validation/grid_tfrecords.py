@@ -119,10 +119,8 @@ class Context:
 
         self.info = cosmogrid.get_cosmo_params_info(os.path.join(REPO, conf["files"]["meta_info"]), "grid")
         self.params = list(parameters.get_parameters(conf=conf))
-        baryonified = modelling["baryonified"]
-        self.cosmo_params = conf["analysis"]["params"]["cosmo"] + (conf["analysis"]["params"]["bary"] * baryonified)
-        assert self.params[: len(self.cosmo_params)] == self.cosmo_params, "the labels start with other parameters"
-        self.astro_params = self.params[len(self.cosmo_params) :]
+        self.cosmo_params = parameters.get_sobol_parameters(conf)
+        self.astro_params = parameters.get_latin_hypercube_parameters(conf)
         self.astro_priors = parameters.get_prior_intervals(self.astro_params, conf=conf)
         self.bg_index = [self.params.index(p) for p in conf["analysis"]["params"]["bg"]["linear"]]
 
@@ -140,6 +138,7 @@ class Context:
         self.poisson_var_gc = np.array(conf["survey"]["maglim"]["n_gal"]) * pix_area * band
 
         tag = conf["survey"]["name"] + args.file_suffix
+        baryonified = modelling["baryonified"]
         self.tfrecord = lambda d, i: filenames.get_filename_tfrecords(d, i, tag, "grid", with_bary=baryonified)
         self.projected = filenames.get_filename_full_maps(with_bary=baryonified, version=args.cosmogrid_version)
 

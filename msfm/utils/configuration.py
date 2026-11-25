@@ -109,12 +109,11 @@ def print_and_check_modeling_in_config(conf):
     # every sampled parameter (label) has either a uniform or a Gaussian prior, the latter only on the Latin hypercube
     # since CosmoGrid fixes the Sobol points
     grid = conf["analysis"]["grid"]
-    params = conf["analysis"]["params"]
-    sobol = params["cosmo"] + (params.get("bary") or []) + (params.get("stochasticity") or [])
     labels = parameters.get_parameters(conf=conf)
+    latin_hypercube = parameters.get_latin_hypercube_parameters(conf)
     gaussian_priors = grid.get("gaussian_priors") or {}
     for param, prior in gaussian_priors.items():
-        assert param in labels and param not in sobol, f"the Gaussian prior on {param} needs a Latin hypercube label"
+        assert param in latin_hypercube, f"the Gaussian prior on {param} needs a Latin hypercube label"
         assert param not in grid["priors"], f"{param} has both a uniform and a Gaussian prior"
         assert len(prior) == 4, f"the Gaussian prior on {param} must be [mean, standard deviation, lower, upper]"
         mu, sigma, lo, hi = prior
