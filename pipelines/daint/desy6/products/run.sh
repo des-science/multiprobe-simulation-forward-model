@@ -4,7 +4,7 @@
 #   VERSION=desy6/v2 pipelines/daint/desy6/products/run.sh <pixels|maps|noise> [extra step arguments]
 #   DRYRUN=1 VERSION=desy6/v2 pipelines/daint/desy6/products/run.sh maps   # print the sbatch command, submit nothing
 #
-# nz and values run on the login node without this wrapper (data/desy6/README.md).
+# nz, lens_isd and values run on the login node without this wrapper (data/desy6/README.md).
 # Before submitting, the step's --dry-run runs on the login node, so a missing input or a broken environment fails
 # here and not in the queue.
 #
@@ -27,7 +27,7 @@ die() { echo "run.sh: $*" >&2; exit 1; }
 STEP=${1:-}
 case $STEP in
     pixels|maps|noise) shift ;;
-    *) die "usage: run.sh <pixels|maps|noise> [extra step arguments]; nz and values run on the login node" ;;
+    *) die "usage: run.sh <pixels|maps|noise> [extra step arguments]; nz, lens_isd and values run on the login node" ;;
 esac
 
 REPO_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)

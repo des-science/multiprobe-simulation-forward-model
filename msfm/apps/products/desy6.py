@@ -14,6 +14,7 @@ Steps, in order:
     nz           n(z) text files of all 4 source and 6 lens bins, from the 3x2pt FITS
     pixels       pixel file: the rotated nside-512 footprint, its four patches and the padded data vector, from the
                  mask, and the MagLim weight maps that correct the observed lens counts, from the catalog
+    lens_isd     the ISD MagLim weight maps, the alternative to the ENet ones of step pixels for a data observation
     maps         shear and count maps of every source and lens bin, and the source response, in dirs.cache, where the
                  builders of msfm.utils.catalog load them
     values       n_gal, m prior, Aeff, the lens bias fiducials and the source clustering anchor, written into the config
@@ -25,6 +26,7 @@ Steps, in order:
 Usage:
     python -m msfm.apps.products.desy6 nz --config configs/desy6/v1/v1.yaml
     python -m msfm.apps.products.desy6 pixels --config configs/desy6/v1/v1.yaml   # compute node, needs healsparse
+    python -m msfm.apps.products.desy6 lens_isd --config configs/desy6/v2/v2.yaml
     python -m msfm.apps.products.desy6 maps --config configs/desy6/v1/v1.yaml --max-objects 100000   # smoke test
     python -m msfm.apps.products.desy6 maps --config configs/desy6/v1/v1.yaml   # compute node, ~140M objects
     python -m msfm.apps.products.desy6 values --config configs/desy6/v1/v1.yaml
@@ -63,7 +65,7 @@ REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 SURVEY_NAME = "DESy6"
 OUT_ROOT = "data/desy6"
 CONFIG_ROOT = "configs/desy6"
-STEP_ORDER = ["nz", "pixels", "maps", "values", "noise", "systematics", "sc_bias"]
+STEP_ORDER = ["nz", "pixels", "lens_isd", "maps", "values", "noise", "systematics", "sc_bias"]
 
 # config sample key -> number of survey bins of the release
 SURVEY_BINS = {"metacal": catalog_desy6.N_SOURCE_BINS, "maglim": catalog_desy6.N_LENS_BINS}
@@ -74,6 +76,11 @@ NZ_HDUS = {"metacal": ("nz_source", catalog_desy6.N_SOURCE_BINS), "maglim": ("nz
 MASK_ROTATE_NSIDE = 4096
 # patches 1-3 are the base patch rotated by 180 deg in phi and/or mirrored at the equator; mirroring flips gamma_2
 PATCH_GAMMA_2_SIGN = [1, 1, -1, -1]
+
+# step lens_isd: the sampling test also runs at this coarser nside; its gate on the error, a fraction of ISD - ENet,
+# measured 0.07 to 0.29 at nside 512 and 0.02 to 0.08 at nside 64
+LENS_ISD_TEST_NSIDE = 64
+LENS_ISD_MAX_SAMPLING = 0.5
 
 # step maps: cache file -> what it holds; every map covers all survey bins, axis 1 in survey-bin order. The names are
 # the ones msfm.utils.catalog loads, as for Y3; it asks for the shear without the spin-2 rotation too
@@ -295,19 +302,7 @@ def step_pixels(conf, args):
                 for i_bin in range(1, n_bins + 1):
                     group[f"{sample}{i_bin}"] = f[f"footprint/{name}"]
 
-        sys_group = f.create_group("maglim/systematics")
-        sys_group.attrs["info"] = (
-            f"ENet weights w = 1 / <F> of {catalog_desy6.RELEASE_FILES['maglim']} on the base patch, from the "
-            "per-galaxy weights (catalog_desy6.maglim_weight_maps). They multiply the observed counts. map: "
-            "base-patch order; data_vector: data_vec order, 0 in the padding; filled: no galaxy in the pixel, "
-            "neighbour mean"
-        )
-        for i_bin in range(1, catalog_desy6.N_LENS_BINS + 1):
-            dv = np.zeros(data_vec.size, dtype=np.float32)
-            dv[patch_to_data_vec] = lens_weights[:, i_bin - 1]
-            sys_group.create_dataset(f"map/maglim{i_bin}", data=lens_weights[:, i_bin - 1], dtype="f4")
-            sys_group.create_dataset(f"data_vector/maglim{i_bin}", data=dv)
-            sys_group.create_dataset(f"filled/maglim{i_bin}", data=lens_filled[:, i_bin - 1])
+        _write_lens_weights(f, "ENet", "maglim", lens_weights, lens_filled, data_vec.size, patch_to_data_vec)
 
     # the pipeline's loaders read the file back
     data_vec_back, patches_back, patch_to_data_vec_back, signs_back = files.load_pixel_file(conf)
@@ -315,12 +310,98 @@ def step_pixels(conf, args):
     for sample in SURVEY_BINS:
         assert all(np.array_equal(p, patches) for p in patches_back[sample]), f"{sample} patches read back"
         assert all(np.array_equal(p, patch_to_data_vec) for p in patch_to_data_vec_back[sample]), f"{sample} read back"
-    used_weights = lens_weights[:, files.get_z_bin_columns(conf, "maglim")].astype(np.float32)
-    sys_map = files.get_clustering_systematics(conf, pixel_type="map")
-    sys_dv = files.get_clustering_systematics(conf, pixel_type="data_vector")
+    _check_lens_weights(conf, lens_weights, patch_to_data_vec)
+
+    return inputs, [out_path]
+
+
+def _write_lens_weights(f, name, release_key, weights, filled, data_vec_size, patch_to_data_vec):
+    """Writes the lens weight maps of every survey bin into the group maglim/systematics of the open file f, in the
+    two layouts files.get_clustering_systematics reads, with the flags of the filled pixels alongside."""
+    sys_group = f.create_group("maglim/systematics")
+    sys_group.attrs["info"] = (
+        f"{name} weights w = 1 / <F> of {catalog_desy6.RELEASE_FILES[release_key]} on the base patch, from the "
+        "per-galaxy weights (catalog_desy6.maglim_weight_maps). They multiply the observed counts. map: "
+        "base-patch order; data_vector: data_vec order, 0 in the padding; filled: no galaxy in the pixel, "
+        "neighbour mean"
+    )
+    for i_bin in range(1, catalog_desy6.N_LENS_BINS + 1):
+        dv = np.zeros(data_vec_size, dtype=np.float32)
+        dv[patch_to_data_vec] = weights[:, i_bin - 1]
+        sys_group.create_dataset(f"map/maglim{i_bin}", data=weights[:, i_bin - 1], dtype="f4")
+        sys_group.create_dataset(f"data_vector/maglim{i_bin}", data=dv)
+        sys_group.create_dataset(f"filled/maglim{i_bin}", data=filled[:, i_bin - 1])
+
+
+def _check_lens_weights(conf, weights, patch_to_data_vec, file=None):
+    """Reads the lens weight maps back through files.get_clustering_systematics, from file or the pixel file."""
+    used_weights = weights[:, files.get_z_bin_columns(conf, "maglim")].astype(np.float32)
+    sys_map = files.get_clustering_systematics(conf, pixel_type="map", file=file)
+    sys_dv = files.get_clustering_systematics(conf, pixel_type="data_vector", file=file)
     assert np.array_equal(sys_map, used_weights), "maglim systematics map read back"
     assert np.array_equal(sys_dv[patch_to_data_vec], used_weights), "maglim systematics data vector read back"
     assert np.count_nonzero(sys_dv) == used_weights.size, "maglim systematics data vector: padding not 0"
+
+
+def step_lens_isd(conf, args):
+    """Writes the ISD lens weights, the alternative to the ENet weights of step pixels, in the layout of the pixel
+    file's group maglim/systematics, so a data observation can be corrected with them instead (data_observations.yaml
+    of the config's version). Like ENet, they are read off the per-galaxy weights (catalog_desy6.maglim_weight_maps).
+
+    ISD is constant inside each nside-4096 pixel only, so a value reaches about 7% of the children instead of half.
+    The sampling test reads ENet off at that nside too and compares it with the map of step pixels: per bin, its rms
+    error must stay below LENS_ISD_MAX_SAMPLING of the rms difference between ISD and ENet, at analysis.n_side and at
+    LENS_ISD_TEST_NSIDE.
+
+    Returns:
+        tuple: (input paths, output paths), or None with --dry-run
+    """
+    pixel_path = os.path.join(REPO_DIR, conf["files"]["pixels"])
+    inputs = [pixel_path] + [catalog_desy6.release_path(conf, key) for key in ("maglim", "maglim_addl")]
+    out_path = _out_path(conf["files"]["maglim_weights_isd"])
+    if args.dry_run:
+        return _dry_run("lens_isd", inputs, [out_path])
+
+    n_side = conf["analysis"]["n_side"]
+    data_vec, patches, patch_to_data_vec, _ = files.load_pixel_file(conf)
+    patch_0, patch_to_data_vec = patches["maglim"][0][0], patch_to_data_vec["maglim"][0]
+    with h5py.File(pixel_path, "r") as f:
+        enet = np.stack(
+            [f[f"maglim/systematics/map/maglim{i}"][:] for i in range(1, catalog_desy6.N_LENS_BINS + 1)], axis=-1
+        )
+
+    isd, isd_filled = catalog_desy6.maglim_weight_maps(conf, patch_0, MASK_ROTATE_NSIDE, weights="isd")
+    isd_nside = catalog_desy6.LENS_WEIGHTS["isd"][2]
+    sampled, _ = catalog_desy6.maglim_weight_maps(conf, patch_0, MASK_ROTATE_NSIDE, weight_nside=isd_nside)
+
+    def degrade(values, n_side_out):
+        full = np.full(hp.nside2npix(n_side), hp.UNSEEN)
+        full[patch_0] = values
+        low = hp.ud_grade(full, n_side_out)
+        return low[low != hp.UNSEEN]
+
+    def rms(x):
+        return np.sqrt(np.mean(x**2))
+
+    for i in range(catalog_desy6.N_LENS_BINS):
+        for n_side_test in (n_side, LENS_ISD_TEST_NSIDE):
+            e, s, d = (degrade(m[:, i], n_side_test) for m in (enet, isd, sampled))
+            error = rms(d - e) / rms(s - e)
+            LOGGER.info(
+                f"lens bin {i + 1}, nside {n_side_test}: rms ENet - 1 {rms(e - 1):.4f}, ISD - ENet {rms(s - e):.4f}, "
+                f"ENet sampled as ISD - ENet {rms(d - e):.4f}, ratio {error:.3f}"
+            )
+            assert (
+                error < LENS_ISD_MAX_SAMPLING
+            ), f"lens bin {i + 1}: the ISD sampling error is {error:.3f} of ISD - ENet"
+
+    with h5py.File(out_path, "w") as f:
+        f.attrs["info"] = (
+            f"DES Y6 ISD lens weights on the base patch of {conf['files']['pixels']}, the alternative to its ENet "
+            "ones. Written by msfm.apps.products.desy6 lens_isd"
+        )
+        _write_lens_weights(f, "ISD", "maglim_addl", isd, isd_filled, data_vec.size, patch_to_data_vec)
+    _check_lens_weights(conf, isd, patch_to_data_vec, file=out_path)
 
     return inputs, [out_path]
 
@@ -771,6 +852,7 @@ def _check_bias_table(conf, path, biases):
 STEPS = {
     "nz": step_nz,
     "pixels": step_pixels,
+    "lens_isd": step_lens_isd,
     "maps": step_maps,
     "values": step_values,
     "noise": step_noise,

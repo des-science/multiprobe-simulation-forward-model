@@ -15,6 +15,9 @@ dirs:
 files:
   # relative to the root of this repository
   pixels: data/desy6/desy6_pixels_fiducial_512.h5 # <- step pixels
+  # the ISD lens weights on the patch of files.pixels, the alternative to its ENet ones for a data observation
+  # (data_observations.yaml), outside the forward model
+  maglim_weights_isd: data/desy6/desy6_maglim_weights_isd_512.h5 # <- step lens_isd
   noise: data/desy6/desy6_noise_512.h5 # <- step noise
   # inputs, outputs (sha256) and msfm commit of every product step
   provenance: data/desy6/provenance.yaml

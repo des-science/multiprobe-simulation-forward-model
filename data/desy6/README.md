@@ -11,6 +11,7 @@ all of them from the public Y6 release, `msfm/apps/products/desy6.py`, for
 |---|---|---|---|
 | `nz` | `redshift_distributions/` | yes | done 2026-11-18 |
 | `pixels` | `desy6_pixels_fiducial_512.h5` | yes | done 2026-11-20, threshold 0.73, with the lens weight maps |
+| `lens_isd` | `desy6_maglim_weights_isd_512.h5` | yes | made 2026-11-26 (v2), `--provenance` pending |
 | `maps` | `cache/` | no | done 2026-11-20, with the unrotated shear |
 | `values` | the marked lines of the config | yes | done 2026-11-20, lens n_gal from the weight maps |
 | `noise` | `desy6_noise_512.h5` | no | done 2026-11-19 |
@@ -27,28 +28,29 @@ A path that a config names before its step has run goes into `EXPECTED_MISSING` 
 
 The public release (`desdr-server.ncsa.illinois.edu/despublic/y6a2_files/y6_psf/final_version/`),
 read in place from `dirs.catalog`:
-`/capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/data_desy6a2`. Five of its 22
+`/capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/data_desy6a2`. Six of its 22
 files are used:
 
 | file | size | for |
 |---|---|---|
 | `metadetect_2024-11-07.hdf5` | 140 G | source shear, counts, response, noise catalog |
 | `maglim_2024-11-07.hdf5` | 2.7 G | lens counts, and the weight maps from the per-galaxy `weight` |
+| `maglim_addl_cols_v1.hdf5` | 552 M | the alternative lens weight maps from the per-galaxy `WEIGHT_ISD` |
 | `jointmask_DESY6_2024-06-04.hsp` | 696 M | footprint |
 | `3x2pt_2025-07-28-20h_UNBLINDED_wmask_nob2.fits` | 22 M | fiducial n(z) |
 | `desy6_source_redshift.h5` | 373 M | m prior (the `M_BIN*` columns only) |
 
 Not needed: the non-tomographic metadetection file, the randoms, the w(θ) debias file, redMaGiC,
-`maglim_addl_cols_v1.hdf5`, the lens realizations (they feed the projection) and the `desy6kp_cats`
-index. DES's `3x2pt_pipeline_public.ipynb`, in the same directory, is the reference for the
-response, the weights and the mean shear.
+the lens realizations (they feed the projection) and the `desy6kp_cats` index. DES's
+`3x2pt_pipeline_public.ipynb`, in the same directory, is the reference for the response, the weights
+and the mean shear.
 
 ## Running
 
 From the repository root, in `torch_env` (`pytorch/v2.9.1:v2` uenv, plus healsparse for `pixels`):
 
 ```bash
-# login node: nz, values
+# login node: nz, lens_isd, values
 uenv run --view=default pytorch/v2.9.1:v2 -- ~/dlss/torch_env/bin/python \
     -m msfm.apps.products.desy6 <step> --config configs/desy6/v2/v2.yaml
 
@@ -65,8 +67,8 @@ VERSION=desy6/v2 pipelines/daint/desy6/products/run.sh <step>    # PARTITION, TI
 - `--provenance` is for production runs. The step then refuses uncommitted `msfm/` or `configs/`,
   and records its inputs, outputs (sha256) and the msfm commit in `provenance.yaml`.
 
-Every step stops on a failed check. The order is `nz` → `pixels` → `maps` → `values` → `noise` →
-`systematics` → `sc_bias`.
+Every step stops on a failed check. The order is `nz` → `pixels` → `lens_isd` → `maps` → `values` →
+`noise` → `systematics` → `sc_bias`.
 
 All survey bins are produced: 4 source and 6 lens bins. The config picks lens bins 1 and 3–6
 through `survey.maglim.z_bins`, since the KP drops bin 2.
@@ -152,6 +154,45 @@ which publishes no weight map. Per galaxy it agrees to the printed digit in ever
 
 The nside-512 map is 7-9% lower in every bin, as expected from averaging the four nside-1024
 pixels it contains.
+
+### `lens_isd`: the alternative lens weight maps
+
+- **Writes** `desy6_maglim_weights_isd_512.h5` (`files.maglim_weights_isd`, v2): the group
+  `maglim/systematics` in the layout of the pixel file's, on its base patch. It is not part of the
+  forward model. The data observation corrected with it instead of the ENet weights is the variant
+  `DESy6_lens_isd` (`configs/desy6/v2/data_observations.yaml`), which measures how far the posterior
+  moves between the two weighting methods. The KP puts the same difference into its w(θ) covariance
+  (arXiv:2601.14484, Eq. 24).
+- **From** `WEIGHT_ISD` of `maglim_addl_cols_v1.hdf5` (the method of arXiv:2509.07943), which lists
+  the MagLim galaxies row by row as `maglim_2024-11-07.hdf5` does (the `COADD_OBJECT_ID`s are
+  checked). The positions come from the MagLim catalog. 0.14-0.20% of the galaxies have no ISD
+  weight (NaN) and give the map no value; their counts are corrected like any other.
+
+ISD is constant inside each nside-4096 pixel (checked), so the map is read off as for ENet
+(`catalog_desy6.maglim_weight_maps`, `weights="isd"`). The one difference is the sampling: only
+5.6-7.6% of the children of a footprint pixel hold a galaxy (ENet: 56-67%), so 2.7-6.2% of the
+pixels are filled from their neighbours (ENet: 0.14-0.61%).
+
+**Checks:** one weight per nside-4096 pixel; the mean galaxy weight of each pixel follows w
+(correlation 0.986 to 0.992); the counts times w sum to the per-galaxy weights within 1.0×10⁻⁴.
+Both methods average 1 per galaxy, so the corrected totals agree and `survey.maglim.n_gal` holds for
+either.
+
+**Sampling test:** ENet read off at nside 4096, which samples it the way ISD is sampled, against the
+map of step `pixels`. Its rms error, as a fraction of the rms difference ISD − ENet, must stay below
+0.5 (`LENS_ISD_MAX_SAMPLING`):
+
+| bin | rms(ENet − 1) | rms(ISD − ENet) | sampling error / (ISD − ENet), nside 512 | nside 64 |
+|---|---|---|---|---|
+| 1 | 2.3% | 2.2% | 0.11 | 0.02 |
+| 2 | 1.8% | 2.5% | 0.07 | 0.02 |
+| 3 | 1.5% | 2.1% | 0.07 | 0.02 |
+| 4 | 2.8% | 1.5% | 0.19 | 0.04 |
+| 5 | 1.3% | 1.2% | 0.14 | 0.03 |
+| 6 | 3.6% | 1.7% | 0.29 | 0.08 |
+
+**Result:** w spans 0.71 to 1.43, with a std of 1.5% to 3.5% per bin. At nside 64 ISD and ENet
+differ by 0.37 to 1.02 times the ENet correction in the bins the config uses (bin 2: 1.28).
 
 ### `maps`: catalog maps
 

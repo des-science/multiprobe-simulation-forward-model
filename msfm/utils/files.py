@@ -128,7 +128,7 @@ def load_pixel_file(conf=None):
     return data_vec_pix, patches_pix_dict, corresponding_pix_dict, gamma2_signs
 
 
-def get_clustering_systematics(conf=None, pixel_type="data_vector", apply_smoothing=False):
+def get_clustering_systematics(conf=None, pixel_type="data_vector", apply_smoothing=False, file=None):
     """Per (maglim) tomographic bin survey systematics maps packaged as data vectors, such that the maps can be
     multiplied on that level.
 
@@ -137,6 +137,8 @@ def get_clustering_systematics(conf=None, pixel_type="data_vector", apply_smooth
             passed through) or None (the default config is loaded). Defaults to None.
         pixel_type (str, optional): Either "map" or "data_vector", determines whether the systematics map is returned
             as a full sky healpy map or in data vector format.
+        file (str, optional): A file with the group maglim/systematics on the same pixels, absolute or relative to the
+            repository, to read instead of files.pixels. Defaults to None.
 
     Returns:
         list: len = n_z_maglim
@@ -147,7 +149,7 @@ def get_clustering_systematics(conf=None, pixel_type="data_vector", apply_smooth
 
     file_dir = os.path.dirname(__file__)
     repo_dir = os.path.abspath(os.path.join(file_dir, "../.."))
-    pixel_file = os.path.join(repo_dir, conf["files"]["pixels"])
+    pixel_file = os.path.join(repo_dir, conf["files"]["pixels"] if file is None else file)
 
     with h5py.File(pixel_file, "r") as f:
         tomo_sys = []
