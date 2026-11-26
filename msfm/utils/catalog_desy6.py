@@ -12,6 +12,7 @@ select from them. Positions and shears are rotated into the footprint frame exac
 The joint mask is read with healsparse (mask_coverage), imported only there, since only torch_env has it.
 """
 
+import contextlib
 import os
 
 import h5py
@@ -27,6 +28,8 @@ RELEASE_FILES = {
     "3x2pt": "3x2pt_2025-07-28-20h_UNBLINDED_wmask_nob2.fits",
     "metadetect": "metadetect_2024-11-07.hdf5",
     "maglim": "maglim_2024-11-07.hdf5",
+    # extra MagLim columns, row by row as in maglim: the ISD weights
+    "maglim_addl": "maglim_addl_cols_v1.hdf5",
     "mask": "jointmask_DESY6_2024-06-04.hsp",
     "source_redshift": "desy6_source_redshift.h5",
 }
@@ -57,9 +60,13 @@ MASK_NSIDE = 131072
 AREA_DES = 4031.036
 AREA_DES_ATOL = 1e-3
 
-# the MagLim ENet weights are a map at this nside (ENET_256fit_1024pred_19tpl in desy6kp_cats_2024-11-07.hdf5)
-LENS_WEIGHT_NSIDE = 1024
-# gates of maglim_weight_maps; measured: correlation 0.993 to 0.996, totals within 3e-5
+# the per-galaxy MagLim weights of the release, (release file, column, nside of the map they are constant on): ENet,
+# the KP fiducial (ENET_256fit_1024pred_19tpl in desy6kp_cats_2024-11-07.hdf5), and ISD (arXiv:2509.07943)
+LENS_WEIGHTS = {
+    "enet": ("maglim", "weight", 1024),
+    "isd": ("maglim_addl", "WEIGHT_ISD", 4096),
+}
+# gates of maglim_weight_maps; measured on ENet: correlation 0.993 to 0.996, totals within 3e-5
 LENS_WEIGHT_MIN_CORR = 0.98
 LENS_WEIGHT_TOTAL_RTOL = 1e-3
 
@@ -344,15 +351,16 @@ def _fill_from_neighbours(values, known, region, n_side):
     return full[region], n_pass
 
 
-def maglim_weight_maps(conf, patch, sub_nside, fill_rings=2):
-    """Pixel-level ENet weights w = 1 / <F> of every MagLim bin on the base patch, to correct the observed counts.
+def maglim_weight_maps(conf, patch, sub_nside, weights="enet", weight_nside=None, fill_rings=2):
+    """Pixel-level weights w = 1 / <F> of every MagLim bin on the base patch, to correct the observed counts.
 
-    The release has the ENet weight per galaxy only. It is constant inside each nside-1024 pixel (checked), so every
-    such pixel holding a galaxy gives the weight map there. Each patch pixel is split into its sub_nside children, whose
-    centres are rotated back to the sky and looked up in that map, without interpolating across the empty pixels. The
-    observed count of a pixel is the clean one times the area mean of the contamination F = 1 / w, so the weight is
-    1 / <F> over the children with a value. Pixels without any take the mean <F> of their neighbours, which may lie up
-    to fill_rings outside the patch, since some patch pixels have no neighbours in it.
+    The release has the weights per galaxy only (LENS_WEIGHTS): ENet is constant inside each nside-1024 pixel and ISD
+    inside each nside-4096 pixel (checked), so every such pixel holding a galaxy gives the weight map there. Each patch
+    pixel is split into its sub_nside children, whose centres are rotated back to the sky and looked up in that map,
+    without interpolating across the empty pixels. The observed count of a pixel is the clean one times the area mean
+    of the contamination F = 1 / w, so the weight is 1 / <F> over the children with a value. Pixels without any take
+    the mean <F> of their neighbours, which may lie up to fill_rings outside the patch, since some patch pixels have no
+    neighbours in it. Galaxies without a weight (NaN, ISD only) give the map no value.
 
     Two checks against the per-galaxy weights, in the frame of the count maps: the mean galaxy weight of each pixel
     follows w, and the counts times w sum to the per-galaxy weights. The weights keep the catalog's normalization.
@@ -361,11 +369,17 @@ def maglim_weight_maps(conf, patch, sub_nside, fill_rings=2):
         conf (dict): A DES Y6 config.
         patch (np.ndarray): RING pixels of the base patch at analysis.n_side, in the rotated footprint frame.
         sub_nside (int): Resolution of the children the contamination is averaged over.
+        weights (str, optional): The per-galaxy weights, a key of LENS_WEIGHTS. Defaults to "enet".
+        weight_nside (int, optional): Reads the weights off at this multiple of the nside they are constant on, where
+            fewer children find a value; ENet at ISD's nside thus tests how the ISD map is sampled. Defaults to None.
         fill_rings (int, optional): Rings of neighbours around the patch that may fill its empty pixels. Defaults to 2.
 
     Returns:
         tuple: weights (len(patch), N_LENS_BINS) and filled (len(patch), N_LENS_BINS) bool, in survey-bin order
     """
+    file_key, column, constant_nside = LENS_WEIGHTS[weights]
+    weight_nside = constant_nside if weight_nside is None else weight_nside
+    assert weight_nside % constant_nside == 0, f"{weights} is constant at nside {constant_nside}, not {weight_nside}"
     n_side = conf["analysis"]["n_side"]
     n_pix = hp.nside2npix(n_side)
 
@@ -380,49 +394,58 @@ def maglim_weight_maps(conf, patch, sub_nside, fill_rings=2):
     n_child = (sub_nside // n_side) ** 2
     children = hp.nest2ring(sub_nside, (hp.ring2nest(n_side, region)[:, None] * n_child + np.arange(n_child)).ravel())
     ra, dec = catalog.survey_pix_to_angles(conf, children, sub_nside)
-    child_sky_pix = hp.ang2pix(LENS_WEIGHT_NSIDE, ra, dec, lonlat=True).reshape(region.size, n_child)
+    child_sky_pix = hp.ang2pix(weight_nside, ra, dec, lonlat=True).reshape(region.size, n_child)
     del children, ra, dec
 
-    weights = np.zeros((patch.size, N_LENS_BINS))
+    out = np.zeros((patch.size, N_LENS_BINS))
     filled = np.zeros((patch.size, N_LENS_BINS), dtype=bool)
-    with h5py.File(release_path(conf, "maglim"), "r") as maglim:
+    with contextlib.ExitStack() as stack:
+        maglim = stack.enter_context(h5py.File(release_path(conf, "maglim"), "r"))
+        source = maglim if file_key == "maglim" else stack.enter_context(h5py.File(release_path(conf, file_key), "r"))
         for i in range(N_LENS_BINS):
             group = maglim[f"tomo_bin_{i}"]
-            ra, dec, w = group["RA"][:], group["DEC"][:], group["weight"][:].astype(np.float64)
+            ra, dec, w = group["RA"][:], group["DEC"][:], source[f"tomo_bin_{i}/{column}"][:].astype(np.float64)
+            if source is not maglim:
+                ids = source[f"tomo_bin_{i}/COADD_OBJECT_ID"][:]
+                assert np.array_equal(ids, group["COADD_OBJECT_ID"][:]), f"lens bin {i + 1}: {file_key} rows differ"
+            has_w = np.isfinite(w)
+            ra, dec, w = ra[has_w], dec[has_w], w[has_w]
             assert np.all(w > 0), f"lens bin {i + 1}: non-positive weights"
 
-            sky_pix = hp.ang2pix(LENS_WEIGHT_NSIDE, ra, dec, lonlat=True)
+            sky_pix = hp.ang2pix(weight_nside, ra, dec, lonlat=True)
             order = np.argsort(sky_pix, kind="stable")
             sky_pix_sorted, w_sorted = sky_pix[order], w[order]
             occupied, first = np.unique(sky_pix_sorted, return_index=True)
             spread = np.max(np.maximum.reduceat(w_sorted, first) / np.minimum.reduceat(w_sorted, first) - 1)
-            assert spread < 1e-6, f"lens bin {i + 1}: the weight varies by {spread} inside an nside-1024 pixel"
-            w_sky = np.zeros(hp.nside2npix(LENS_WEIGHT_NSIDE))
-            w_sky[occupied] = w_sorted[first]
+            assert (
+                spread < 1e-6
+            ), f"lens bin {i + 1}: the weight varies by {spread} inside an nside-{weight_nside} pixel"
 
-            w_child = w_sky[child_sky_pix]
-            known = w_child > 0
+            # looked up among the occupied pixels, since a full map at nside 4096 would hold 2e8 values
+            slot = np.minimum(np.searchsorted(occupied, child_sky_pix), occupied.size - 1)
+            known = occupied[slot] == child_sky_pix
+            w_child = np.where(known, w_sorted[first][slot], 0.0)
             n_known = known.sum(axis=1)
             contamination = np.sum(np.where(known, 1 / np.where(known, w_child, 1.0), 0.0), axis=1)
             contamination /= np.maximum(n_known, 1)
             contamination, n_pass = _fill_from_neighbours(contamination, n_known > 0, region, n_side)
-            weights[:, i] = 1 / contamination[patch_in_region]
+            out[:, i] = 1 / contamination[patch_in_region]
             filled[:, i] = n_known[patch_in_region] == 0
 
             pix = catalog.survey_angles_to_pix(conf, ra, dec, n_side)
             count = np.bincount(pix, minlength=n_pix)[patch]
             weighted_count = np.bincount(pix, weights=w, minlength=n_pix)[patch]
             has = count > 0
-            corr = np.corrcoef(weighted_count[has] / count[has], weights[has, i])[0, 1]
-            total = np.sum(count * weights[:, i]) / np.sum(weighted_count)
+            corr = np.corrcoef(weighted_count[has] / count[has], out[has, i])[0, 1]
+            total = np.sum(count * out[:, i]) / np.sum(weighted_count)
             LOGGER.info(
-                f"lens bin {i + 1}: {occupied.size} nside-{LENS_WEIGHT_NSIDE} pixels with a weight, "
-                f"{np.mean(known[patch_in_region]):.3f} of the patch children; {filled[:, i].sum()} patch pixels "
-                f"filled ({n_pass} passes); w in [{weights[:, i].min():.3f}, {weights[:, i].max():.3f}], std "
-                f"{weights[:, i].std():.4f}; corr with the mean galaxy weight {corr:.4f}; sum N w / sum w_gal "
-                f"{total:.6f}"
+                f"lens bin {i + 1}, {weights}: {has_w.size - w.size} galaxies without a weight; {occupied.size} "
+                f"nside-{weight_nside} pixels with a weight, {np.mean(known[patch_in_region]):.3f} of the patch "
+                f"children; {filled[:, i].sum()} patch pixels filled ({n_pass} passes); w in "
+                f"[{out[:, i].min():.3f}, {out[:, i].max():.3f}], std {out[:, i].std():.4f}; corr with the mean "
+                f"galaxy weight {corr:.4f}; sum N w / sum w_gal {total:.6f}"
             )
             assert corr > LENS_WEIGHT_MIN_CORR, f"lens bin {i + 1}: w does not follow the galaxy weights ({corr})"
             assert abs(total - 1) < LENS_WEIGHT_TOTAL_RTOL, f"lens bin {i + 1}: N w sums to {total} of the weights"
 
-    return weights, filled
+    return out, filled
