@@ -36,7 +36,7 @@ def forward_model_observation_map(
     apply_norm: bool = True,
     with_padding: bool = True,
     nest_in: bool = True,
-    apply_maglim_sys_map: bool = False,
+    apply_maglim_sys_map: Union[bool, str] = False,
 ):
     """Take a (mock) observation and apply the same transformations to it as within the CosmoGrid pipeline, such that
     everything (masking, mode removal, normalization, ...) is consistent.
@@ -55,6 +55,9 @@ def forward_model_observation_map(
             networks) need this. Defaults to True.
         nest (bool, optional): Whether the full sky input maps wl_gamma and gc_count are in nested (or ring if false)
             ordering. Defaults to True.
+        apply_maglim_sys_map (bool, str, optional): Whether to correct the counts by the lens weight maps of
+            files.pixels, or the path of another file whose maglim/systematics group to use instead (msfm.utils.
+            data_observations). Defaults to False.
     """
     assert wl_gamma_map is not None or gc_count_map is not None, "Either wl_gamma or gc_count must be provided."
 
@@ -156,12 +159,13 @@ def forward_model_observation_map(
             )
 
         if apply_maglim_sys_map:
-            LOGGER.warning("Applying maglim systematics map")
+            sys_file = apply_maglim_sys_map if isinstance(apply_maglim_sys_map, str) else None
+            LOGGER.warning(f"Applying maglim systematics map{'' if sys_file is None else ' of ' + sys_file}")
             # the systematics map is the DES Y3 weight map w = 1/F (F = SP contamination, see
             # https://arxiv.org/pdf/2105.13540), so multiplying debiases the observed counts
             # (N_corr = N_obs * w). This is the inverse of the contaminating ng /= w applied to
             # the clean sims in clustering.galaxy_density_to_count when survey_sys=True.
-            gc_count_dv *= files.get_clustering_systematics(conf, pixel_type="data_vector")
+            gc_count_dv *= files.get_clustering_systematics(conf, pixel_type="data_vector", file=sys_file)
 
         gc_count_dv *= dv_masks_maglim
         gc_count_dv, gc_alms = scales.data_vector_to_smoothed_data_vector(

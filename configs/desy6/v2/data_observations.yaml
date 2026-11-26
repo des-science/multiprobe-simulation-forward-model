@@ -1,0 +1,10 @@
+# DES Y6 v2 variants of the real data observation, evaluated by y3-deep-lss next to the default one, which is v2.yaml
+# itself under the label DESy6. A variant changes only how the observed maps are made from the catalogs, never the
+# forward model, so its posterior comes from the same trained network and flow and is ranked against the default one.
+# The format is documented in msfm/utils/data_observations.py; python -m msfm.utils.data_observations check <this file>.
+base: v2.yaml
+observations:
+  # the lens counts corrected by the ISD weights (arXiv:2509.07943) instead of ENet, the KP fiducial. The KP puts this
+  # difference into its w(theta) covariance (arXiv:2601.14484, Eq. 24)
+  DESy6_lens_isd:
+    lens_weights: maglim_weights_isd
