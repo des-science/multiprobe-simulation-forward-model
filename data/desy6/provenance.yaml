@@ -45,6 +45,24 @@ steps:
     outputs:
     - path: data/desy6/desy6_pixels_fiducial_512.h5
       sha256: d2b45d249caf9bd511fe3675ba6f854fda3fcff3b0ab879a0230a3335085193e
+  lens_isd:
+    date: '2026-11-26T15:03:48+01:00'
+    command: python -m msfm.apps.products.desy6 lens_isd --config configs/desy6/v2/v2.yaml --provenance
+    config: configs/desy6/v2/v2.yaml
+    msfm_commit: 87b950b1cd22b01804e3156c02fbb6124cc42856
+    inputs:
+    - path: data/desy6/desy6_pixels_fiducial_512.h5
+      bytes: 29643257
+      mtime: '2026-11-20T17:57:24+01:00'
+    - path: /capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/data_desy6a2/maglim_2024-11-07.hdf5
+      bytes: 2811085610
+      mtime: '2026-11-09T03:57:11+01:00'
+    - path: /capstor/store/cscs/userlab/lp184/tomaszk/261109_cosmogridv1_desy6/data_desy6a2/maglim_addl_cols_v1.hdf5
+      bytes: 578762019
+      mtime: '2026-11-09T03:56:52+01:00'
+    outputs:
+    - path: data/desy6/desy6_maglim_weights_isd_512.h5
+      sha256: 1aef26fc404777f4ab75205e49abd35380abf64a8d4f0500b89d7aa99a85e3e9
   maps:
     date: '2026-11-20T17:59:41+01:00'
     command: python -m msfm.apps.products.desy6 maps --config configs/desy6/v1/default.yaml --provenance

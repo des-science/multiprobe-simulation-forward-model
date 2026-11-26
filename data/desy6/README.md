@@ -11,7 +11,7 @@ all of them from the public Y6 release, `msfm/apps/products/desy6.py`, for
 |---|---|---|---|
 | `nz` | `redshift_distributions/` | yes | done 2026-11-18 |
 | `pixels` | `desy6_pixels_fiducial_512.h5` | yes | done 2026-11-20, threshold 0.73, with the lens weight maps |
-| `lens_isd` | `desy6_maglim_weights_isd_512.h5` | yes | made 2026-11-26 (v2), `--provenance` pending |
+| `lens_isd` | `desy6_maglim_weights_isd_512.h5` | yes | done 2026-11-26, v2 |
 | `maps` | `cache/` | no | done 2026-11-20, with the unrotated shear |
 | `values` | the marked lines of the config | yes | done 2026-11-20, lens n_gal from the weight maps |
 | `noise` | `desy6_noise_512.h5` | no | done 2026-11-19 |
